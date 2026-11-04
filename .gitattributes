@@ -1,0 +1,3 @@
+*.wasm binary
+*.bat text eol=crlf
+*.command text eol=lf
