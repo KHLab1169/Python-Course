@@ -242,6 +242,18 @@ select{border:1px solid var(--line);border-radius:6px;background:var(--bg);paddi
 .ed-h{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
 .code-ed{width:100%;min-height:140px;font-family:var(--font-mono);font-size:.85rem;line-height:1.5;tab-size:4;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;white-space:pre;overflow:auto;resize:vertical}
 .stdin summary{cursor:pointer;font-size:.85rem;color:var(--muted)}
+.ed-act{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.ed-act .sub{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.console{border:1px solid var(--line);border-radius:6px;background:var(--code-bg);min-width:0}
+.console-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);font-family:var(--font-mono);font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.console-h button{border:0;background:transparent;color:var(--blue);font:500 .78rem var(--font-body);cursor:pointer;padding:4px 8px;border-radius:4px;text-transform:none;letter-spacing:0}
+.console pre{margin:0;padding:10px 12px;overflow-x:auto;font-family:var(--font-mono);font-size:.82rem;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.console .ans{color:var(--blue);font-weight:500}
+.console .err{color:var(--bad)}
+.console .dim{color:var(--muted);font-style:italic}
+.con-in{display:inline-block;min-width:8ch;width:24ch;max-width:100%;font:inherit;color:var(--blue);background:transparent;border:0;border-bottom:1px dashed var(--blue);padding:0 2px;outline:none}
+.con-in:focus{border-bottom-style:solid}
+.sublbl{font-family:var(--font-mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
 .stdin textarea{min-height:56px;font-family:var(--font-mono);font-size:.82rem;margin-top:6px}
 .out .err{color:var(--bad)}
 .tests ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -1306,15 +1318,15 @@ function editorBlock(i,e){
   var out="<div class=\"ed\" data-ed=\""+e.id+"\"><div class=\"ed-h\"><span class=\"lbl\">"+(isPy?"Your code":"Your work")+"</span>"+
     (spec?"<span class=\"tag ok\" style=\"margin:0\">autograded</span>":"")+(S.auto&&S.auto[e.id]?"<span class=\"note\">Tests: "+S.auto[e.id].p+"/"+S.auto[e.id].t+"</span>":"")+(S.ta&&S.ta[e.id]?"<span class=\"note\">TA score: "+S.ta[e.id].score+"</span>":"")+"</div>"+
     (lang==="pycon"?"<p class=\"note\" style=\"margin:0;padding:8px 12px;border-radius:6px;background:var(--warn-soft);color:var(--ink)\"><b>Use print() here.</b> The hints and solution show the &gt;&gt;&gt; prompt, where Python displays every result for you. This box runs your code as a saved program, which only shows what you print, so write <code>print(1234 % 2)</code> instead of <code>1234 % 2</code>.</p>":"")+"<textarea class=\"code-ed\" id=\"ed-"+e.id+"\" data-code=\""+e.id+"\" spellcheck=\"false\" autocapitalize=\"off\" autocomplete=\"off\" placeholder=\""+esc(ph)+"\">"+esc(val)+"</textarea>";
-  if(canRun)out+="<details class=\"stdin\""+(r.openStdin?" open":"")+"><summary>Program input (for input())</summary><textarea id=\"in-"+e.id+"\" data-stdin=\""+e.id+"\" placeholder=\"One line per answer the program asks for\">"+esc(r.stdin||"")+"</textarea></details>";
-  out+="<div class=\"row\">"+(canRun?"<button class=\"btn small\" data-act=\"run\" data-id=\""+e.id+"\""+(r.busy?" disabled":"")+">Run</button>":"")+
-    (canRun&&spec?"<button class=\"btn small primary\" data-act=\"check\" data-id=\""+e.id+"\""+(r.busy?" disabled":"")+">Check my answer</button>":"")+
-    (taAvailable()?"<button class=\"btn small\" data-act=\"tareview\" data-id=\""+e.id+"\""+(r.taBusy?" disabled":"")+">Ask the TA for feedback</button>":"")+
-    (r.busy?"<span class=\"note\">"+esc(r.busy)+"</span>":"")+"</div>";
-  if(r.out!=null||r.err){out+="<div class=\"out\"><h4 class=\"lbl\" style=\"margin:0 0 4px\">Output</h4><pre>"+esc(r.out||"")+(r.err?"\n<span class=\"err\">"+esc(r.err)+"</span>":"")+"</pre></div>";}
+  out+="<div class=\"ed-act\">"+(canRun?"<button class=\"btn small\" data-act=\"run\" data-id=\""+e.id+"\" title=\"Try your code in the test console (Ctrl+Enter). Nothing is graded.\""+(r.busy?" disabled":"")+">Run</button>":"")+
+    (r.busy?"<span class=\"note\">"+esc(r.busy)+"</span>":"")+
+    "<span class=\"sub\">"+(taAvailable()?"<button class=\"btn small\" data-act=\"tareview\" data-id=\""+e.id+"\""+(r.taBusy?" disabled":"")+">Ask the TA for feedback</button>":"")+
+    (canRun&&spec?"<button class=\"btn small primary\" data-act=\"check\" data-id=\""+e.id+"\" title=\"Grade your answer against the tests\""+(r.busy?" disabled":"")+">Submit answer</button>":"")+"</span></div>";
+  if(r.con){var cn=r.con,body=consoleHtml(cn,e.id);
+    out+="<div class=\"console\"><div class=\"console-h\"><span>Test console"+(cn.waiting?" &middot; waiting for your answer":cn.done?" &middot; finished":"")+"</span><button data-act=\"conclear\" data-id=\""+e.id+"\">Clear</button></div><pre>"+body+"</pre></div>";}
   if(r.tests){
     var pass=r.tests.filter(function(x){return x.ok;}).length;
-    out+="<div class=\"tests\"><p><b>"+pass+" of "+r.tests.length+" tests passed</b>"+(pass===r.tests.length?" ✓":"")+"</p><ul>"+r.tests.map(function(x){
+    out+="<div class=\"tests\"><p class=\"sublbl\">Submission result</p><p><b>"+pass+" of "+r.tests.length+" tests passed</b>"+(pass===r.tests.length?" ✓":"")+"</p><ul>"+r.tests.map(function(x){
       return "<li class=\""+(x.ok?"ok":"no")+"\"><span>"+(x.ok?"✓":"✗")+"</span><div><b>"+esc(x.name)+"</b>"+(x.ok?"":"<pre>"+esc(x.msg)+"</pre>")+"</div></li>";
     }).join("")+"</ul></div>";
   }
@@ -1348,11 +1360,43 @@ function refreshItem(lid){
     if(focusId){var f=document.getElementById(focusId);if(f)f.focus();}
   }else render();
 }
+function consoleHtml(cn,eid){
+  // cn.out holds prompts, echoed answers and printed output; answers are highlighted
+  var txt=cn.out||"",h="",pos=0;
+  (cn.answers||[]).forEach(function(a){
+    var needle=a+"\n",i=txt.indexOf(needle,pos);
+    if(i<0)return;
+    h+=esc(txt.slice(pos,i))+"<span class=\"ans\">"+esc(a)+"</span>\n";pos=i+needle.length;
+  });
+  h+=esc(txt.slice(pos));
+  if(cn.waiting)h+="<input class=\"con-in\" data-conin=\""+eid+"\" aria-label=\"Your answer\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"type, then Enter\">";
+  else if(cn.err)h+=(txt&&!/\n$/.test(txt)?"\n":"")+"<span class=\"err\">"+esc(cn.err)+"</span>";
+  else if(cn.done&&!txt)h+="<span class=\"dim\">(no output: use print() to show results)</span>";
+  return h;
+}
+async function consoleRun(eid,code){
+  var r=RUNOUT[eid],cn=r.con;
+  var stdin=cn.answers.length?cn.answers.join("\n")+"\n":"";
+  var rr=await pyCall({type:"run",code:code,stdin:stdin},10000);
+  cn.waiting=false;cn.done=false;cn.err="";
+  if(rr.timeout){cn.out="";cn.err="Stopped after 10 seconds. Check for an infinite loop.";cn.done=true;return;}
+  if(rr.error){cn.err=rr.error;cn.done=true;return;}
+  var o=JSON.parse(rr.result);cn.out=o.out||"";
+  if(o.err&&o.err.indexOf("EOFError: The program asked for more input")>=0){cn.waiting=true;return;}
+  cn.err=o.err||"";cn.done=true;
+}
+async function answerConsole(eid,value){
+  var info=exInfo(eid),r=RUNOUT[eid];if(!info||!r||!r.con||!r.con.waiting)return;
+  r.con.answers.push(value);r.busy="Running...";refreshItem(info.it.id);
+  var ta=document.getElementById("ed-"+eid);
+  try{await consoleRun(eid,ta?ta.value:(CODE[eid]||""));}catch(e){r.con.err="Python couldn't start in this view.";r.con.waiting=false;}
+  r.busy="";refreshItem(info.it.id);focusConsole(eid);
+}
+function focusConsole(eid){var el=document.querySelector("[data-conin=\""+eid+"\"]");if(el)el.focus({preventScroll:false});}
 async function doRun(eid,mode){
   var info=exInfo(eid);if(!info)return;
   var ta=document.getElementById("ed-"+eid),code=ta?ta.value:(CODE[eid]||"");
-  var si=document.getElementById("in-"+eid);
-  var r=RUNOUT[eid]=RUNOUT[eid]||{};r.stdin=si?si.value:(r.stdin||"");
+  var r=RUNOUT[eid]=RUNOUT[eid]||{};
   codeSave(eid,code);
   r.busy=PY.w?(mode==="check"?"Checking...":"Running..."):"Loading Python (first time only, about 14 MB)...";
   r.tests=mode==="check"?null:r.tests;
@@ -1376,19 +1420,22 @@ async function doRun(eid,mode){
         save();
       }
     }else{
-      var rr=await pyCall({type:"run",code:code,stdin:r.stdin},10000);
+      r.con={answers:[],out:"",waiting:false,done:false,err:""};
+      await consoleRun(eid,code);
       r.busy="";
-      if(rr.timeout){r.out="";r.err="Stopped after 10 seconds. Check for an infinite loop, or add the answers your program asks for under Program input.";}
-      else if(rr.error){r.err=rr.error;}
-      else{var o=JSON.parse(rr.result);r.out=o.out;r.err=o.err;
-        if(r.err&&r.err.indexOf("EOFError")>=0){r.err=r.err.replace("The program asked for more input than this test provides","Your program asked for input, but the Program input box has no more answers")+"\n\nType one answer per line under \"Program input (for input())\" above, then click Run again.";r.openStdin=true;}}
     }
   }catch(e){
     r.busy="";r.err="Python couldn't start in this view. You can still copy the code into your own editor.";
+    if(r.con){r.con.err=r.err;r.con.waiting=false;r.con.done=true;}
     PY.failed=true;
   }
   refreshItem(info.it.id);
+  if(r.con&&r.con.waiting)focusConsole(eid);
 }
+document.addEventListener("keydown",function(e){
+  var el=e.target;if(!el||!el.dataset||!el.dataset.conin||e.key!=="Enter")return;
+  e.preventDefault();answerConsole(el.dataset.conin,el.value);
+});
 async function doReview(eid){
   var info=exInfo(eid);if(!info||!SAMPLE)return;
   var ta=document.getElementById("ed-"+eid),code=(ta?ta.value:(CODE[eid]||"")).trim();
@@ -1564,6 +1611,7 @@ document.addEventListener("click",function(e){
   else if(a==="examsubmit")submitTest(false);
   else if(a==="examquit"){clearInterval(examTick);EXAM=null;render();}
   else if(a==="examclose"){EXAM=null;render();window.scrollTo(0,0);}
+  else if(a==="conclear"){var rc=RUNOUT[id];if(rc){rc.con=null;var ic=exInfo(id);if(ic)refreshItem(ic.it.id);}}
   else if(a==="export"){if(DL)dl("python-course-progress-"+today()+".json",JSON.stringify({app:"python-course",version:1,exported:new Date().toISOString(),state:S,code:CODE},null,2));else toast("Downloads aren't available in this view.");}
   else if(a==="hint"){S.hint[id]=(S.hint[id]||0)+1;save();render();}
   else if(a==="sol"){
