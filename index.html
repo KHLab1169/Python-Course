@@ -1306,7 +1306,7 @@ function editorBlock(i,e){
   var out="<div class=\"ed\" data-ed=\""+e.id+"\"><div class=\"ed-h\"><span class=\"lbl\">"+(isPy?"Your code":"Your work")+"</span>"+
     (spec?"<span class=\"tag ok\" style=\"margin:0\">autograded</span>":"")+(S.auto&&S.auto[e.id]?"<span class=\"note\">Tests: "+S.auto[e.id].p+"/"+S.auto[e.id].t+"</span>":"")+(S.ta&&S.ta[e.id]?"<span class=\"note\">TA score: "+S.ta[e.id].score+"</span>":"")+"</div>"+
     (lang==="pycon"?"<p class=\"note\" style=\"margin:0;padding:8px 12px;border-radius:6px;background:var(--warn-soft);color:var(--ink)\"><b>Use print() here.</b> The hints and solution show the &gt;&gt;&gt; prompt, where Python displays every result for you. This box runs your code as a saved program, which only shows what you print, so write <code>print(1234 % 2)</code> instead of <code>1234 % 2</code>.</p>":"")+"<textarea class=\"code-ed\" id=\"ed-"+e.id+"\" data-code=\""+e.id+"\" spellcheck=\"false\" autocapitalize=\"off\" autocomplete=\"off\" placeholder=\""+esc(ph)+"\">"+esc(val)+"</textarea>";
-  if(canRun)out+="<details class=\"stdin\"><summary>Program input (for input())</summary><textarea id=\"in-"+e.id+"\" data-stdin=\""+e.id+"\" placeholder=\"One line per answer the program asks for\">"+esc(r.stdin||"")+"</textarea></details>";
+  if(canRun)out+="<details class=\"stdin\""+(r.openStdin?" open":"")+"><summary>Program input (for input())</summary><textarea id=\"in-"+e.id+"\" data-stdin=\""+e.id+"\" placeholder=\"One line per answer the program asks for\">"+esc(r.stdin||"")+"</textarea></details>";
   out+="<div class=\"row\">"+(canRun?"<button class=\"btn small\" data-act=\"run\" data-id=\""+e.id+"\""+(r.busy?" disabled":"")+">Run</button>":"")+
     (canRun&&spec?"<button class=\"btn small primary\" data-act=\"check\" data-id=\""+e.id+"\""+(r.busy?" disabled":"")+">Check my answer</button>":"")+
     (taAvailable()?"<button class=\"btn small\" data-act=\"tareview\" data-id=\""+e.id+"\""+(r.taBusy?" disabled":"")+">Ask the TA for feedback</button>":"")+
@@ -1380,7 +1380,8 @@ async function doRun(eid,mode){
       r.busy="";
       if(rr.timeout){r.out="";r.err="Stopped after 10 seconds. Check for an infinite loop, or add the answers your program asks for under Program input.";}
       else if(rr.error){r.err=rr.error;}
-      else{var o=JSON.parse(rr.result);r.out=o.out;r.err=o.err;}
+      else{var o=JSON.parse(rr.result);r.out=o.out;r.err=o.err;
+        if(r.err&&r.err.indexOf("EOFError")>=0){r.err=r.err.replace("The program asked for more input than this test provides","Your program asked for input, but the Program input box has no more answers")+"\n\nType one answer per line under \"Program input (for input())\" above, then click Run again.";r.openStdin=true;}}
     }
   }catch(e){
     r.busy="";r.err="Python couldn't start in this view. You can still copy the code into your own editor.";
