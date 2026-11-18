@@ -9,6 +9,22 @@ Python curriculum style application for studying. Runs as a standalone app on my
 Includes worked examples, hints, solutions, an in-browser Python editor with autograded
 tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP practice exams.
 
+## Features
+
+- **Code editor**: syntax colours, line numbers, auto-indent, Tab / Shift+Tab, Ctrl+/ to comment,
+  adjustable text size, drag the corner to resize. Ctrl+Enter runs, Ctrl+Shift+Enter submits.
+- **Errors point to the line**: after a failed run or submission the line is marked in red,
+  with a *Go to line* button (also for answers split into several files).
+- **Compare with model answer**: side-by-side view once you pass or open the solution.
+- **Quick checks**: short questions after many worked examples; the example's output stays hidden
+  until you answer.
+- **Checklists and basic checks** for projects and other exercises without full tests.
+- **Reviews with tests**: a due review asks you to solve a past exercise again from the starter
+  code; passing the tests completes it.
+- **Weekly report** on the Overview, **search** (Ctrl+K or /), **focus mode** in each lesson,
+  and **Grades → Download my answers (.zip)** to keep all your code as `.py` files.
+- Answers can hold several files, each after a marker line such as `# --- greetings.py ---`.
+
 ## Run it
 
 You need Python 3 installed (nothing else, and no internet once downloaded).
@@ -35,3 +51,6 @@ Your browser opens at **http://127.0.0.1:8765**. Keep the small window open whil
 
 - No cloud sync: progress lives in the browser on this computer (use Export/Import).
 - The "Ask the TA" feedback panel needs Claude, so it only appears in the online version.
+  Here each lesson shows a *Stuck?* panel with next steps and related lessons instead.
+- Programs that need packages (Flask, requests, tkinter...) can be graded here but not tried
+  out with Run: use your own Python for those.
