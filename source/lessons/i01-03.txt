@@ -1,0 +1,1037 @@
+=== I1.1
+@idea
+This AI portfolio project is an **LLM evaluation harness**: a tool that measures how well a language-model application answers questions, and catches regressions when someone changes the prompt, the model or the retrieval. It is the testing discipline of QA applied to AI systems, and it is in high demand, because "it seemed fine when I tried a few questions" is not a quality bar.
+
+Start by defining **what good looks like** for your application. For a support bot: answers are correct, grounded in the provided documents (no invented policies), complete, and appropriately brief; it refuses questions outside its scope. Turn that into a **golden dataset**: 30 to 100 realistic questions, each with the facts a correct answer must contain, facts it must not contain, and for retrieval systems the source documents that should be used. Include easy cases, edge cases, out-of-scope questions and known past failures. The dataset is versioned with the code, because it *is* the specification.
+
+Then isolate the model behind **one small interface** (a Protocol with a `complete(prompt) -> str` method). Real providers (Anthropic, OpenAI, a local model) implement it, and so does a **fake model** that returns scripted answers. The fake makes the harness itself testable in milliseconds, offline and for free; only real evaluation runs call the paid API.
+@how
+- Write quality criteria: correct, grounded, complete, concise, refuses out-of-scope.
+- Golden dataset (JSONL): question, must_include, must_not_include, expected_sources, tags.
+- Cover easy, edge, out-of-scope and past-failure cases; version it in git.
+- `class LLMClient(Protocol): def complete(self, prompt: str) -> str: ...`.
+- A `FakeModel` with scripted answers for testing the harness.
+- Keep API keys in the environment; never in the dataset or code.
+@example python: A golden dataset in JSONL, validated on load
+import json
+from pydantic import BaseModel, Field, ValidationError
+
+class Case(BaseModel):
+    id: str
+    question: str = Field(min_length=5)
+    must_include: list[str] = []
+    must_not_include: list[str] = []
+    tags: list[str] = []
+
+JSONL = """{"id": "ret-1", "question": "How long do I have to return an item?", "must_include": ["30 days"], "tags": ["returns"]}
+{"id": "ret-2", "question": "Can I return a used mattress?", "must_include": ["no"], "must_not_include": ["30 days"], "tags": ["returns", "edge"]}
+{"id": "oos-1", "question": "What's the weather tomorrow?", "must_include": ["can't help"], "tags": ["out-of-scope"]}
+{"id": "bad-1", "question": "Hi", "tags": []}"""
+
+cases, problems = [], []
+for lineno, line in enumerate(JSONL.splitlines(), 1):
+    try:
+        cases.append(Case.model_validate_json(line))
+    except ValidationError as error:
+        problems.append(f"line {lineno}: {error.errors()[0]['loc'][0]} - {error.errors()[0]['msg']}")
+
+print(len(cases), "cases loaded;", problems)
+from collections import Counter
+print("coverage by tag:", dict(Counter(t for c in cases for t in c.tags)))
+@note
+Each line is one case, validated by a Pydantic model, so a malformed case is reported with its line number instead of silently producing a meaningless score. Counting tags shows the dataset's coverage at a glance; an evaluation with no edge or out-of-scope cases measures only the easy part.
+@example python: One interface, a real provider and a fake for tests
+from typing import Protocol
+
+class LLMClient(Protocol):
+    def complete(self, prompt: str) -> str: ...
+
+class FakeModel:
+    """Scripted answers, keyed by a phrase in the prompt. Free, instant, offline."""
+    def __init__(self, script: dict[str, str], default: str = "I'm not sure."):
+        self.script, self.default, self.calls = script, default, []
+    def complete(self, prompt: str) -> str:
+        self.calls.append(prompt)
+        return next((answer for key, answer in self.script.items() if key in prompt.lower()), self.default)
+
+class AnthropicModel:
+    """Real provider: only constructed for real evaluation runs."""
+    def __init__(self, model: str = "claude-sonnet-5-5"):
+        import os
+        self.model, self.key = model, os.environ.get("ANTHROPIC_API_KEY")
+    def complete(self, prompt: str) -> str:
+        raise NotImplementedError("calls the Messages API with self.key; not used in tests")
+
+def answer_all(client: LLMClient, questions: list[str]) -> list[str]:
+    return [client.complete(f"Answer briefly using our policy.\nQ: {q}") for q in questions]
+
+fake = FakeModel({"return": "You can return items within 30 days.", "weather": "Sorry, I can't help with that."})
+print(answer_all(fake, ["How long do I have to return an item?", "What's the weather tomorrow?", "Do you ship to Mars?"]))
+print("prompts recorded:", len(fake.calls))
+@note
+The harness only depends on the `complete` method, so the fake and the real provider are interchangeable. The fake records prompts, which lets tests check that the harness builds them correctly, all without network calls or cost. The real class reads its key from the environment and is used only for actual evaluation runs.
+@mistakes
+- **Judging quality by trying a few questions by hand.** Write a golden dataset with explicit criteria.
+- **Datasets of only easy questions.** Include edge cases, out-of-scope and past failures.
+- **Calling a paid API in unit tests.** Slow, flaky and expensive. Use a fake behind the same interface.
+@keys
+- Define quality criteria first; encode them in a versioned golden dataset.
+- Validate dataset files on load; track coverage by tag.
+- Hide providers behind one small interface.
+- A fake model makes the harness testable offline and free.
+
+=== I1.2
+@idea
+Scoring answers combines two kinds of checks. **Deterministic checks** are cheap, fast and perfectly repeatable: required facts present (case-insensitive, sometimes with alternatives such as "30 days" or "thirty days"), forbidden content absent, length limits, valid JSON when JSON is required, cited sources among the expected ones. Run them first and on everything.
+
+Some qualities need judgement: is the answer actually correct and grounded in the documents, or just using the right words? For those, an **LLM judge** reads the question, the reference facts and the answer, and returns a structured verdict. Judges are useful but unreliable unless constrained. Give them a precise **rubric** (what a 1, 3 and 5 mean), ask for **JSON** matching a schema, and validate the output with Pydantic; models sometimes wrap JSON in prose or code fences, so extract the object first, and retry once with the validation error if it is still invalid. Ask for the reasoning *before* the score, which improves consistency.
+
+Then check the judge itself. Score a sample of answers by hand and measure **agreement** with the judge; known biases include favouring longer answers and answers that resemble the judge's own style. A judge you have not validated is just another unverified model.
+@how
+- Deterministic first: must_include, must_not_include, length, format, citations.
+- Judge prompt: rubric with anchored levels, question, reference facts, answer, required JSON schema.
+- Parse: extract the first `{...}`, validate with a Pydantic model, retry once on failure.
+- Reasoning before score; temperature 0 for judges.
+- Validate the judge against human labels; report agreement.
+@example python: Deterministic checks with alternatives
+import re
+
+def check(answer, must_include=(), must_not_include=(), max_words=None):
+    text = answer.lower()
+    failures = []
+    for fact in must_include:
+        options = [o.strip().lower() for o in fact.split("|")]      # "30 days|thirty days"
+        if not any(re.search(rf"\b{re.escape(o)}\b", text) for o in options):
+            failures.append(f"missing: {fact}")
+    for bad in must_not_include:
+        if re.search(rf"\b{re.escape(bad.lower())}\b", text):
+            failures.append(f"forbidden: {bad}")
+    if max_words and len(answer.split()) > max_words:
+        failures.append(f"too long: {len(answer.split())} words")
+    return failures or ["pass"]
+
+cases = [
+    ("You have thirty days to return unused items.", ["30 days|thirty days"], ["store credit only"]),
+    ("Returns are accepted for 3 days.", ["30 days|thirty days"], []),
+    ("Within 30 days, but only for store credit only.", ["30 days"], ["store credit only"]),
+]
+for answer, inc, exc in cases:
+    print(f"{answer[:45]:47} {check(answer, inc, exc, max_words=12)}")
+@note
+Alternatives separated by `|` accept "thirty days" as well as "30 days", and word boundaries stop "3 days" from matching inside "30 days" or vice versa. These checks are free and instant, so they run on every answer before anything more expensive.
+@example python: Getting a reliable verdict out of a chatty judge
+import json
+import re
+from pydantic import BaseModel, Field, ValidationError
+
+class Verdict(BaseModel):
+    reasoning: str = Field(min_length=10)
+    correctness: int = Field(ge=1, le=5)
+    grounded: bool
+
+def extract_json(text):
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ValueError("no JSON object in the reply")
+    return json.loads(match.group(0))
+
+def judge(reply_fn, max_attempts=2):
+    feedback = ""
+    for attempt in range(1, max_attempts + 1):
+        raw = reply_fn(feedback)
+        try:
+            return Verdict.model_validate(extract_json(raw)), attempt
+        except (ValueError, ValidationError) as error:
+            feedback = f"Your previous reply was invalid: {str(error).splitlines()[0]}. Reply with JSON only."
+    raise RuntimeError("judge never produced a valid verdict")
+
+replies = iter([
+    'Sure! Here is my verdict:\n```json\n{"reasoning": "States 30 days as in the policy.", "correctness": 9, "grounded": true}\n```',
+    '{"reasoning": "States 30 days as in the policy.", "correctness": 5, "grounded": true}',
+])
+verdict, attempts = judge(lambda feedback: next(replies))
+print(verdict, "| attempts:", attempts)
+@note
+The first reply wrapped JSON in prose and a code fence, which the extractor handled, but its score of 9 broke the 1–5 rubric, so validation failed and the judge was asked again with the error. The second reply validated. Schema plus one corrective retry turns a chatty model into a dependable component.
+@mistakes
+- **Using an LLM judge for what a string check can do.** Slower, costlier and less reliable.
+- **Trusting raw judge output.** Validate against a schema and retry with the error.
+- **Never checking the judge against humans.** Measure agreement before relying on its scores.
+@keys
+- Deterministic checks first: cheap, fast, repeatable.
+- LLM judges need anchored rubrics, JSON schemas and validation.
+- Extract, validate, retry once with the error.
+- Validate the judge against human labels.
+
+=== I1.3
+@idea
+An evaluation becomes a **quality gate** when it runs in CI and blocks changes that make things worse. After each run, compare the results with a stored **baseline** (the scores from the last accepted version): overall pass rate, per-tag pass rates, and per-case outcomes. A case that passed before and fails now is a **regression**, and listing those cases by id makes them easy to investigate.
+
+LLM outputs vary between runs even at temperature 0, so gates need tolerance. Allow small drops in aggregate scores (say two percentage points) but treat some cases as **must-pass** (safety refusals, critical facts) with zero tolerance. For noisy metrics, run each case several times or accept a change only when the difference is larger than the run-to-run variation you have measured.
+
+Evaluations cost money and time, so keep them efficient. **Cache** model responses keyed by a hash of everything that affects the output (model, system prompt, messages, temperature): rerunning the suite after changing only the scoring code then costs nothing. Run a small, fast subset on every pull request and the full suite nightly. Track **cost** per run (tokens times price) in the report, so a prompt change that doubles the bill is visible.
+@how
+- Store a baseline JSON (per-case results and aggregates) after each accepted run.
+- Regressions = cases passing in the baseline and failing now; list them by id.
+- Gate: fail if the aggregate drops more than a tolerance, or any must-pass case fails.
+- Cache key = sha256 of the canonical JSON of model, prompt, messages and settings.
+- PR subset vs nightly full run; report tokens and cost.
+@example python: Comparing a run with the baseline and deciding the gate
+baseline = {"ret-1": True, "ret-2": True, "ret-3": False, "oos-1": True, "safety-1": True, "ship-1": True, "ship-2": False}
+current  = {"ret-1": True, "ret-2": False, "ret-3": True, "oos-1": True, "safety-1": True, "ship-1": True, "ship-2": False}
+must_pass = {"safety-1", "oos-1"}
+
+def rate(results):
+    return sum(results.values()) / len(results)
+
+regressions = sorted(c for c in baseline if baseline[c] and not current.get(c, False))
+fixes = sorted(c for c in baseline if not baseline[c] and current.get(c, False))
+drop = rate(baseline) - rate(current)
+failed_must = sorted(c for c in must_pass if not current.get(c, False))
+
+print(f"pass rate {rate(baseline):.0%} -> {rate(current):.0%}")
+print("regressions:", regressions, "| fixed:", fixes)
+for tolerance in (0.0, 0.05):
+    ok = drop <= tolerance and not failed_must
+    print(f"tolerance {tolerance:.0%}: gate {'PASSES' if ok else 'FAILS'}")
+@note
+The overall rate is unchanged, because one case broke while another was fixed, yet the report still names the regression (ret-2) so someone can look. With zero tolerance the gate would only fail on a drop; the must-pass set adds strict checks for the cases that may never break, whatever the averages say.
+@example python: A stable cache key and a cost report
+import hashlib
+import json
+
+def cache_key(model, system, messages, **settings):
+    payload = {"model": model, "system": system, "messages": messages, "settings": dict(sorted(settings.items()))}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+
+msgs = [{"role": "user", "content": "How long do I have to return an item?"}]
+a = cache_key("model-x", "You are a support bot.", msgs, temperature=0, max_tokens=300)
+b = cache_key("model-x", "You are a support bot.", msgs, max_tokens=300, temperature=0)
+c = cache_key("model-x", "You are a helpful support bot.", msgs, temperature=0, max_tokens=300)
+print("same request, different argument order -> same key:", a == b)
+print("system prompt changed -> new key:", a != c)
+
+cache = {}
+usage = {"input": 0, "output": 0, "cached": 0}
+def call(key, input_tokens, output_tokens):
+    if key in cache:
+        usage["cached"] += 1
+        return cache[key]
+    usage["input"] += input_tokens
+    usage["output"] += output_tokens
+    cache[key] = "answer"
+    return cache[key]
+
+for run in range(2):                                   # second run: everything cached
+    for i in range(40):
+        call(cache_key("model-x", "sys", [{"role": "user", "content": f"q{i}"}]), 900, 150)
+price_in, price_out = 3 / 1_000_000, 15 / 1_000_000    # example prices per token
+print(f"tokens in/out: {usage['input']:,}/{usage['output']:,}, cached calls: {usage['cached']}, cost: ${usage['input'] * price_in + usage['output'] * price_out:.2f}")
+@note
+Canonical JSON (sorted keys, fixed separators) makes the key independent of argument order, while any change that affects the output, such as the system prompt, produces a new key. The second run of 40 questions was served entirely from the cache, so it cost nothing; the report shows tokens and estimated cost for the first.
+@mistakes
+- **Gating only on the average.** One fix can hide one regression. List per-case regressions and keep must-pass cases.
+- **Zero tolerance on noisy metrics.** The gate fails randomly. Measure variance and set tolerances.
+- **No caching.** Rerunning after a scoring change costs as much as the first run.
+@keys
+- Compare each run with a stored baseline; list regressions by case.
+- Gate on aggregate tolerance plus strict must-pass cases.
+- Cache responses by a canonical hash of everything that affects output.
+- Fast PR subset, full nightly runs, and cost in every report.
+
+=== I1.4
+@idea
+The portfolio piece is the harness running **end to end on a real, small RAG system** (retrieval-augmented generation): a bot that answers questions from a handful of documents, such as a store's return policy or your homelab notes. RAG has two stages, and the harness should measure both.
+
+**Retrieval**: split documents into chunks, turn chunks and questions into vectors, and return the chunks most similar to the question. TF-IDF with cosine similarity (scikit-learn) is a fine, transparent start; embedding models improve on it. Measure it with **recall@k**: for each golden case, is an expected source among the top k chunks? If retrieval misses the right chunk, no prompt can fix the answer. **Generation**: put the retrieved chunks in the prompt with an instruction to answer only from them and cite them, then score answers with the deterministic checks and the judge from the earlier lessons.
+
+Show it working: a report table (per tag, retrieval recall and answer pass rate, before and after a change), a README that explains the method and the dataset, a CI job running the fast subset with the fake model, and one documented experiment, such as "chunk size 200 vs 500 words: recall@3 went from 0.72 to 0.88". That experiment is the story you tell in interviews.
+@how
+- Chunk documents (paragraphs or ~200–500 words with overlap); keep source ids.
+- Retrieval: TF-IDF or embeddings + cosine similarity; top-k chunks.
+- Retrieval metric: recall@k against expected sources in the golden set.
+- Generation: prompt with chunks and a "use only these sources, cite them" instruction.
+- Report per tag; document one before/after experiment.
+@example python: TF-IDF retrieval measured with recall@k
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+chunks = {
+    "returns-1": "You can return any unused item within 30 days of delivery for a full refund.",
+    "returns-2": "Mattresses, underwear and opened software cannot be returned for hygiene or licensing reasons.",
+    "shipping-1": "Standard shipping takes 3 to 5 business days. Express shipping arrives the next business day.",
+    "shipping-2": "We ship to Canada and the United States. International shipping is not available.",
+    "warranty-1": "Electronics include a one-year warranty covering manufacturing defects.",
+}
+golden = [
+    ("Can I return an item I haven't used?", "returns-1"),
+    ("Can I return opened software?", "returns-2"),
+    ("Do you offer international shipping to France?", "shipping-2"),
+    ("How fast is express shipping?", "shipping-1"),
+    ("Can I send something back for a refund?", "returns-1"),
+    ("My headphones broke after six months, what now?", "warranty-1"),
+]
+ids = list(chunks)
+vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2))
+matrix = vectorizer.fit_transform(chunks.values())
+
+def retrieve(question, k):
+    scores = cosine_similarity(vectorizer.transform([question]), matrix)[0]
+    return [ids[i] for i in scores.argsort()[::-1][:k] if scores[i] > 0]     # no shared words, no result
+
+for k in (1, 3):
+    hits = [expected in retrieve(q, k) for q, expected in golden]
+    print(f"recall@{k}: {sum(hits) / len(hits):.0%}")
+for q, expected in golden:
+    top = (retrieve(q, 1) or ["(nothing)"])[0]
+    print(f"{'ok  ' if top == expected else 'MISS'} {q[:48]:50} -> {top}")
+@note
+Recall@k shows how often the right chunk is in the top k results. The miss is the interesting part: TF-IDF only matches shared words, and "headphones broke" shares none with "electronics" and "manufacturing defects", so nothing was retrieved at all, and a larger k cannot help. "Send something back" only succeeded because the question also said "refund". That weakness motivates trying embeddings, exactly the before/after experiment to document.
+@example python: The whole pipeline with a fake model, scored per tag
+from collections import defaultdict
+
+DOCS = {"returns-1": "Unused items can be returned within 30 days.", "returns-2": "Mattresses cannot be returned.",
+        "shipping-2": "We ship to Canada and the United States only."}
+
+def retrieve(question):
+    words = set(question.lower().replace("?", "").split())
+    return max(DOCS, key=lambda d: len(words & set(DOCS[d].lower().replace(".", "").split())))
+
+def fake_generate(question, chunk_id):
+    return f"{DOCS[chunk_id]} [{chunk_id}]"
+
+golden = [
+    {"q": "How many days can items be returned?", "source": "returns-1", "must": "30 days", "tag": "returns"},
+    {"q": "Can mattresses be returned?", "source": "returns-2", "must": "cannot", "tag": "returns"},
+    {"q": "Do you ship to France?", "source": "shipping-2", "must": "canada", "tag": "shipping"},
+    {"q": "Which countries do you ship to?", "source": "shipping-2", "must": "united states", "tag": "shipping"},
+]
+stats = defaultdict(lambda: {"retrieved": 0, "answered": 0, "n": 0})
+for case in golden:
+    chunk = retrieve(case["q"])
+    answer = fake_generate(case["q"], chunk)
+    s = stats[case["tag"]]
+    s["n"] += 1
+    s["retrieved"] += chunk == case["source"]
+    s["answered"] += case["must"] in answer.lower() and f"[{case['source']}]" in answer
+
+print(f"{'tag':10} {'retrieval':>10} {'answers':>8}")
+for tag, s in stats.items():
+    print(f"{tag:10} {s['retrieved'] / s['n']:>10.0%} {s['answered'] / s['n']:>8.0%}")
+@note
+Scoring retrieval and answers separately per tag shows *where* a system fails: here "Can mattresses be returned?" overlapped equally with the general returns chunk and retrieved the wrong one, so its answer failed too: a retrieval problem that no prompt change would fix. With the fake model the whole pipeline runs in CI for free; real runs swap in the provider.
+@mistakes
+- **Measuring only final answers.** You cannot tell retrieval failures from generation failures. Measure both.
+- **No documented experiment.** A harness without a result is a toy. Show one change and its measured effect.
+- **Real API calls in CI on every push.** Use the fake model and a cached subset.
+@keys
+- Evaluate RAG in two stages: retrieval (recall@k) and generation (checks and judge).
+- TF-IDF is a transparent baseline; its misses motivate better retrieval.
+- Report per tag to see where failures come from.
+- Document one before/after experiment; it is the portfolio story.
+
+=== I2.1
+@idea
+The second AI project is a **bug triage assistant**: given a new bug report, it finds likely duplicates, suggests a component and severity, and drafts clean reproduction steps. It mirrors real QA work, and it is built on real data: thousands of public bug reports from open-source issue trackers (GitHub, Bugzilla, Jira instances of projects like VS Code, Firefox or Kubernetes), many already labelled with components, severities and "duplicate of #123" links.
+
+Collect through the API, respecting its rules. GitHub's REST API returns issues in **pages** of up to 100, with the next page's URL in the `Link` response header; follow it until there is none, authenticate with a token from the environment for higher rate limits, and stop or sleep when `X-RateLimit-Remaining` reaches zero. Save the raw JSON once, so you never re-download, and keep raw and cleaned data separate.
+
+**Cleaning** turns raw issues into a tidy dataset: drop pull requests (the issues API includes them), strip templates and markdown noise, keep title, body, labels and creation time, and extract duplicate links. Then **split honestly**: by **time**, not randomly. Train or tune on older issues and evaluate on newer ones, because that is how the tool will be used; a random split lets the model "see the future" and overstates its accuracy.
+@how
+- Paginate with the `Link` header; `per_page=100`; token from `GITHUB_TOKEN`.
+- Respect `X-RateLimit-Remaining` / `X-RateLimit-Reset`.
+- Save raw JSON once; clean into a separate tidy file.
+- Drop pull requests (`"pull_request" in issue`); strip templates; extract "duplicate of #N".
+- Time-based split: train on older issues, evaluate on newer ones.
+@example python: Following the Link header, with rate-limit awareness
+import re
+
+def parse_link_header(value):
+    links = {}
+    for part in value.split(","):
+        m = re.search(r'<([^>]+)>;\s*rel="(\w+)"', part)
+        if m:
+            links[m[2]] = m[1]
+    return links
+
+pages = {
+    "/issues?page=1": ({"Link": '<https://api.github.com/issues?page=2>; rel="next", <https://api.github.com/issues?page=3>; rel="last"',
+                        "X-RateLimit-Remaining": "4999"}, [{"number": 1}, {"number": 2, "pull_request": {}}]),
+    "/issues?page=2": ({"Link": '<https://api.github.com/issues?page=3>; rel="next"', "X-RateLimit-Remaining": "4998"}, [{"number": 3}]),
+    "/issues?page=3": ({"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1795212000"}, [{"number": 4}]),
+}
+
+def fetch_all(first="/issues?page=1"):
+    path, issues = first, []
+    while path:
+        headers, body = pages[path]                     # real code: requests.get(url, headers=auth, timeout=10)
+        issues += [i for i in body if "pull_request" not in i]
+        nxt = parse_link_header(headers.get("Link", "")).get("next")
+        path = nxt.replace("https://api.github.com", "") if nxt else None
+        if int(headers["X-RateLimit-Remaining"]) == 0 and path:
+            print("rate limit reached; would sleep until", headers["X-RateLimit-Reset"])
+    return issues
+
+print([i["number"] for i in fetch_all()])
+print(parse_link_header(pages["/issues?page=1"][0]["Link"]))
+@note
+The next page's URL comes from the `Link` header, not the body, and the loop stops when no `next` link remains. Pull requests (issue 2) were dropped, since GitHub's issues endpoint includes them. The page dictionary stands in for real responses so the example runs offline.
+@example python: Cleaning reports and splitting by time
+import re
+from datetime import date
+
+raw = [
+    {"number": 101, "created": date(2026, 1, 5), "title": "Crash on save", "body": "### Steps\n1. Open file\n2. Save\n\n<!-- template -->\n**Expected** no crash", "labels": ["editor"]},
+    {"number": 140, "created": date(2026, 3, 2), "title": "Save crashes app", "body": "Duplicate of #101", "labels": ["editor", "duplicate"]},
+    {"number": 180, "created": date(2026, 6, 9), "title": "Login loop", "body": "Keeps redirecting to /login", "labels": ["auth"]},
+    {"number": 220, "created": date(2026, 9, 1), "title": "Cannot sign in, endless redirect", "body": "dup of #180", "labels": ["auth", "duplicate"]},
+]
+
+def clean(issue):
+    dup = re.search(r"(?i)\bdup(?:licate)?\s+of\s+#(\d+)", issue["body"])
+    body = re.sub(r"<!--.*?-->", "", issue["body"], flags=re.S)
+    body = re.sub(r"[#*`>]+", "", body)
+    return {"id": issue["number"], "created": issue["created"], "text": f"{issue['title']}. {' '.join(body.split())}",
+            "component": next(l for l in issue["labels"] if l != "duplicate"), "duplicate_of": int(dup[1]) if dup else None}
+
+rows = [clean(i) for i in raw]
+cutoff = date(2026, 6, 1)
+train = [r for r in rows if r["created"] < cutoff]
+test = [r for r in rows if r["created"] >= cutoff]
+for r in rows:
+    print(r["id"], r["component"], r["duplicate_of"], "|", r["text"][:50])
+print("train:", [r["id"] for r in train], "| test:", [r["id"] for r in test])
+@note
+Templates and markdown symbols are stripped, the component comes from the labels, and duplicate links are extracted with a forgiving pattern ("Duplicate of #101", "dup of #180"). The split is by creation date, so the evaluation set contains only reports newer than everything the system learned from, as in real use.
+@mistakes
+- **Random train/test splits for time-ordered data.** Accuracy looks better than it will be. Split by time.
+- **Re-downloading on every run.** You hit rate limits. Save raw data once.
+- **Keeping pull requests and template text.** Noise ruins similarity. Clean first.
+@keys
+- Real labelled data from public issue trackers, collected politely.
+- Paginate via the Link header; respect rate limits; save raw JSON once.
+- Clean: drop PRs, strip templates, extract labels and duplicate links.
+- Split by time for an honest evaluation.
+
+=== I2.2
+@idea
+**Duplicate detection** asks: which earlier reports describe the same problem as this new one? It is a search problem. Represent each report as a **vector**, then rank earlier reports by **cosine similarity** to the new one: the cosine of the angle between two vectors, 1 for identical direction and 0 for nothing in common, which ignores length so a short report can still match a long one.
+
+Start with **TF-IDF**: each dimension is a word (or word pair), weighted up when it is frequent in this report and down when it is common across all reports, so "crash" and "save" count more than "the" or "app". It is fast, transparent and needs no model. Its weakness is vocabulary: "cannot sign in" and "login fails" share no words. **Embeddings** from a sentence-embedding model map texts with similar *meaning* to nearby vectors and fix much of that, at the cost of a model dependency.
+
+Measure honestly with **recall@k**: for each report in the test set that has a known duplicate, is the true original among the top k suggestions? A triager scans the top 5, so recall@5 is the metric that matters. Also look at the misses one by one; they tell you whether the problem is vocabulary, noise in the text, or reports that are only loosely related.
+@how
+- Vectorise earlier reports (TF-IDF fitted on training data only).
+- For a new report: cosine similarity to all earlier reports; return the top k with scores.
+- Only compare against reports created before the new one.
+- Metric: recall@k over test reports with known duplicates; report @1, @3, @5.
+- Inspect misses; try embeddings or text cleaning and compare recall.
+@example python: Ranking earlier reports by cosine similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+earlier = {
+    101: "Editor crashes when saving a large file",
+    118: "Dark theme colours wrong in settings panel",
+    131: "Login fails with error 500 after password reset",
+    156: "Sync stops when laptop wakes from sleep",
+    170: "Autosave makes typing lag in big documents",
+}
+new_reports = {
+    210: ("App crashes on save with big files", 101),
+    214: ("Cannot sign in since I changed my password", 131),
+    219: ("Synchronisation halts after resume from sleep", 156),
+}
+vec = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), sublinear_tf=True)
+matrix = vec.fit_transform(earlier.values())
+ids = list(earlier)
+
+hits = {1: 0, 3: 0}
+for nid, (text, true_dup) in new_reports.items():
+    scores = cosine_similarity(vec.transform([text]), matrix)[0]
+    ranked = sorted(zip(ids, scores), key=lambda p: -p[1])
+    for k in hits:
+        hits[k] += true_dup in [i for i, _ in ranked[:k]]
+    top = ", ".join(f"#{i} {s:.2f}" for i, s in ranked[:3])
+    print(f"#{nid} true #{true_dup}: {top}")
+print({f"recall@{k}": f"{h / len(new_reports):.0%}" for k, h in hits.items()})
+@note
+All three originals ranked first, but look at why. The sign-in report matched #131 only through the word "password", and the sync report only through "sleep": "synchronisation halts after resume" and "sync stops when wakes" share nothing else. Remove those lucky words and both would be missed, the classic TF-IDF weakness that embeddings address. Low absolute scores like these are a warning sign worth reporting.
+@example python: Why meaning-based vectors help, shown with a tiny synonym map
+import math
+from collections import Counter
+
+SYNONYMS = {"synchronisation": "sync", "halts": "stops", "resume": "wake", "wakes": "wake",
+            "sign": "login", "signin": "login", "log": "login", "crashes": "crash", "crash": "crash"}
+STOP = {"the", "a", "when", "from", "after", "in", "on", "with", "my", "i", "since"}
+
+def vector(text, normalise):
+    words = [w.strip(".,").lower() for w in text.split()]
+    words = [SYNONYMS.get(w, w) if normalise else w for w in words if w not in STOP]
+    return Counter(words)
+
+def cosine(a, b):
+    dot = sum(a[w] * b[w] for w in a)
+    return dot / (math.sqrt(sum(v * v for v in a.values())) * math.sqrt(sum(v * v for v in b.values())) or 1)
+
+pair = ("Sync stops when laptop wakes from sleep", "Synchronisation halts after resume from sleep")
+for normalise in (False, True):
+    print(f"{'meaning-aware' if normalise else 'exact words  '}: similarity {cosine(vector(pair[0], normalise), vector(pair[1], normalise)):.2f}")
+@note
+On exact words the two reports share only "sleep"; once synonyms map to the same concept, they share "sync", "stops", "wake" and "sleep" and the similarity jumps. A real embedding model learns these relationships from huge amounts of text instead of a hand-made map, which is why it improves recall on reworded duplicates.
+@mistakes
+- **Fitting the vectoriser on test data.** It leaks information. Fit on training reports only.
+- **Comparing with reports created later.** Impossible in real use. Only search earlier reports.
+- **Reporting only accuracy@1.** Triagers scan several suggestions; report recall@3 and @5.
+@keys
+- Duplicate detection = vector search ranked by cosine similarity.
+- TF-IDF is fast and transparent; embeddings capture meaning across wording.
+- Search only earlier reports; fit only on training data.
+- Measure recall@k and study the misses.
+
+=== I2.3
+@idea
+The assistant's second job is to **classify** a report (component and severity) and to **draft structured repro steps** from a messy description. A language model can do both well, but its output feeds other systems, so it must be **structured and validated**, never free text that code tries to interpret.
+
+Define the output as a Pydantic model: `component: Literal["auth", "sync", "ui", "editor"]`, `severity: Literal["S1", "S2", "S3", "S4"]`, `steps: list[str]` with at least one item, `expected` and `actual` strings, and a `confidence` between 0 and 1. Put the allowed values and their meanings in the prompt ("S1: data loss or crash for many users..."), add two or three **few-shot examples** taken from the training set, and ask for JSON only. Validate every response; on failure, retry once with the validation error; if it still fails, return "needs human triage" rather than guessing.
+
+Evaluate against the labelled test set: **accuracy** per field, a **confusion matrix** for severity (confusing S1 with S2 is less bad than S1 with S4), and how calibrated the confidence is. A cheap **baseline** first (keyword rules or a TF-IDF classifier) tells you whether the model is worth its cost. Keep the human in charge: suggestions with confidence and an easy way to correct them, never automatic changes.
+@how
+- Output schema with `Literal` choices and constraints; validate every reply.
+- Prompt: label definitions, few-shot examples from training data, JSON only.
+- One corrective retry; then fall back to "needs human triage".
+- Evaluate: accuracy per field, severity confusion matrix, confidence calibration.
+- Compare with a cheap baseline; keep humans in control.
+@example python: A strict schema for model output, with a fallback
+import json
+from typing import Literal
+from pydantic import BaseModel, Field, ValidationError
+
+class Triage(BaseModel):
+    component: Literal["auth", "sync", "ui", "editor"]
+    severity: Literal["S1", "S2", "S3", "S4"]
+    steps: list[str] = Field(min_length=1)
+    expected: str
+    actual: str
+    confidence: float = Field(ge=0, le=1)
+
+def parse_triage(reply_texts):
+    error_note = None
+    for text in reply_texts:
+        try:
+            return Triage.model_validate_json(text)
+        except ValidationError as error:
+            error_note = "; ".join(f"{e['loc'][0]}: {e['msg']}" for e in error.errors())
+    return f"needs human triage ({error_note})"
+
+good = json.dumps({"component": "sync", "severity": "S2", "steps": ["Open laptop lid", "Wait 1 minute"],
+                   "expected": "Sync resumes", "actual": "Sync stays paused", "confidence": 0.82})
+bad = json.dumps({"component": "network", "severity": "high", "steps": [], "expected": "", "actual": "", "confidence": 1.4})
+print(parse_triage([good]))
+print(parse_triage([bad, bad]))
+@note
+A valid reply becomes a typed object other code can trust. The invalid one used a component and severity outside the allowed sets, gave no steps and an impossible confidence; after the retry also failed, the function returned an explicit "needs human triage" with the reasons instead of passing nonsense downstream.
+@example python: Evaluating severity predictions with a confusion matrix
+from collections import Counter
+
+LEVELS = ["S1", "S2", "S3", "S4"]
+truth = ["S1", "S2", "S2", "S3", "S3", "S3", "S4", "S4", "S2", "S1"]
+model = ["S1", "S2", "S3", "S3", "S3", "S2", "S4", "S3", "S2", "S2"]
+keyword_baseline = ["S1" if t == "S1" else "S3" for t in truth]      # e.g. "crash" -> S1, else S3
+
+def report(name, predicted):
+    accuracy = sum(p == t for p, t in zip(predicted, truth)) / len(truth)
+    off_by_two = sum(abs(LEVELS.index(p) - LEVELS.index(t)) >= 2 for p, t in zip(predicted, truth))
+    print(f"{name:16} accuracy {accuracy:.0%}, predictions two or more levels off: {off_by_two}")
+
+report("model", model)
+report("keyword baseline", keyword_baseline)
+
+pairs = Counter(zip(truth, model))
+print("\ntrue\\pred " + " ".join(f"{l:>3}" for l in LEVELS))
+for t in LEVELS:
+    print(f"{t:9} " + " ".join(f"{pairs[(t, p)]:>3}" for p in LEVELS))
+@note
+The model beats the keyword baseline on accuracy, and none of its mistakes is more than one level off, which matters: calling an S1 an S2 is a small error, calling it S4 is dangerous. The confusion matrix shows exactly which levels get mixed up (here S2 and S3), guiding better label definitions or examples.
+@mistakes
+- **Parsing free-text model output with string tricks.** Define a schema and validate.
+- **Guessing when validation fails.** Fall back to a human.
+- **No baseline.** You cannot tell whether the model is worth its cost.
+@keys
+- Structured output: Pydantic schema with Literal choices, validated every time.
+- Label definitions and few-shot examples in the prompt; one retry, then human fallback.
+- Evaluate per field, with a confusion matrix for ordered labels like severity.
+- Compare with a cheap baseline; suggestions, not automatic changes.
+
+=== I2.4
+@idea
+Polish means packaging the assistant so others can try it in minutes, and showing evidence that it works. A small **FastAPI service** is a natural interface: `POST /triage` takes a title and body and returns duplicate candidates with scores, a suggested component and severity with confidence, and drafted steps. Pydantic models define the request and response, so the generated `/docs` page doubles as a playground. A minimal web page or a CLI (`triage "Crash on save..."`) makes demos easy.
+
+Build it for **testability**: the model client and the duplicate index are dependencies, overridden in tests with the fake model and a tiny in-memory index, so the API tests run offline in CI. Ship a **Docker image** with the index built from public data, and a `docker run` line in the README.
+
+The README tells the story with numbers: the dataset (source, size, time split), the method (TF-IDF vs embeddings for duplicates, LLM vs baseline for labels), the **results table** (recall@5 for duplicates, accuracy and confusion matrix for severity, cost per report), the limitations (English only, labels from one project's conventions), and a short screencast. That evidence, more than the code, is what makes the project convincing.
+@how
+- `POST /triage` with Pydantic request/response models; `/docs` as a playground.
+- Model client and index injected with `Depends`; overridden in tests.
+- API tests with `TestClient` and the fake model; run in CI.
+- Docker image with a prebuilt index; one `docker run` command.
+- README: dataset, method, results table, cost, limitations, demo.
+@example python: The triage endpoint with injected dependencies, tested offline
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
+
+class Report(BaseModel):
+    title: str = Field(min_length=3)
+    body: str = ""
+
+class Candidate(BaseModel):
+    id: int
+    score: float
+
+class TriageResult(BaseModel):
+    duplicates: list[Candidate]
+    component: str
+    confidence: float
+
+class RealIndex:
+    def search(self, text, k):
+        raise RuntimeError("loads the full index from disk")
+
+class RealLabeller:
+    def label(self, text):
+        raise RuntimeError("calls the paid model API")
+
+def get_index():
+    return RealIndex()
+
+def get_labeller():
+    return RealLabeller()
+
+app = FastAPI(title="Bug triage assistant")
+
+@app.post("/triage", response_model=TriageResult)
+def triage(report: Report, index=Depends(get_index), labeller=Depends(get_labeller)):
+    text = f"{report.title}. {report.body}"
+    component, confidence = labeller.label(text)
+    return TriageResult(duplicates=[Candidate(id=i, score=s) for i, s in index.search(text, 3)],
+                        component=component, confidence=confidence)
+
+class FakeIndex:
+    def search(self, text, k):
+        return [(101, 0.82), (170, 0.41), (118, 0.05)][:k]
+
+class FakeLabeller:
+    def label(self, text):
+        return ("editor", 0.9) if "save" in text.lower() else ("unknown", 0.2)
+
+app.dependency_overrides[get_index] = FakeIndex
+app.dependency_overrides[get_labeller] = FakeLabeller
+client = TestClient(app)
+r = client.post("/triage", json={"title": "Crash on save", "body": "Large files only"})
+print(r.status_code, r.json())
+print(client.post("/triage", json={"title": "x"}).status_code, "- title too short")
+@note
+The endpoint depends on an index and a labeller instead of creating them, so the test swapped in fakes and never loaded a real index or called a paid API. The response is validated by its Pydantic model, and bad input is rejected with 422 before any work happens.
+@example text: The results section of the README
+## Results (test set: 1,240 issues filed Jun–Oct 2026, never seen in tuning)
+
+Duplicate detection (318 issues with a known original)
+
+| Method                      | recall@1 | recall@5 | latency |
+|-----------------------------|---------:|---------:|--------:|
+| TF-IDF (word 1–2 grams)     |    0.41  |    0.63  |   4 ms  |
+| Sentence embeddings         |    0.58  |    0.81  |  22 ms  |
+
+Component and severity (all 1,240)
+
+| Method            | component acc. | severity acc. | off by 2+ levels | cost / report |
+|-------------------|---------------:|--------------:|-----------------:|--------------:|
+| Keyword baseline  |          0.52  |         0.44  |            11 %  |       $0      |
+| LLM + 3 examples  |          0.83  |         0.71  |             2 %  |    $0.002     |
+
+Limitations: English-language reports from one project; severity labels
+follow that project's conventions; drafted steps need human review.
+@note
+A results table with a fixed, time-split test set, a baseline, latency and cost turns "I built an AI triage tool" into a measured claim. Stating the limitations shows the same judgement that QA work requires.
+@mistakes
+- **Demos that need API keys to run at all.** Ship a fake mode so anyone can try it.
+- **Untested service code because the model is "external".** Inject dependencies and fake them.
+- **A README without numbers.** Show results on a held-out set, with a baseline and cost.
+@keys
+- A FastAPI service with typed request/response models and `/docs`.
+- Inject the model and index; fake them in offline tests.
+- Docker image for one-command demos.
+- README with dataset, method, results, cost and limitations.
+
+=== I3.1
+@idea
+The third AI project is a **test-writing agent**: given a Python module, it writes pytest tests, runs them, reads the results and improves the tests until coverage reaches a target or it runs out of attempts. Agents are language models in a **loop with tools**, and this project shows you can build one that is safe, bounded and measurable.
+
+Planning starts with the **tools** the model may call: `read_source(path)` to see the code under test, `write_test(path, content)` to save a test file (only inside a scratch folder), `run_tests()` to execute pytest with coverage and return a summary, and `finish(reason)`. Each tool has a strict input schema and returns concise, structured results; an agent drowning in 3,000 lines of pytest output makes worse decisions.
+
+Then the **stopping rules**: stop when the target is met (say 90% line coverage with all tests passing), after a maximum number of steps, after a token or cost budget, or when progress stalls for two iterations. And **safety**: generated code is untrusted. Run it in its own temporary folder, as a separate process with a **time limit**, without network access or secrets in its environment, ideally in a container. An infinite loop or `rm -rf` in generated tests must never affect your machine.
+@how
+- Tools: read_source, write_test, run_tests, finish; strict schemas; concise results.
+- Stop on target reached, max steps, budget exhausted, or no progress.
+- Run generated tests with `subprocess.run([...], timeout=..., cwd=scratch, env=minimal)`.
+- Never pass API keys or secrets into the test process's environment.
+- Prefer a container or sandbox for extra isolation; log every tool call.
+@example python: Running untrusted code safely: own folder, time limit, clean environment
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+os.environ["ANTHROPIC_API_KEY"] = "sk-not-for-generated-code"
+
+def run_untrusted(code, timeout=2.0):
+    scratch = Path(tempfile.mkdtemp(prefix="agent-"))
+    (scratch / "generated.py").write_text(code)
+    env = {"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1"}      # no secrets
+    try:
+        proc = subprocess.run([sys.executable, "-I", "generated.py"], cwd=scratch, env=env,
+                              capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "timeout: killed after %.0fs" % timeout
+    out = (proc.stdout + proc.stderr).strip().splitlines()
+    return f"exit {proc.returncode}: {out[-1] if out else ''}"
+
+print(run_untrusted("print(sum(range(10)))"))
+print(run_untrusted("while True: pass"))
+print(run_untrusted("import os; print(os.environ.get('ANTHROPIC_API_KEY', 'no key visible'))"))
+print(run_untrusted("import os; print(os.getcwd().split('/')[-1].startswith('agent-'))"))
+print(run_untrusted("raise SystemExit('assertion failed')"))
+@note
+Each run happens in a fresh scratch folder as a separate process. The infinite loop was killed by the timeout instead of hanging the agent, and the API key in the parent's environment was invisible to the generated code because the child got a minimal environment. `-I` (isolated mode) also ignores user site-packages and environment variables like PYTHONPATH.
+@example python: Tool definitions with schemas, validated before execution
+import json
+from pydantic import BaseModel, Field, ValidationError
+
+class WriteTest(BaseModel):
+    path: str = Field(pattern=r"^tests/test_[a-z0-9_]+\.py$")
+    content: str = Field(min_length=10, max_length=20_000)
+
+class RunTests(BaseModel):
+    pass
+
+TOOLS = {"write_test": WriteTest, "run_tests": RunTests}
+
+def schema_for_model():
+    return [{"name": n, "input_schema": m.model_json_schema()} for n, m in TOOLS.items()]
+
+def execute(call):
+    model = TOOLS.get(call["name"])
+    if model is None:
+        return {"error": f"unknown tool {call['name']!r}"}
+    try:
+        args = model.model_validate(call["input"])
+    except ValidationError as error:
+        return {"error": error.errors()[0]["msg"]}
+    return {"ok": f"{call['name']} accepted {args.model_dump() if call['name'] == 'run_tests' else args.path}"}
+
+print(json.dumps(schema_for_model()[0]["input_schema"]["properties"]["path"]))
+for call in [{"name": "write_test", "input": {"path": "tests/test_pricing.py", "content": "def test_x():\n    assert 1"}},
+             {"name": "write_test", "input": {"path": "../../.bashrc", "content": "echo pwned >> ~/.bashrc"}},
+             {"name": "delete_files", "input": {}}]:
+    print(call["name"], "->", execute(call))
+@note
+Each tool's input is a Pydantic model whose JSON schema is sent to the model, and every call is validated before it runs. The path pattern only allows `tests/test_*.py`, so an attempt to write outside the scratch folder is rejected, and unknown tools are refused. The errors go back to the model so it can correct itself.
+@mistakes
+- **Running generated code in your own process or environment.** One bad test can hang, leak secrets or delete files. Use a sandboxed subprocess.
+- **Unbounded loops.** Costs explode. Set step, budget and no-progress limits.
+- **Dumping full tool output into the context.** The model gets confused. Return concise summaries.
+@keys
+- An agent is a model in a loop with tools.
+- Define tools with strict schemas and concise results.
+- Stop on target, step limit, budget, or stalled progress.
+- Run generated code in a separate process with a timeout, scratch folder and no secrets.
+
+=== I3.2
+@idea
+The core **agent loop** is short. Keep a list of messages. Send it, with the tool definitions, to the model. If the reply asks for tool calls, execute each one, append the results as tool-result messages, and loop. If the reply is a final answer (or the model calls `finish`), stop. Most provider APIs follow this shape: Anthropic's Messages API returns `tool_use` blocks and expects `tool_result` blocks back, each matched by an id.
+
+Around that core sit the safeguards. A **step counter** stops runaway loops; a **budget** tracks tokens and cost; a **progress check** compares coverage after each test run and stops if two iterations bring no improvement. Tool errors are not exceptions that kill the loop: they become tool results with `is_error`, so the model can read "SyntaxError on line 4" and fix it.
+
+Context management matters as loops grow. Summarise tool results (the coverage percentage and the failing test names, not the whole log), keep the latest version of each test file instead of every draft, and include the **missing line numbers** from coverage so the model targets untested code. Log every step (prompt size, tool calls, results, coverage) to a JSONL file: it is how you debug the agent and later show how it reached its result.
+@how
+- Loop: send messages + tools → handle tool calls → append results → repeat until final answer.
+- Match each tool result to its call id; errors returned with `is_error`, not raised.
+- Guards: max steps, token/cost budget, stop after N iterations without progress.
+- Summarise results: coverage %, missing lines, failing tests with short messages.
+- Log every step to JSONL for debugging and reporting.
+@example python: The agent loop with a scripted model, guards and error handling
+import json
+
+def make_scripted_model():
+    plan = iter([
+        {"tool": "run_tests", "input": {}},
+        {"tool": "write_test", "input": {"content": "def test_total(:\n    assert total([1, 2]) == 3"}},
+        {"tool": "write_test", "input": {"content": "def test_total():\n    assert total([1, 2]) == 3\n\ndef test_empty():\n    assert total([]) == 0"}},
+        {"tool": "run_tests", "input": {}},
+        {"final": "Coverage target reached."},
+    ])
+    return lambda messages: next(plan)
+
+state = {"tests": "", "coverage": 0}
+
+def run_tool(name, args):
+    if name == "write_test":
+        try:
+            compile(args["content"], "test_generated.py", "exec")
+        except SyntaxError as error:
+            return {"is_error": True, "content": f"SyntaxError line {error.lineno}: {error.msg}"}
+        state["tests"] = args["content"]
+        return {"content": "saved"}
+    if name == "run_tests":
+        state["coverage"] = 50 + 25 * state["tests"].count("def test_")
+        return {"content": json.dumps({"passed": state["tests"].count("def test_"), "coverage": state["coverage"], "missing_lines": [] if state["coverage"] >= 100 else [7, 8]})}
+    return {"is_error": True, "content": f"unknown tool {name}"}
+
+def agent(model, max_steps=8, target=90):
+    messages, log = [{"role": "user", "content": "Write tests for pricing.py"}], []
+    for step in range(1, max_steps + 1):
+        reply = model(messages)
+        if "final" in reply:
+            log.append((step, "final", reply["final"]))
+            break
+        result = run_tool(reply["tool"], reply["input"])
+        messages += [{"role": "assistant", "tool": reply["tool"]}, {"role": "tool", **result}]
+        log.append((step, reply["tool"], ("ERROR " if result.get("is_error") else "") + result["content"]))
+        if state["coverage"] >= target:
+            log.append((step, "stop", f"target {target}% reached"))
+            break
+    else:
+        log.append((max_steps, "stop", "step limit"))
+    return log
+
+for entry in agent(make_scripted_model()):
+    print(*entry)
+@note
+The scripted model stands in for a real one so the loop's mechanics are visible. The syntax error came back as a tool result marked as an error, and the "model" fixed it on the next step instead of the loop crashing. The run stopped as soon as coverage met the target, before the step limit.
+@example python: Summarising pytest results for the model's context
+import contextlib, io, json, re
+import pytest
+from pathlib import Path
+
+Path("pricing.py").write_text('''def total(prices, discount=0):
+    if discount < 0 or discount > 1:
+        raise ValueError("discount must be between 0 and 1")
+    subtotal = sum(prices)
+    if subtotal > 100:
+        subtotal -= 5
+    return round(subtotal * (1 - discount), 2)
+''')
+Path("test_pricing.py").write_text('''from pricing import total
+def test_simple():
+    assert total([10, 20]) == 30
+def test_discount():
+    assert total([50], discount=0.1) == 45.0
+def test_wrong_expectation():
+    assert total([60, 60]) == 120
+''')
+
+def summarise():
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        pytest.main(["-q", "-p", "no:cacheprovider", "test_pricing.py", "--tb=no", "-rf"])
+    text = out.getvalue()
+    failures = re.findall(r"^FAILED (\S+) - (.*)$", text, re.M)
+    counts = dict((k, int(v)) for v, k in re.findall(r"(\d+) (passed|failed)", text))
+    import trace
+    tracer = trace.Trace(count=True, trace=False)
+    import importlib, pricing
+    importlib.reload(pricing)
+    for args in ([10, 20],), ([50],), ([60, 60],):
+        tracer.runfunc(pricing.total, *args)
+    tracer.runfunc(pricing.total, [50], discount=0.1)
+    ran = {line for (f, line) in tracer.results().counts if f.endswith("pricing.py")}
+    missing = [n for n in range(2, 8) if n not in ran]
+    return {"counts": counts, "failures": [f"{loc} {msg[:60]}" for loc, msg in failures], "missing_lines": missing}
+
+print(json.dumps(summarise(), indent=1))
+@note
+Instead of pasting pytest's full output into the conversation, the agent sends a compact summary: counts, one line per failure with its location, and the source lines never executed. Here that points the model at the wrong expectation (the over-100 discount) and at line 3, the ValueError branch no test has reached yet.
+@mistakes
+- **Raising on tool errors.** The loop dies on the first typo. Return errors as tool results.
+- **Unbounded context growth.** Costs rise and quality drops. Summarise and keep only the latest drafts.
+- **No step log.** You cannot debug or explain the agent's behaviour. Log every step.
+@keys
+- The loop: send, execute tool calls, return results by id, repeat until done.
+- Guards: steps, budget, progress.
+- Tool errors are results the model can fix.
+- Summaries with coverage and missing lines keep the agent focused; log everything.
+
+=== I3.3
+@idea
+An agent optimising for coverage will happily produce tests that are worth nothing: tests that call functions without asserting anything, `assert True`, assertions that restate whatever the code currently returns (locking in bugs), or tests that only pass because they mock everything. **Quality guards** reject such tests before they are kept.
+
+Static guards read the test file with the **`ast`** module, which parses Python into a tree without running it: every test function must contain at least one meaningful `assert` (not `assert True` or a constant), must not use forbidden constructs (network calls, `time.sleep`, writing outside `tmp_path`), and must have a descriptive name. Dynamic guards run the tests: they must pass **several times in a row** (flaky tests are rejected) and in **random order**.
+
+The strongest guard is **mutation testing**: deliberately introduce small bugs into the code under test (change `>` to `>=`, `+` to `-`, a constant 5 to 6) and check that at least one test fails for each **mutant**. A test suite that still passes when the code is wrong is not testing it. The share of mutants caught, the **mutation score**, is a far better quality measure than coverage, and tools like `mutmut` automate it. Report both numbers for every module the agent tests.
+@how
+- `ast.parse(source)`; walk `FunctionDef` nodes named `test_*`; require a non-constant `assert` or `pytest.raises`.
+- Reject forbidden calls (`requests`, `socket`, `time.sleep`, `os.system`).
+- Run the suite 3× and in random order; reject flaky tests.
+- Mutation testing: flip operators and constants; mutation score = mutants killed / total.
+- Keep only tests that pass the guards; report coverage and mutation score.
+@example python: Rejecting useless tests with ast
+import ast
+
+SOURCE = '''
+import time
+def test_total_adds_prices():
+    assert total([1, 2]) == 3
+
+def test_runs():
+    total([1, 2])
+
+def test_always():
+    assert True
+
+def test_sleepy_but_real():
+    time.sleep(1)
+    assert total([]) == 0
+
+def test_error_is_raised():
+    with pytest.raises(ValueError):
+        total([1], discount=2)
+'''
+
+FORBIDDEN = {("time", "sleep"), ("os", "system"), ("requests", "get")}
+
+def problems(func):
+    found = []
+    asserts = [n for n in ast.walk(func) if isinstance(n, ast.Assert)]
+    real = [a for a in asserts if not isinstance(a.test, ast.Constant)]
+    raises = any(isinstance(n, ast.Attribute) and n.attr == "raises" for n in ast.walk(func))
+    if not real and not raises:
+        found.append("no meaningful assertion")
+    for n in ast.walk(func):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name):
+            if (n.func.value.id, n.func.attr) in FORBIDDEN:
+                found.append(f"forbidden call {n.func.value.id}.{n.func.attr}")
+    return found
+
+for node in ast.parse(SOURCE).body:
+    if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+        issues = problems(node)
+        print(f"{'REJECT' if issues else 'keep  '} {node.name:26} {', '.join(issues)}")
+@note
+`ast` reads the tests without running them. A test with no assertion, or only `assert True`, is rejected even though it would raise coverage; so is one that sleeps. A `pytest.raises` block counts as an assertion. Only two of the five tests are worth keeping.
+@example python: Mutation testing: do the tests notice a bug?
+import ast
+
+CODE = '''
+def shipping(total):
+    if total >= 50:
+        return 0
+    return 5 + total // 100
+'''
+
+weak_tests = [lambda f: f(10) == 5, lambda f: f(80) == 0]
+strong_tests = weak_tests + [lambda f: f(50) == 0, lambda f: f(49) == 5]
+
+class Mutator(ast.NodeTransformer):
+    def __init__(self, target):
+        self.target, self.count, self.description = target, 0, None
+    def visit_Compare(self, node):
+        if isinstance(node.ops[0], ast.GtE):
+            self.count += 1
+            if self.count == self.target:
+                node.ops = [ast.Gt()]
+                self.description = ">= became >"
+        return self.generic_visit(node)
+    def visit_Constant(self, node):
+        if isinstance(node.value, int) and node.value in (50, 5):
+            self.count += 1
+            if self.count == self.target:
+                self.description = f"{node.value} became {node.value + 1}"
+                return ast.copy_location(ast.Constant(node.value + 1), node)
+        return node
+
+def mutants():
+    for i in range(1, 10):
+        m = Mutator(i)
+        tree = m.visit(ast.parse(CODE))
+        if m.description:
+            ns = {}
+            exec(compile(ast.fix_missing_locations(tree), "mutant", "exec"), ns)
+            yield m.description, ns["shipping"]
+
+for name, tests in [("weak", weak_tests), ("strong", strong_tests)]:
+    results = [(desc, not all(t(f) for t in tests)) for desc, f in mutants()]
+    killed = sum(k for _, k in results)
+    print(f"{name} suite: mutation score {killed}/{len(results)}  survivors: {[d for d, k in results if not k]}")
+@note
+Each mutant is the original code with one small bug. The weak suite passes against the `>` mutant and the 50→51 mutant: it never tests the boundary of 50, so those bugs would go unnoticed despite full line coverage. Adding boundary tests at 50 and 49 kills every mutant.
+@mistakes
+- **Judging generated tests by coverage alone.** Assertion-free tests reach 100%. Add guards.
+- **Keeping flaky tests.** They erode trust in the suite. Run several times, in random order.
+- **Never running mutation testing.** Coverage says code ran, not that tests would catch a bug.
+@keys
+- Static guards with `ast`: meaningful assertions, no forbidden calls.
+- Dynamic guards: repeated and random-order runs.
+- Mutation testing measures whether tests catch real bugs.
+- Report coverage and mutation score together.
+
+=== I3.4
+@idea
+To make the agent's results trustworthy, show them like a benchmark. Choose a set of real modules of varying difficulty (a pure function library, a parser, something with I/O and time), run the agent on each with fixed settings, and record **coverage**, **mutation score**, **steps**, **tokens and cost**, and the share of generated tests rejected by the guards. Run each several times, because agent behaviour varies, and report the median with the range.
+
+Present the results as a table in the README, with a short **failure analysis**: where did the agent struggle (code with hidden state, randomness, external services) and why. Compare with a simple baseline, such as a single prompt with no loop, so readers can see what the loop and guards add. Include one **example transcript** (from the step log) showing the agent reading coverage output, writing a boundary test and improving its score: it makes the mechanism concrete.
+
+Finally, package it: a CLI (`testagent src/pricing.py --target 90 --max-steps 12`), a fake-model mode so anyone can run the pipeline without an API key, CI that tests the harness itself, and the safety design written down. Honest limits (it writes tests for existing behaviour and can lock in bugs; humans must review the expected values) complete a project that demonstrates both AI engineering and QA judgement.
+@how
+- Benchmark modules of varying difficulty; fixed settings; several runs each.
+- Metrics: coverage, mutation score, steps, tokens/cost, rejection rate; median and range.
+- Baseline: one-shot prompt without the loop.
+- README: results table, failure analysis, example transcript, safety design, limits.
+- CLI with a fake-model mode; CI for the harness.
+@example python: Aggregating benchmark runs into a Markdown table
+import statistics
+
+runs = {
+    "pricing (pure)":      [(100, 0.95, 4, 0.04), (100, 0.92, 5, 0.05), (97, 0.90, 4, 0.04)],
+    "csv parser":          [(94, 0.81, 7, 0.09), (91, 0.78, 9, 0.11), (95, 0.83, 7, 0.08)],
+    "scheduler (time/IO)": [(72, 0.55, 12, 0.19), (78, 0.61, 12, 0.21), (69, 0.50, 12, 0.18)],
+}
+baseline = {"pricing (pure)": (88, 0.70), "csv parser": (63, 0.41), "scheduler (time/IO)": (40, 0.22)}
+
+def cell(values, fmt):
+    return f"{fmt(statistics.median(values))} ({fmt(min(values))}–{fmt(max(values))})"
+
+print("| module | coverage % | mutation score | steps | cost $ | one-shot baseline |")
+print("|---|---:|---:|---:|---:|---:|")
+for module, rs in runs.items():
+    cov, mut, steps, cost = zip(*rs)
+    b_cov, b_mut = baseline[module]
+    print(f"| {module} | {cell(cov, lambda v: f'{v:.0f}')} | {cell(mut, lambda v: f'{v:.2f}')} | "
+          f"{statistics.median(steps):.0f} | {statistics.median(cost):.2f} | {b_cov}% / {b_mut:.2f} |")
+@note
+Medians with ranges show both typical results and their variability across runs, and the baseline column shows what the loop adds over a single prompt. The table also tells the honest story: the agent excels on pure functions and struggles on time- and I/O-dependent code, which the failure analysis then explains.
+@example text: An excerpt from a step log, used as the README's example transcript
+step 3  run_tests       -> 6 passed, coverage 84%, missing lines: pricing.py 14-15
+step 4  read_source     -> lines 12-16:
+                            12  if subtotal > 100:
+                            13      subtotal -= 5
+                            14  if coupon and coupon.expired(today):
+                            15      raise ExpiredCoupon(coupon.code)
+step 5  write_test      -> tests/test_pricing.py (+1 test: test_expired_coupon_is_rejected)
+                           guard: ok (asserts via pytest.raises, uses a fixed `today`)
+step 6  run_tests       -> 7 passed, coverage 100%
+step 7  mutation check  -> 19/20 mutants killed; survivor: `>` became `>=` on line 12
+step 8  write_test      -> +1 test: test_subtotal_of_exactly_100_has_no_discount
+step 9  mutation check  -> 20/20 killed; target met; finish
+@note
+The transcript shows the mechanism working: the agent reads the missing lines, writes a test for the uncovered branch (passing the guard because it uses a fixed date and a real assertion), then uses the surviving mutant to discover and test the boundary at exactly 100. It turns the abstract design into something a reviewer can follow.
+@mistakes
+- **One lucky run reported as the result.** Agents vary. Run several times and report medians with ranges.
+- **No baseline.** Readers cannot tell what the agent loop adds.
+- **Hiding failures.** A failure analysis shows judgement and is more convincing than perfect numbers.
+@keys
+- Benchmark on varied real modules, several runs each, with medians and ranges.
+- Report coverage, mutation score, steps, cost and a one-shot baseline.
+- Explain failures and show an example transcript.
+- Package with a CLI, fake-model mode, CI and a written safety design.
