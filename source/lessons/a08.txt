@@ -1,0 +1,518 @@
+=== A8.1
+@idea
+**pytest** is the standard testing tool for Python. Tests are plain functions whose names start with `test_`, in files named `test_*.py`; pytest **discovers** them automatically when you run `pytest` in the project folder. Checks are plain `assert` statements: pytest **rewrites** them so that a failure shows the values on both sides, and even a diff for lists, dicts and long strings, without special assertion methods.
+
+`pytest.raises(ValueError, match="empty")` checks that code raises the right exception with the right message. **Parametrize** runs one test with many inputs: `@pytest.mark.parametrize("text, expected", [...])` turns a table of cases into separate tests, each reported on its own, which is far better than a loop inside one test that stops at the first failure.
+
+**Markers** label tests: `@pytest.mark.skip(reason=...)`, `skipif(condition, ...)`, `xfail` for known bugs, and your own markers (like `slow`) that can be selected or excluded with `-m`. Useful command-line options: `-q` for quiet output, `-x` to stop at the first failure, `-k name` to run tests matching a name, and `--lf` to rerun only the last failures.
+@how
+- Files `test_*.py`, functions `test_*`; run `pytest` (or `pytest -q path`).
+- Plain `assert`; failures show both values.
+- `with pytest.raises(ValueError, match="regex"):` for errors.
+- `@pytest.mark.parametrize("a, b, expected", [(1, 2, 3), ...], ids=[...])`.
+- Markers: `skip`, `skipif`, `xfail`, custom ones registered in `pyproject.toml`.
+- Options: `-x`, `-k expr`, `-m marker`, `--lf`, `-v`.
+@example python: A test file run by pytest, with one failure
+import re
+import pytest
+from pathlib import Path
+
+Path("test_slug.py").write_text('''
+import pytest
+
+def slugify(title):
+    if not title.strip():
+        raise ValueError("title is empty")
+    return "-".join(title.lower().split())
+
+@pytest.mark.parametrize("title, expected", [
+    ("Hello World", "hello-world"),
+    ("  many   spaces ", "many-spaces"),
+    ("Café au lait!", "cafe-au-lait"),
+])
+def test_slugify(title, expected):
+    assert slugify(title) == expected
+
+def test_empty_title():
+    with pytest.raises(ValueError, match="empty"):
+        slugify("   ")
+''')
+
+import contextlib, io
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    code = pytest.main(["-q", "-p", "no:cacheprovider", "test_slug.py"])
+text = re.sub(r" in [\d.]+s", "", out.getvalue())
+print("\n".join(l for l in text.splitlines() if l.strip() and not l.startswith(("platform", "rootdir", "____", "===="))))
+print("exit code:", code)
+@note
+pytest found four tests: three from the parametrized table and one for the error. The accented title failed, and the report shows exactly which case, the expected and actual strings, and the line. One table row failing does not hide the others, which is why parametrize beats a loop. (Timings and file paths were trimmed so the output is stable.)
+@example python: What assert rewriting shows you
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("test_report.py").write_text('''
+def build_report():
+    return {"items": 3, "total": 12.5, "currency": "CAD", "tags": ["tea", "cake"]}
+
+def test_report():
+    assert build_report() == {"items": 3, "total": 12.5, "currency": "CAD", "tags": ["tea", "scone"]}
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-p", "no:cacheprovider", "-vv", "test_report.py"])
+lines = out.getvalue().splitlines()
+start = next(i for i, l in enumerate(lines) if l.startswith("E "))
+print("\n".join(l for l in lines[start:start + 20] if l.startswith("E")))
+@note
+A plain `assert ==` on two dictionaries produced a precise explanation: which keys match, which key differs, and a line-by-line diff pointing at the exact list item that changed. No special assertion method was needed; pytest rewrote the assert before running it.
+@mistakes
+- **Loops inside one test for many cases.** The first failure hides the rest. Use parametrize.
+- **`pytest.raises` without `match`.** Any ValueError passes, even the wrong one. Check the message.
+- **Test files or functions without the `test_` prefix.** pytest silently ignores them.
+@keys
+- pytest finds `test_*` functions and uses plain `assert` with detailed failure output.
+- `pytest.raises(..., match=...)` checks errors and their messages.
+- Parametrize turns a table of cases into separate tests.
+- Markers and options (`-x`, `-k`, `-m`, `--lf`) control what runs.
+
+=== A8.2
+@idea
+**Fixtures** provide the things tests need: data, objects, temporary files, database connections. A fixture is a function decorated with `@pytest.fixture`; a test asks for it simply by naming it as a parameter, and pytest calls the fixture and passes in the result. Fixtures can use other fixtures, building up setups from small parts.
+
+Cleanup is built in: a fixture that `yield`s its value runs the code after `yield` when the test finishes, pass or fail, like a context manager. **Scope** controls how often a fixture runs: `function` (the default, fresh for each test), `module`, or `session` (once for the whole run, good for expensive setup like starting a server). Fixtures shared by many test files go in a `conftest.py`, which pytest loads automatically; no import needed.
+
+pytest ships with useful built-in fixtures. `tmp_path` gives each test its own empty temporary folder as a `Path`, so file tests never touch real files or each other. `monkeypatch` temporarily changes environment variables, attributes or dictionary entries and undoes the change after the test. `capsys` captures what the code printed.
+@how
+- `@pytest.fixture def account(): return Account(100)`; a test takes `account` as a parameter.
+- `yield value` then cleanup code; it runs even when the test fails.
+- `@pytest.fixture(scope="session")` for expensive, read-only setup.
+- Shared fixtures in `conftest.py` at the test folder's root.
+- Built-ins: `tmp_path`, `monkeypatch.setenv/setattr/delenv`, `capsys.readouterr()`.
+@example python: Fixtures with cleanup, tmp_path and monkeypatch
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("conftest.py").write_text('''
+import pytest
+
+@pytest.fixture
+def log():
+    events = []
+    yield events
+    print(f"  [cleanup] {len(events)} events recorded")
+''')
+Path("test_config.py").write_text('''
+import os, pytest
+
+def load_config(path):
+    level = os.environ.get("APP_LEVEL", "INFO")
+    lines = [l for l in path.read_text().splitlines() if l and not l.startswith("#")]
+    return dict(l.split("=", 1) for l in lines) | {"level": level}
+
+@pytest.fixture
+def config_file(tmp_path):
+    path = tmp_path / "app.cfg"
+    path.write_text("# settings\\nname=demo\\nport=8080\\n")
+    return path
+
+def test_reads_file(config_file, log):
+    log.append("read")
+    assert load_config(config_file) == {"name": "demo", "port": "8080", "level": "INFO"}
+
+def test_env_overrides_level(config_file, monkeypatch, log):
+    monkeypatch.setenv("APP_LEVEL", "DEBUG")
+    log.extend(["setenv", "read"])
+    assert load_config(config_file)["level"] == "DEBUG"
+
+def test_env_is_restored():
+    assert os.environ.get("APP_LEVEL") is None
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    code = pytest.main(["-q", "-s", "-p", "no:cacheprovider", "test_config.py"])
+print(re.sub(r" in [\d.]+s", "", out.getvalue()).strip())
+print("exit code:", code)
+@note
+Each test got a fresh file in its own temporary folder from `tmp_path`, and the `log` fixture from `conftest.py` was available without importing it; its cleanup line printed after each test that used it (`-s` shows prints). The third test proves `monkeypatch` undid the environment change.
+@example python: Fixture scope: how often setup runs
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("test_scope.py").write_text('''
+import pytest
+
+calls = {"session": 0, "function": 0}
+
+@pytest.fixture(scope="session")
+def database():
+    calls["session"] += 1
+    return {"users": ["ada", "ben"]}
+
+@pytest.fixture
+def cart():
+    calls["function"] += 1
+    return []
+
+@pytest.mark.parametrize("n", range(4))
+def test_uses_both(database, cart, n):
+    cart.append(n)
+    assert len(cart) == 1 and "ada" in database["users"]
+
+def test_counts():
+    print(f"session fixture ran {calls['session']}x, function fixture ran {calls['function']}x")
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-q", "-s", "-p", "no:cacheprovider", "test_scope.py"])
+print(re.sub(r" in [\d.]+s", "", out.getvalue()).strip())
+@note
+The session-scoped "database" was built once for all four tests, while each test got a brand-new empty cart, which is why every cart had exactly one item. Use wide scopes only for setup that tests do not modify.
+@mistakes
+- **Tests that share mutable state.** Order starts to matter. Use function-scoped fixtures for anything tests change.
+- **Writing to real files or env vars in tests.** Use `tmp_path` and `monkeypatch`.
+- **Importing fixtures from `conftest.py`.** Not needed: pytest finds them by name.
+@keys
+- Fixtures supply test dependencies by parameter name.
+- `yield` fixtures clean up after the test, pass or fail.
+- Scope controls reuse; share fixtures through `conftest.py`.
+- `tmp_path`, `monkeypatch` and `capsys` isolate tests from the outside world.
+
+=== A8.3
+@idea
+Some code talks to things a test should not touch: email servers, payment APIs, the clock, the network. A **test double** stands in for the real thing. `unittest.mock.Mock` creates objects that accept any call, **record** how they were called, and return whatever you configure. Afterwards you assert on the interaction: `mailer.send.assert_called_once_with(to="ada@example.com", ...)`.
+
+Configure behaviour with `return_value` (always return this) and `side_effect` (raise an exception, or return successive values from a list, or call a function). `create_autospec(RealClass)` or `Mock(spec=RealClass)` makes the mock reject methods the real class does not have, catching typos and outdated tests.
+
+`patch("module.name")` temporarily replaces an object where it is **looked up**, which is the tricky part: if `shop.py` does `from emails import send`, you patch `shop.send`, not `emails.send`. Heavy patching is often a sign of hard-to-test design. The better fix is **dependency injection**: pass collaborators in as parameters (a mailer, a clock function), so tests can hand over a fake directly without patching anything.
+@how
+- `m = Mock()`; `m.method(...)` records calls; `m.method.return_value = x`; `m.method.side_effect = [a, b]` or an exception.
+- Assertions: `assert_called_once_with(...)`, `assert_not_called()`, `call_count`, `call_args_list`.
+- `Mock(spec=Cls)` / `create_autospec(Cls)` to forbid non-existent attributes.
+- `with patch("where.it.is.used") as fake:` or `@patch(...)`; pytest's `monkeypatch.setattr` works too.
+- Prefer injecting collaborators (`now=datetime.now`, `mailer=...`) over patching.
+@example python: Mocks that record calls, return values and raise
+from unittest.mock import Mock, call
+
+class PaymentDeclined(Exception):
+    pass
+
+def checkout(cart_total, gateway, mailer, email):
+    try:
+        receipt = gateway.charge(amount=cart_total)
+    except PaymentDeclined:
+        mailer.send(to=email, subject="Payment failed")
+        return None
+    mailer.send(to=email, subject=f"Receipt {receipt}")
+    return receipt
+
+gateway, mailer = Mock(), Mock()
+gateway.charge.side_effect = ["R-001", PaymentDeclined("card expired")]
+
+print(checkout(42, gateway, mailer, "ada@example.com"))
+print(checkout(99, gateway, mailer, "ben@example.com"))
+gateway.charge.assert_any_call(amount=42)
+print(gateway.charge.call_count, mailer.send.call_args_list == [
+    call(to="ada@example.com", subject="Receipt R-001"),
+    call(to="ben@example.com", subject="Payment failed"),
+])
+
+strict = Mock(spec=["charge"])
+try:
+    strict.chrage(10)
+except AttributeError as error:
+    print("AttributeError:", error)
+@note
+`side_effect` with a list returned a receipt on the first call and raised on the second, exercising both paths without any real payment. The recorded calls prove the right emails would be sent. A spec'd mock caught the typo `chrage`, which a plain Mock would have accepted silently.
+@example python: patch where it is used, or better, inject
+from datetime import datetime
+from unittest.mock import patch
+import sys, types
+
+clock = types.ModuleType("clock")
+clock.now = datetime.now
+sys.modules["clock"] = clock
+shop = types.ModuleType("shop")
+exec("from clock import now\ndef greeting():\n    return 'Good morning' if now().hour < 12 else 'Good afternoon'", shop.__dict__)
+
+with patch("clock.now", return_value=datetime(2026, 11, 20, 9)):
+    print("patched clock.now:", shop.greeting() in ("Good morning", "Good afternoon"), "- shop kept its own reference")
+with patch.object(shop, "now", return_value=datetime(2026, 11, 20, 9)):
+    print("patched shop.now:", shop.greeting())
+
+def greeting(now=datetime.now):
+    return "Good morning" if now().hour < 12 else "Good afternoon"
+
+print("injected:", greeting(lambda: datetime(2026, 11, 20, 15)), "| real clock still default:", greeting.__defaults__[0] == datetime.now)
+@note
+`shop` imported `now` into its own namespace, so patching `clock.now` changed nothing for it; patching `shop.now`, where the name is looked up, worked. The injected version needs no patching at all: the test simply passes a fake clock, and normal callers get the real one by default.
+@mistakes
+- **Patching where a name is defined instead of where it is used.** The code under test keeps the original.
+- **Mocks without a spec.** Typos and renamed methods pass silently. Use `spec` or `create_autospec`.
+- **Mocking everything.** Tests then check your mocks, not your code. Mock only the boundaries.
+@keys
+- Mocks stand in for slow or external collaborators and record interactions.
+- `return_value` and `side_effect` script their behaviour; assert on the calls.
+- Patch the name where it is looked up; spec mocks to catch typos.
+- Dependency injection makes most patching unnecessary.
+
+=== A8.4
+@idea
+**Coverage** measures which lines (and branches) your tests actually ran. `pytest --cov=mypackage --cov-report=term-missing` (with the `pytest-cov` plugin) prints a percentage per file and the line numbers never executed. Those missing lines are the useful part: each is a path no test has tried, often an error branch. Coverage shows what is **untested**, not what is correct: 100% coverage with weak asserts proves little, so treat it as a map, not a score.
+
+Example-based tests check the cases you thought of. **Property-based testing** with **Hypothesis** checks cases you did not. Instead of specific inputs, you state a **property** that must hold for all inputs ("decoding an encoded string gives the original back", "sorting twice equals sorting once", "the total never changes when splitting a bill") and describe the inputs with **strategies** (`st.text()`, `st.integers(min_value=1)`, `st.lists(...)`). Hypothesis then generates hundreds of inputs, including nasty edge cases: empty strings, huge numbers, unusual Unicode.
+
+When it finds a failure, Hypothesis **shrinks** it: it simplifies the failing input step by step until it finds a minimal example, often something like `""` or `[0, 0]`, which makes the bug obvious. It also remembers failures and replays them on the next run.
+@how
+- `pip install pytest-cov`; `pytest --cov=src --cov-report=term-missing`; add `--cov-branch` for branches.
+- Read the "Missing" column; write tests for important missing paths.
+- `pip install hypothesis`; `@given(st.text())` above a test function.
+- Common properties: round trips, invariants (totals preserved), idempotence, comparison with a simple reference implementation.
+- Strategies: `integers`, `floats(allow_nan=False)`, `text`, `lists`, `dictionaries`, `builds`.
+@example python: Measuring which lines ran
+import trace
+
+def grade(score):
+    if score < 0 or score > 100:
+        raise ValueError("score must be 0-100")
+    if score >= 90:
+        return "A"
+    if score >= 70:
+        return "B"
+    return "C"
+
+tracer = trace.Trace(count=True, trace=False)
+for s in [95, 75]:                                # our "test suite"
+    tracer.runfunc(grade, s)
+
+first = grade.__code__.co_firstlineno
+ran = {line for (_, line), n in tracer.results().counts.items()}
+body = range(first + 1, first + 8)
+for line in body:
+    print(f"line {line - first}: {'ran' if line in ran else 'MISSED'}")
+print(f"coverage: {sum(l in ran for l in body)}/{len(body)} lines")
+@note
+This uses the standard library's `trace` module to show what `pytest --cov` reports: the tests ran the A and B paths but never the validation error or the C grade. Those MISSED lines are exactly where the next tests should go. In a project you would simply run `pytest --cov=src --cov-report=term-missing`.
+@example python: Hypothesis finds and shrinks a bug
+from hypothesis import given, settings, strategies as st
+
+def split_bill(total_cents, people):
+    share = total_cents // people
+    return [share] * people                      # bug: loses the remainder
+
+found = []
+
+@settings(max_examples=200, database=None, derandomize=True)
+@given(total=st.integers(min_value=0, max_value=1_000_000), people=st.integers(min_value=1, max_value=20))
+def test_split_preserves_total(total, people):
+    shares = split_bill(total, people)
+    if sum(shares) != total:
+        found.append((total, people))
+    assert sum(shares) == total
+
+try:
+    test_split_preserves_total()
+except AssertionError:
+    print("property failed; minimal example:", found[-1])
+
+def split_bill(total_cents, people):
+    share, extra = divmod(total_cents, people)
+    return [share + (i < extra) for i in range(people)]
+
+test_split_preserves_total()
+print("after the fix: 200 generated cases pass")
+@note
+The property "shares always add up to the total" was tested against generated amounts and group sizes. Hypothesis found a failure and shrank it to the simplest case: 1 cent split between 2 people loses a cent. After the fix the same property passes every generated case. `derandomize` and `database=None` only make this page's output repeatable.
+@mistakes
+- **Chasing 100% coverage as a goal.** Cover the important paths with meaningful asserts instead.
+- **Ignoring the Missing column.** It lists your untested error handling.
+- **Properties that restate the implementation.** Test a different truth: round trips, invariants or a simple reference version.
+@keys
+- Coverage shows untested lines; read the missing ones.
+- Hypothesis tests properties over generated inputs.
+- Good properties: round trips, invariants, idempotence, reference implementations.
+- Shrinking turns a failure into a minimal, obvious example.
+
+=== A8.5
+@idea
+**Test-driven development** (TDD) is a rhythm of tiny steps. **Red**: write a small test for the next piece of behaviour and watch it fail, which proves the test can fail and checks your expectation. **Green**: write the simplest code that makes it pass, even if it looks naive. **Refactor**: with all tests green, clean up the code and tests (names, duplication, structure), running the tests after each change. Then repeat with the next test.
+
+The discipline pays off in design as much as in correctness. Writing the test first forces you to decide the interface (names, arguments, return values) from the caller's point of view. Small steps keep you close to working code, so a failure always points at the last few lines you wrote. And the growing test suite makes refactoring safe.
+
+A **kata** is a small exercise practised repeatedly to build the habit: FizzBuzz, a string calculator, Roman numerals, a bowling score. The trick is choosing the **order** of tests: start with the simplest case, then add cases that force one new idea each. If a step feels big, write a smaller test.
+@how
+- Red: one small failing test; run it and see the failure message.
+- Green: the simplest code that passes, even hard-coding.
+- Refactor: improve with tests green; run them after every change.
+- Order tests from simplest to more general; each should force one new idea.
+- Commit at green; if stuck, delete the last test and take a smaller step.
+@example python: A Roman numeral kata, cycle by cycle
+def roman(n):
+    """After cycle 1 this was `return "I"`, after cycle 2 `return "I" * n`."""
+    numerals = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+                (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+    out = ""
+    for value, symbol in numerals:
+        while n >= value:
+            out += symbol
+            n -= value
+    return out
+
+cycles = [
+    ("1: simplest case", 1, "I"),
+    ("2: repetition", 3, "III"),
+    ("3: a new symbol", 5, "V"),
+    ("4: subtraction", 4, "IV"),
+    ("5: combinations", 14, "XIV"),
+    ("6: generalise the table", 1994, "MCMXCIV"),
+]
+for name, n, expected in cycles:
+    result = roman(n)
+    print(f"cycle {name:24} roman({n}) == {expected!r}: {'green' if result == expected else 'RED'}")
+@note
+Each test forced one new idea: repetition, a second symbol, subtraction, combinations. Somewhere around cycle 4 the special cases become a table, which is the refactor step; after it, the general case in cycle 6 passed without new code. All six are kept as regression tests.
+@example python: Red, green, refactor on a string calculator
+def run(tests, add):
+    for text, expected in tests:
+        try:
+            ok = add(text) == expected
+        except Exception as error:
+            ok = f"error: {error}"
+        print(f"  add({text!r}) == {expected}: {'green' if ok is True else 'RED (' + str(ok) + ')'}")
+
+tests = [("", 0), ("4", 4), ("1,2", 3), ("1\n2,3", 6)]
+
+def add_v1(text):                     # green for the first two tests only
+    return int(text) if text else 0
+
+def add_v2(text):                     # handles commas
+    return sum(int(x) for x in text.split(",")) if text else 0
+
+def add_v3(text):                     # refactor: normalise separators, then sum
+    numbers = text.replace("\n", ",").split(",")
+    return sum(int(x) for x in numbers if x)
+
+for version in (add_v1, add_v2, add_v3):
+    print(version.__name__)
+    run(tests, version)
+@note
+Each version is the simplest code that turns the next red test green; earlier tests stay green. v1 crashes on "1,2", v2 handles commas but not newlines, and v3 generalises with a cleaner structure (also making the empty case fall out naturally). Running every test after every change is what makes the refactor safe.
+@mistakes
+- **Writing many tests before any code.** You lose the tight feedback loop. One test at a time.
+- **Skipping the refactor step.** Code piles up special cases. Clean up while green.
+- **Steps too big.** If going green takes more than a few minutes, write a smaller test.
+@keys
+- Red, green, refactor, in tiny steps.
+- Tests first shape the interface from the caller's side.
+- Order tests so each forces one new idea.
+- Refactor only on green, running tests after each change.
+
+=== A8.P
+@idea
+The project gives the library system a **test suite and continuous integration**: tests that run automatically on every push, so a broken change is caught within minutes, before it is merged.
+
+Organise the suite like the code. `tests/` mirrors `src/`, shared fixtures live in `conftest.py` (a library with some books and members, a fixed "today"), and **factory fixtures** build exactly the data each test needs: a fixture that returns a function, `make_member(loans=3)`, keeps tests short and explicit. Cover the rules with parametrized tests, the boundaries (exactly three loans, due today versus yesterday), the error paths, and persistence round trips with `tmp_path`.
+
+Then **CI**: a workflow file (GitHub Actions: `.github/workflows/ci.yml`) that, on each push and pull request, checks out the code, installs Python and the dependencies, and runs Ruff, mypy and pytest with coverage. A **matrix** runs the suite on several Python versions at once. Branch protection can then require a green run before merging. Add the CI badge to the README: a green badge tells visitors the project is cared for.
+@how
+- `tests/` mirrors `src/`; fixtures in `conftest.py`; factory fixtures for flexible data.
+- Parametrize rules and boundaries; test error paths with `pytest.raises`.
+- `pyproject.toml`: `[tool.pytest.ini_options]` with `testpaths`, `addopts = "--strict-markers"`.
+- CI steps: checkout → setup Python → install → ruff → mypy → pytest --cov.
+- Matrix over Python versions; require green CI before merging.
+@example python: A factory fixture and boundary tests, run by pytest
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("test_library.py").write_text('''
+from datetime import date, timedelta
+import pytest
+
+class LimitReached(Exception): pass
+
+class Library:
+    MAX = 3
+    def __init__(self):
+        self.loans = {}
+    def lend(self, member, isbn, today):
+        mine = self.loans.setdefault(member, [])
+        if len(mine) >= self.MAX:
+            raise LimitReached(member)
+        mine.append((isbn, today + timedelta(days=14)))
+
+TODAY = date(2026, 11, 20)
+
+@pytest.fixture
+def make_library():
+    def make(**loans_per_member):
+        lib = Library()
+        for member, n in loans_per_member.items():
+            for i in range(n):
+                lib.lend(member, f"isbn-{i}", TODAY)
+        return lib
+    return make
+
+@pytest.mark.parametrize("existing", [0, 1, 2])
+def test_can_borrow_below_limit(make_library, existing):
+    lib = make_library(ada=existing)
+    lib.lend("ada", "new", TODAY)
+    assert len(lib.loans["ada"]) == existing + 1
+
+def test_limit_is_exactly_three(make_library):
+    lib = make_library(ada=3)
+    with pytest.raises(LimitReached):
+        lib.lend("ada", "one-too-many", TODAY)
+
+def test_limit_is_per_member(make_library):
+    lib = make_library(ada=3, ben=0)
+    lib.lend("ben", "x", TODAY)
+    assert len(lib.loans["ben"]) == 1
+
+def test_due_in_two_weeks(make_library):
+    lib = make_library(ada=1)
+    assert lib.loans["ada"][0][1] == date(2026, 12, 4)
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    code = pytest.main(["-v", "-p", "no:cacheprovider", "test_library.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line or " passed" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]|\s+in [\d.]+s", "", line).replace("test_library.py::", "").strip("= "))
+@note
+The factory fixture builds a library with exactly the loans each test describes, so tests read like the rules: below the limit, exactly at the limit, limits are per member, and the due date. Boundaries (0, 1, 2 and exactly 3 loans) are where off-by-one bugs live.
+@example text: A GitHub Actions workflow for every push
+# .github/workflows/ci.yml
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest --cov=src --cov-report=term-missing
+@note
+On every push and pull request, GitHub runs the job twice in parallel, once per Python version in the matrix. Any failing step (lint, formatting, types or tests) turns the run red and, with branch protection, blocks the merge. `ruff format --check` fails instead of rewriting files.
+@mistakes
+- **Tests that depend on the real date.** They pass today and fail next month. Fix "today" in a fixture.
+- **CI that only runs tests.** Add lint, format and type checks so the whole bar is enforced.
+- **Ignoring a red build "for now".** Others then stop trusting CI. Fix or revert quickly.
+@keys
+- Mirror `src/` in `tests/`; share fixtures in `conftest.py`; use factory fixtures.
+- Test rules, boundaries, errors and round trips.
+- CI runs lint, types and tests on every push, across a version matrix.
+- Require green CI before merging; show the badge.

@@ -1,0 +1,444 @@
+=== A7.1
+@idea
+**Type hints** annotate what kinds of values a function takes and returns: `def total(prices: list[float], tax: float = 0.15) -> float:`. Python itself ignores them at run time: they are not checked when the code runs. Their value comes from tools. Editors use them for completion and instant warnings, type checkers like mypy (next lesson) find whole classes of bugs before the code runs, and readers learn a function's contract at a glance.
+
+The vocabulary is small. Built-in types work directly, including generics with element types: `list[str]`, `dict[str, int]`, `tuple[int, int]`, `set[str]`. `X | None` (or `Optional[X]`) says a value may be missing, and `int | str` is a **union**. For parameters, accept the most general thing you need: `Sequence[float]` or `Iterable[str]` from `collections.abc` instead of `list`, so tuples and generators are welcome too; return the most specific thing you produce.
+
+**Generics** let a function or class work for any type while keeping the relationship: `def first[T](items: Sequence[T]) -> T` (Python 3.12 syntax; older code uses `TypeVar`) says "you get back the same type you put in". `Callable[[int, str], bool]` describes functions passed as arguments, and a **Protocol** describes any object with certain methods.
+@how
+- Annotate parameters and returns: `def f(x: int, name: str = "") -> bool:`.
+- Containers: `list[int]`, `dict[str, float]`, `tuple[int, ...]` (any length), `set[str]`.
+- Missing values: `str | None`; unions: `int | float`.
+- Accept abstract types (`Iterable`, `Sequence`, `Mapping`); return concrete ones.
+- Generics: `def first[T](xs: Sequence[T]) -> T:`; classes: `class Box[T]:`.
+- `Callable[[Args...], Return]` for function parameters; `type Alias = ...` for readable aliases.
+@example python: Hints document, but do not enforce, at run time
+from collections.abc import Callable, Iterable, Sequence
+
+def average(values: Iterable[float]) -> float | None:
+    items = list(values)
+    return sum(items) / len(items) if items else None
+
+def first[T](items: Sequence[T]) -> T:
+    return items[0]
+
+def apply_all(funcs: list[Callable[[str], str]], text: str) -> str:
+    for f in funcs:
+        text = f(text)
+    return text
+
+print(average([3, 4, 5]), average(x * 1.5 for x in range(4)), average([]))
+print(first(["tea", "cake"]), first((10, 20)))
+print(apply_all([str.strip, str.title], "  ada lovelace "))
+def double(x: int) -> int:
+    return x * 2
+
+print(double("ha"), "- a str where an int was promised, yet it runs: Python does not check hints")
+print(average.__annotations__)
+@note
+`Iterable[float]` lets callers pass a list or a generator, and the return type says None is possible, which forces callers to think about the empty case. `first` returns whatever element type it is given. `double("ha")` breaks its promise and still runs, returning "haha". Hints are stored in `__annotations__` but never checked by Python itself; catching that call is the type checker's job.
+@example python: Type aliases, TypedDict and a Protocol
+from typing import Protocol, TypedDict
+
+type Point = tuple[float, float]
+
+class Order(TypedDict):
+    item: str
+    qty: int
+
+class HasArea(Protocol):
+    def area(self) -> float: ...
+
+class Circle:
+    def __init__(self, r: float) -> None:
+        self.r = r
+    def area(self) -> float:
+        return round(3.14159 * self.r ** 2, 2)
+
+def distance(a: Point, b: Point) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+def total_qty(orders: list[Order]) -> int:
+    return sum(o["qty"] for o in orders)
+
+def total_area(shapes: list[HasArea]) -> float:
+    return sum(s.area() for s in shapes)
+
+print(distance((0, 0), (3, 4)))
+print(total_qty([{"item": "tea", "qty": 2}, {"item": "cake", "qty": 1}]))
+print(total_area([Circle(1), Circle(2)]))
+@note
+The alias gives a tuple shape a meaningful name. `TypedDict` describes dictionaries with known keys, common with JSON data. `HasArea` accepts any object with an `area` method, so Circle qualifies without inheriting from anything.
+@mistakes
+- **Expecting hints to stop bad values at run time.** They do not; run a type checker, and validate external input separately.
+- **Annotating parameters as `list` when any iterable would do.** Callers with tuples or generators get false errors. Use `Iterable` or `Sequence`.
+- **Using `Any` everywhere.** It switches checking off. Prefer a precise type or a Protocol.
+@keys
+- Hints describe types for tools and readers; Python does not enforce them.
+- `list[int]`, `dict[str, int]`, `X | None`, unions and aliases cover most needs.
+- Accept general types, return specific ones.
+- Generics keep type relationships; Protocols describe behaviour.
+
+=== A7.2
+@idea
+**mypy** reads your annotated code without running it and reports places where types do not fit: calling a method on something that might be None, adding a number to a string, passing the wrong argument, returning the wrong type. These are exactly the bugs that slip past quick manual tests and appear in production on the one code path nobody tried.
+
+By default mypy only checks functions that have annotations, so untyped code passes silently. **Strict mode** (`mypy --strict`, or `strict = true` in `pyproject.toml`) also requires every function to be annotated and turns on many extra checks. Start strict on new projects; on old ones, enable it module by module.
+
+Reading the errors is a skill. Each line names the file, the line, the problem and an error code in brackets (`[index]`, `[arg-type]`, `[union-attr]`). The most common fix is **narrowing**: proving to the checker that a value is a particular type. After `if x is None: return`, mypy knows `x` is not None; `isinstance` checks narrow unions the same way. `Literal["asc", "desc"]` restricts a parameter to exact values, and `assert_never` in the last branch of a `match` makes mypy confirm every case is handled.
+@how
+- `pip install mypy` (or `uv add --dev mypy`); run `mypy src/` or `mypy --strict file.py`.
+- Configure in `pyproject.toml`: `[tool.mypy]` with `strict = true`.
+- Narrow with `if x is None:`, `isinstance(x, str)`, early returns, or `match`.
+- `Literal[...]` for fixed string options; `TypedDict` for dict shapes.
+- `assert_never(x)` in the final branch makes missing cases a type error.
+- Silence one line only when you must: `# type: ignore[code]`, with the code.
+@example bash: mypy finding three real bugs
+$ cat orders.py
+from typing import TypedDict
+
+class Order(TypedDict):
+    item: str
+    qty: int
+
+def total_qty(orders: list[Order]) -> int:
+    return sum(o["qty"] for o in orders)
+
+def find(orders: list[Order], item: str) -> Order | None:
+    for o in orders:
+        if o["item"] == item:
+            return o
+    return None
+
+def describe(orders: list[Order]) -> str:
+    tea = find(orders, "tea")
+    return f"{tea['qty']} teas"           # line 22
+
+def parse_qty(text):                      # line 25: no annotations
+    return int(text)
+
+orders: list[Order] = [{"item": "tea", "qty": "2"}]
+print(total_qty(orders) + "3")
+$ mypy orders.py
+orders.py:22: error: Value of type "Order | None" is not indexable  [index]
+orders.py:29: error: Incompatible types (expression has type "str", TypedDict item "qty" has type "int")  [typeddict-item]
+orders.py:30: error: Unsupported operand types for + ("int" and "str")  [operator]
+Found 3 errors in 1 file (checked 1 source file)
+$ mypy --strict orders.py
+orders.py:22: error: Value of type "Order | None" is not indexable  [index]
+orders.py:25: error: Function is missing a type annotation  [no-untyped-def]
+...
+Found 4 errors in 1 file (checked 1 source file)
+@note
+Without running anything, mypy found that `describe` crashes when there is no tea, that a quantity was given as text, and that an int is added to a string. Strict mode added a fourth complaint: `parse_qty` has no annotations at all. Recorded with mypy 2.3.
+@example python: Narrowing, Literal and assert_never
+from typing import Literal, assert_never
+
+type Shape = Literal["circle", "square", "triangle"]
+
+def label(value: int | str | None) -> str:
+    if value is None:
+        return "missing"
+    if isinstance(value, int):
+        return f"number {value:,}"          # here mypy knows value is an int
+    return f"text {value.upper()}"           # and here, a str
+
+def area(shape: Shape, size: float) -> float:
+    match shape:
+        case "circle":
+            return round(3.14159 * size ** 2, 2)
+        case "square":
+            return size ** 2
+        case "triangle":
+            return round(size ** 2 * 3 ** 0.5 / 4, 2)
+        case _:
+            assert_never(shape)              # mypy errors if a case is missing
+
+print(label(None), "|", label(1234567), "|", label("ok"))
+print([area(s, 2) for s in ("circle", "square", "triangle")])
+@note
+Each check narrows the union, so `value.upper()` is only reached when `value` is a string, and mypy knows it. With `assert_never` in the last branch, deleting the "triangle" case would make mypy report that a triangle can reach a branch meant to be impossible.
+@mistakes
+- **Running mypy without strict mode on new code.** Unannotated functions are skipped silently.
+- **`# type: ignore` without an error code.** It hides future errors on that line too. Add the code, or fix the cause.
+- **Casting to make errors go away.** `cast` tells mypy to trust you. Narrow with real checks instead.
+@keys
+- mypy finds type bugs without running the code.
+- Strict mode requires annotations and enables extra checks.
+- Narrow unions with None checks, `isinstance` and `match`.
+- `Literal`, `TypedDict` and `assert_never` make the types precise and complete.
+
+=== A7.3
+@idea
+Two kinds of tool keep code consistent automatically. A **formatter** rewrites code into one standard layout (spacing, line breaks, quotes) so nobody spends review time on style. A **linter** reads code and reports likely bugs and bad patterns: unused imports, undefined names, bare `except`, mutable default arguments, outdated syntax. **Ruff** does both, extremely quickly: `ruff check` lints, `ruff format` formats in a style compatible with Black.
+
+Ruff's rules are grouped by letter codes taken from the tools it replaces: `E`/`W` (pycodestyle style), `F` (pyflakes: real errors like unused or undefined names), `I` (import sorting), `UP` (pyupgrade: modern syntax), `B` (bugbear: likely bugs), `SIM` (simplifications). Choose the groups in `[tool.ruff.lint]` of `pyproject.toml`. Many problems are fixed automatically with `--fix`; the rest need a human.
+
+To make the checks unavoidable, run them on every commit with **pre-commit**, a tool that runs configured hooks when you `git commit`, and again in CI. Then style is never discussed in reviews and many bugs never reach the repository.
+@how
+- `ruff check .` lints; `ruff check --fix .` repairs what it safely can; `ruff format .` formats.
+- `[tool.ruff]` `line-length`, `target-version`; `[tool.ruff.lint]` `select = ["E", "F", "I", "UP", "B", "SIM"]`.
+- Ignore a rule on one line with `# noqa: E501`; per-file ignores in config for tests.
+- pre-commit: a `.pre-commit-config.yaml` listing the ruff hooks, then `pre-commit install`.
+- Run the same commands in CI so nothing unformatted is merged.
+@example bash: Ruff checks, fixes and formats a messy file
+$ cat messy.py
+import os, sys
+from typing import List, Optional
+import json
+
+def load(path: str, cache: dict = {}) -> Optional[List[str]]:
+    if path in cache: return cache[path]
+    try:
+        data = json.load(open(path))
+    except:
+        return None
+    result = [ str(x) for x in data ]
+    cache[path]=result
+    return result
+$ ruff check messy.py
+messy.py:1:1: E401 [*] Multiple imports on one line
+messy.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+messy.py:1:8: F401 [*] `os` imported but unused
+messy.py:1:12: F401 [*] `sys` imported but unused
+messy.py:2:1: UP035 `typing.List` is deprecated, use `list` instead
+messy.py:5:35: B006 Do not use mutable data structures for argument defaults
+messy.py:5:42: UP045 [*] Use `X | None` for type annotations
+messy.py:5:51: UP006 [*] Use `list` instead of `List` for type annotation
+messy.py:6:21: E701 Multiple statements on one line (colon)
+messy.py:8:26: SIM115 Use a context manager for opening files
+messy.py:9:5: E722 Do not use bare `except`
+Found 11 errors.
+[*] 6 fixable with the `--fix` option.
+$ ruff check --fix messy.py
+messy.py:4:35: B006 Do not use mutable data structures for argument defaults
+messy.py:5:21: E701 Multiple statements on one line (colon)
+messy.py:7:26: SIM115 Use a context manager for opening files
+messy.py:8:5: E722 Do not use bare `except`
+Found 12 errors (8 fixed, 4 remaining).
+$ ruff format messy.py
+1 file reformatted
+$ cat messy.py
+import json
+
+
+def load(path: str, cache: dict = {}) -> list[str] | None:
+    if path in cache:
+        return cache[path]
+    try:
+        data = json.load(open(path))
+    except:
+        return None
+    result = [str(x) for x in data]
+    cache[path] = result
+    return result
+@note
+`--fix` removed unused imports, sorted the rest and modernised the type hints; `format` fixed the layout. What remains needs judgement: the mutable default, the file opened without `with`, and the bare `except` are real design problems that a tool should flag but not guess at. Recorded with ruff 0.16.
+@example toml: Configuration and a pre-commit hook
+# --- pyproject.toml ---
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]          # assert False is fine in tests
+
+# --- .pre-commit-config.yaml ---
+# repos:
+#   - repo: https://github.com/astral-sh/ruff-pre-commit
+#     rev: v0.16.9
+#     hooks:
+#       - id: ruff-check
+#         args: [--fix]
+#       - id: ruff-format
+#
+# then once per clone:  pre-commit install
+@note
+The rules live in the project, so everyone and CI run the same checks. Per-file ignores relax a rule only where it makes sense. After `pre-commit install`, every `git commit` runs Ruff first and stops the commit if problems remain.
+@mistakes
+- **Arguing about style in reviews.** Let the formatter decide.
+- **Blanket `# noqa` comments.** They hide real problems. Name the rule, and use them sparingly.
+- **Running checks only on your own machine.** Add them to pre-commit and CI.
+@keys
+- A formatter fixes layout; a linter finds likely bugs.
+- Ruff does both; choose rule groups in `pyproject.toml`.
+- `--fix` repairs the mechanical problems; design problems need you.
+- pre-commit and CI make the checks automatic.
+
+=== A7.4
+@idea
+Documentation has layers. **Names and type hints** document what something is; **docstrings** document how to use it; a **README** documents the project as a whole. A docstring is the string literal right after a `def`, `class` or module line. Its first line is a one-sentence summary in the imperative ("Return the mean of the values."), followed if needed by a blank line and details: parameters, return value, exceptions raised and an example.
+
+Projects pick one **style** and stick to it. Google style uses headings like `Args:`, `Returns:` and `Raises:`; NumPy style uses underlined sections; reStructuredText uses `:param x:` fields. All are read by `help()`, editors and documentation generators like Sphinx or MkDocs.
+
+Examples in docstrings can be **doctests**: written as `>>>` sessions, they are run by `python -m doctest file.py -v` or `pytest --doctest-modules`, so they stay correct. The **README** answers, in order: what the project is, why it is useful, how to install it, how to use it (with a real example and its output), and how to contribute or run the tests. Write it for someone who has never seen the code and has two minutes.
+@how
+- First line: imperative summary ending with a period; blank line; details.
+- Google style: `Args:`, `Returns:`, `Raises:`, `Example:` sections.
+- Document behaviour, not implementation; keep it next to the code it describes.
+- Doctests: `>>> call` then expected output; run with `pytest --doctest-modules`.
+- README: what, why, install, usage with real output, development, licence.
+- `help(obj)` and `obj.__doc__` show docstrings.
+@example python: A Google-style docstring with doctests that run
+import doctest
+
+def split_bill(total: float, people: int, tip: float = 0.15) -> list[float]:
+    """Split a bill so the shares add up exactly to the total with tip.
+
+    Shares are rounded to cents; any leftover cents go to the first people.
+
+    Args:
+        total: The bill before tip.
+        people: How many people share it. Must be at least 1.
+        tip: Tip as a fraction, such as 0.15 for 15%.
+
+    Returns:
+        One amount per person, largest first.
+
+    Raises:
+        ValueError: If ``people`` is less than 1.
+
+    Example:
+        >>> split_bill(100, 3)
+        [38.34, 38.33, 38.33]
+        >>> round(sum(split_bill(100, 3)), 2)
+        115.0
+        >>> split_bill(10, 0)
+        Traceback (most recent call last):
+        ValueError: people must be at least 1
+    """
+    if people < 1:
+        raise ValueError("people must be at least 1")
+    cents = round(total * (1 + tip) * 100)
+    base, extra = divmod(cents, people)
+    return [(base + (i < extra)) / 100 for i in range(people)]
+
+print(doctest.testmod())
+print(split_bill.__doc__.splitlines()[0])
+@note
+The docstring tells a reader everything needed to call the function correctly, including the rounding rule and the error. Its three examples ran as tests and passed, so the documentation is guaranteed to match the code. `help(split_bill)` would show the same text.
+@example text: A README skeleton that answers the first questions
+# tipsplit
+
+Split restaurant bills fairly, down to the cent, from the command line.
+Shares always add up to the exact total.
+
+## Install
+
+    pipx install tipsplit
+
+## Usage
+
+    $ tipsplit 100 3 --tip 15
+    3 people pay: 38.34, 38.33, 38.33  (total 115.00)
+
+## Why
+
+Splitting by hand loses or invents cents. tipsplit gives leftover
+cents to the first people, so the restaurant gets exactly the total.
+
+## Development
+
+    git clone https://github.com/you/tipsplit
+    cd tipsplit && uv sync
+    uv run pytest          # includes the doctests
+
+## Licence
+
+MIT
+@note
+A stranger learns what it is, how to install it and what using it looks like before reading any code. The "Why" section states the one behaviour that makes the project worth using, and the development section shows how to run the tests.
+@mistakes
+- **Docstrings that repeat the code** ("Loops over items and adds them"). Say what it does for the caller and what to watch for.
+- **Examples that are never run.** They rot. Make them doctests.
+- **A README without install steps or example output.** Readers leave before trying it.
+@keys
+- First line: an imperative one-sentence summary.
+- Pick one docstring style; document args, returns and raises.
+- Doctests keep examples correct.
+- READMEs answer what, why, install, usage and development in two minutes.
+
+=== A7.P
+@idea
+The project brings the module 4 library system up to a **professional bar**: fully type-hinted, passing `mypy --strict`, clean under Ruff with a sensible rule set, formatted, with docstrings on every public function and a README that explains it. It is the kind of polish that makes code reviewers and future maintainers trust a codebase.
+
+Work in passes, committing after each. **Format** first (`ruff format`), because it touches every file and makes later diffs readable. Then **lint** with `--fix`, and fix the remaining warnings by hand. Then **types**: turn on strict mode, annotate public functions first, and work through the errors file by file; most will be missing annotations and `None` cases that need narrowing, and a few will be real bugs. Finally **documentation**: docstrings with examples, and the README.
+
+Put the configuration in `pyproject.toml` and the commands in pre-commit and CI, so the bar stays where you raised it. A common trick for legacy code is a per-module override (`[[tool.mypy.overrides]]`) that relaxes strictness only for files not yet converted, so new code is held to the full standard immediately.
+@how
+- Order: format → lint (`--fix`, then by hand) → type check (strict) → docs.
+- One commit per pass, so each is easy to review.
+- `[tool.mypy] strict = true`; overrides for not-yet-converted modules or untyped third-party packages.
+- Fix `None` errors by narrowing or by changing the design so None is impossible.
+- Add a `py.typed` marker file if others will import your typed package.
+@example toml: Strict settings with a gradual path
+# --- pyproject.toml ---
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = "library.legacy_import"     # converted last; relaxed until then
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "barcode_reader.*"          # a third-party package without hints
+ignore_missing_imports = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
+@note
+New and converted code is held to strict mode at once, while one legacy module and one untyped dependency get narrow, named exceptions. Each override is a to-do item you can remove later, instead of weakening the rules for the whole project.
+@example python: Before and after: the kinds of changes strict typing asks for
+from dataclasses import dataclass, field
+from datetime import date
+
+# Before: def find_member(members, member_id): return members.get(member_id)
+#         ... later: find_member(m, "42").name  -> crashes when the id is unknown
+
+@dataclass
+class Member:
+    id: str
+    name: str
+    loans: list[str] = field(default_factory=list)
+
+class UnknownMember(LookupError):
+    pass
+
+def find_member(members: dict[str, Member], member_id: str) -> Member:
+    """Return the member with this id.
+
+    Raises:
+        UnknownMember: If no member has this id.
+    """
+    try:
+        return members[member_id]
+    except KeyError:
+        raise UnknownMember(f"no member with id {member_id!r}") from None
+
+def due_soon(loans: dict[str, date], today: date, days: int = 3) -> list[str]:
+    """Return the ISBNs due within ``days`` days, soonest first."""
+    return sorted((isbn for isbn, due in loans.items() if 0 <= (due - today).days <= days), key=loans.__getitem__)
+
+members = {"42": Member("42", "Ada")}
+print(find_member(members, "42").name)
+try:
+    find_member(members, "7")
+except UnknownMember as error:
+    print("UnknownMember:", error)
+print(due_soon({"111": date(2026, 11, 22), "222": date(2026, 11, 21), "333": date(2026, 12, 9)}, date(2026, 11, 20)))
+@note
+The old version returned `Member | None`, so mypy would flag every caller that used `.name` directly. Instead of adding None checks everywhere, the design changed: an unknown id raises a specific exception, so the return type is simply `Member`. That is often the best answer to a type error.
+@mistakes
+- **Turning on everything at once in a big codebase.** You drown in errors. Go module by module, with overrides.
+- **Silencing type errors instead of reading them.** Some are real bugs.
+- **Mixing formatting changes with logic changes in one commit.** Reviews become impossible. Separate them.
+@keys
+- Raise the bar in passes: format, lint, types, docs.
+- Strict mypy with narrow, named overrides for legacy code.
+- Many None errors are best fixed by changing the design.
+- Keep the configuration in the project and enforce it in pre-commit and CI.

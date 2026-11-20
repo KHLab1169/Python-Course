@@ -1,0 +1,508 @@
+=== A9.1
+@idea
+Before making code faster, find out where the time actually goes. Intuition is famously bad at this: the slow part is usually a surprise, and optimising the wrong part makes code more complicated for no gain. The workflow is always the same: **measure**, change one thing, measure again.
+
+For a small snippet, `timeit` runs it many times and reports the total, which smooths out noise from other programs. Use `timeit.repeat` and take the **minimum** of several repeats: noise only ever makes code slower, so the fastest run is closest to the true cost. For a whole program, a **profiler** shows how time is spread across functions. `cProfile` records every call: `ncalls` (how many times), `tottime` (time inside the function itself) and `cumtime` (including everything it calls). Sort by `cumtime` to find the expensive branch of the call tree, then by `tottime` to find the function doing the actual work.
+
+Knowing the cost of common patterns helps you read profiles. String building with `+=` in a loop, membership tests on lists, repeated attribute lookups in hot loops, recomputing the same value, and creating objects you throw away are frequent culprits; `"".join`, sets, local variables, caching and generators are the usual cures.
+@how
+- `timeit.timeit(stmt, setup, number=N)`; `min(timeit.repeat(..., repeat=5))` for a robust figure.
+- From the shell: `python -m timeit -s "setup" "statement"`.
+- Profile a program: `python -m cProfile -s cumulative app.py`.
+- In code: `cProfile.Profile()`, `runcall(fn)`, then `pstats.Stats(p).sort_stats("cumulative").print_stats(10)`.
+- `tottime` = own time; `cumtime` = own + callees.
+- Change one thing at a time and re-measure; keep the simple version as a reference.
+@example python: Reading a profile
+import cProfile
+import io
+import pstats
+
+def parse(lines):
+    return [line.split(",") for line in lines]
+
+def is_known(code, known):
+    return code in known                      # known is a list: a linear search every time
+
+def report(rows, known):
+    return sum(1 for row in rows if is_known(row[0], known))
+
+def main():
+    lines = [f"C{i % 5000},x,y" for i in range(20_000)]
+    known = [f"C{i}" for i in range(0, 5000, 2)]
+    return report(parse(lines), known)
+
+profiler = cProfile.Profile()
+result = profiler.runcall(main)
+stats = pstats.Stats(profiler, stream=io.StringIO())
+rows = []
+for (file, line, name), (cc, ncalls, tottime, cumtime, callers) in stats.stats.items():
+    if name in {"parse", "is_known", "report", "main"}:
+        rows.append((cumtime, name, ncalls, tottime))
+total = max(r[0] for r in rows)
+for cumtime, name, ncalls, tottime in sorted(rows, reverse=True):
+    print(f"{name:9} calls={ncalls:>6}  share of total time: {'most' if tottime / total > 0.5 else 'some' if tottime / total > 0.05 else 'little'}")
+print("matches:", result)
+@note
+The rows are sorted by cumulative time, so `main` and `report` come first, but the function doing the work, with the largest own time and 20,000 calls, is `is_known`: a list search repeated for every row. Changing `known` to a set would remove almost all of it. The real times vary by machine, so the example prints the shares instead.
+@example python: Measuring a fix properly with repeat
+import timeit
+
+setup = "words = ['tea'] * 20_000; known = list(range(3000)); known_set = set(known)"
+cases = {
+    "+= in a loop": "s = ''\nfor w in words: s += w",
+    "''.join": "s = ''.join(words)",
+    "x in list": "2999 in known",
+    "x in set": "2999 in known_set",
+}
+best = {name: min(timeit.repeat(stmt, setup, number=200, repeat=5)) for name, stmt in cases.items()}
+print("join beats += :", best["''.join"] < best["+= in a loop"])
+print("set beats list by over 10x:", best["x in list"] > 10 * best["x in set"])
+@note
+Each snippet ran 200 times in each of five repeats, and the minimum was kept, the most reliable estimate of the true cost. Comparing the best times answers the question with evidence. Exact numbers differ per computer, so only the conclusions are printed.
+@mistakes
+- **Optimising without profiling.** You will likely speed up the wrong thing.
+- **Trusting one timing run.** Use `repeat` and the minimum.
+- **Reading only `cumtime`.** The parent functions look slow because of their children. Check `tottime` to find the real work.
+@keys
+- Measure, change one thing, measure again.
+- `timeit` for snippets (take the minimum of repeats), `cProfile` for programs.
+- `cumtime` finds the expensive branch; `tottime` the function doing the work.
+- Common fixes: sets for lookups, `join` for strings, caching, generators.
+
+=== A9.2
+@idea
+A **thread** is an independent path of execution inside one process; all threads share the same memory. Python threads are real operating-system threads, but in standard CPython the **GIL** allows only one of them to execute Python bytecode at a time. The GIL is released whenever a thread waits on I/O (network, disk, `time.sleep`), so threads are excellent for **I/O-bound** work: fifty downloads that each spend most of their time waiting finish in roughly the time of the slowest one. For **CPU-bound** pure-Python work they bring no speed-up (use processes, next lesson).
+
+`concurrent.futures.ThreadPoolExecutor` is the comfortable interface: submit work, get **futures** back, collect results with `executor.map` or `as_completed`. A pool caps the number of threads, which also protects servers you are calling.
+
+Shared memory brings **race conditions**: when two threads read-modify-write the same data, updates can be lost, because a thread can be paused between reading and writing. Protect shared state with a `threading.Lock` (`with lock:`), or better, avoid sharing: have each task return its result and combine results in the main thread, or pass work through a `queue.Queue`, which is thread-safe.
+@how
+- `with ThreadPoolExecutor(max_workers=8) as ex: results = list(ex.map(fetch, urls))`.
+- `as_completed(futures)` yields futures as they finish; `future.result()` re-raises errors.
+- Threads help when tasks wait (network, disk); not for pure-Python CPU work.
+- Protect shared mutable state with `lock = threading.Lock()` and `with lock:`.
+- Prefer returning results over mutating shared data; `queue.Queue` for producer/consumer.
+@example python: Waiting in parallel with a thread pool
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def fetch(name, seconds):
+    time.sleep(seconds)                       # stands in for waiting on a server
+    if name == "broken":
+        raise ConnectionError(f"{name} did not answer")
+    return f"{name}: ok"
+
+jobs = {"weather": 0.3, "news": 0.2, "rates": 0.25, "broken": 0.1, "maps": 0.35}
+start = time.perf_counter()
+with ThreadPoolExecutor(max_workers=5) as pool:
+    futures = {pool.submit(fetch, name, s): name for name, s in jobs.items()}
+    for future in as_completed(futures):
+        try:
+            print(future.result())
+        except ConnectionError as error:
+            print("failed:", error)
+elapsed = time.perf_counter() - start
+print("about as long as the slowest job, not the sum:", elapsed < 0.6)
+@note
+The five waits overlapped, so the whole batch took about 0.35 seconds instead of 1.2. Results arrived in order of completion, and the failure surfaced when its `result()` was called, without disturbing the others.
+@example python: A race condition, and two fixes
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+class Counter:
+    def __init__(self):
+        self.value = 0
+        self.lock = threading.Lock()
+    def unsafe_add(self, n):
+        for _ in range(n):
+            current = self.value
+            time.sleep(0)                 # a pause between read and write; real code pauses unpredictably
+            self.value = current + 1
+    def safe_add(self, n):
+        for _ in range(n):
+            with self.lock:
+                self.value += 1
+
+def run(method, threads=8, n=500):
+    c = Counter()
+    ts = [threading.Thread(target=getattr(c, method), args=(n,)) for _ in range(threads)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    return c.value
+
+print("expected:", 8 * 500)
+print("unsafe lost some updates:", run("unsafe_add") < 8 * 500)
+print("with a lock:", run("safe_add"))
+
+def count_words(text):
+    return len(text.split())
+with ThreadPoolExecutor(4) as pool:
+    print("no sharing at all:", sum(pool.map(count_words, ["a b c", "d e", "f", "g h i j"])))
+@note
+Without a lock, threads interrupted each other between reading and writing `value`, and updates were lost. The `sleep(0)` only makes the unlucky timing happen every time; in real code it happens rarely and at random, which is what makes races so hard to debug. The lock makes the read-modify-write one indivisible step. The last version avoids the problem entirely: each task returns a result and the main thread adds them up.
+@mistakes
+- **Threads for CPU-heavy Python code.** The GIL serialises it. Use processes.
+- **Unprotected shared counters or lists.** Updates get lost or corrupted. Lock, or return results instead.
+- **Unlimited threads.** Thousands of threads waste memory and overload servers. Use a pool with `max_workers`.
+@keys
+- Threads share memory; the GIL lets one run Python bytecode at a time but is released while waiting.
+- Thread pools speed up I/O-bound work; collect results with futures.
+- Shared mutable state needs locks, or better, no sharing.
+- Errors inside tasks surface when you call `future.result()`.
+
+=== A9.3
+@idea
+For **CPU-bound** work (number crunching, image processing, parsing big files) in pure Python, the way past the GIL is **multiple processes**. Each process has its own interpreter and its own GIL, so on a machine with several cores they truly run in parallel. `concurrent.futures.ProcessPoolExecutor` offers the same interface as the thread pool: `submit`, `map`, `as_completed`.
+
+Processes do not share memory, so arguments and results are **pickled** (serialised), sent to the worker, and pickled back. That has consequences. The function and its arguments must be picklable: top-level functions work, lambdas and nested functions do not. Sending large data back and forth costs time, so give each worker a substantial chunk of work (use `chunksize` with `map`) and return small results.
+
+Starting workers is not free either: a fresh interpreter must start and import your module. On Windows and macOS the default start method is **spawn**, which re-imports your main script in each worker, which is why process code **must** sit under `if __name__ == "__main__":`; otherwise every worker would start more workers. For small or quick tasks, the overhead can exceed the gain, so measure.
+@how
+- `with ProcessPoolExecutor() as ex: results = list(ex.map(work, items, chunksize=100))`.
+- Workers default to the number of CPU cores (`os.cpu_count()`).
+- Only top-level, picklable functions and arguments; no lambdas.
+- Keep data transfer small; give each task real work.
+- Always guard the entry point with `if __name__ == "__main__":`.
+- Measure: process start-up and pickling can outweigh the speed-up for small jobs.
+@example python: Real parallelism for CPU-bound work
+import os
+import sys
+import time
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+Path("primes.py").write_text('''
+def count_primes(limit):
+    count = 0
+    for n in range(2, limit):
+        if all(n % d for d in range(2, int(n ** 0.5) + 1)):
+            count += 1
+    return count
+''')
+sys.path.insert(0, os.getcwd())
+from primes import count_primes
+
+def main():
+    chunks = [60_000] * 4
+    start = time.perf_counter()
+    serial = [count_primes(c) for c in chunks]
+    t_serial = time.perf_counter() - start
+
+    start = time.perf_counter()
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        parallel = list(pool.map(count_primes, chunks))
+    t_parallel = time.perf_counter() - start
+
+    print("same answers:", serial == parallel, serial[0])
+    cores = os.cpu_count() or 1
+    if cores >= 2:
+        print("processes faster than serial on this", "multi-core machine:", t_parallel < t_serial)
+    else:
+        print("only one core here, so no speed-up is possible")
+
+if __name__ == "__main__":
+    main()
+@note
+The worker function lives in its own module so the worker processes can import it, and the entry point is guarded. With several cores, the four chunks run at the same time; each process has its own GIL. Only small numbers travel between processes, so pickling costs almost nothing here.
+@example python: What cannot be pickled, and the cost of tiny tasks
+import pickle
+
+def top_level(x):
+    return x * 2
+
+for thing in [top_level, [1, 2, 3], {"a": (1, 2)}, lambda x: x * 2]:
+    try:
+        pickle.dumps(thing)
+        print("picklable:    ", getattr(thing, "__name__", type(thing).__name__))
+    except (pickle.PicklingError, AttributeError) as error:
+        print("NOT picklable:", getattr(thing, "__name__", "?"), "-", type(error).__name__)
+
+big = list(range(1_000_000))
+print("a million ints pickle to about", len(pickle.dumps(big)) // 1_000_000, "MB that must be copied to a worker")
+@note
+Top-level functions are pickled by name, so workers can import them; a lambda has no importable name and is refused. Large arguments are copied to each worker, which is why process pools work best with small inputs and outputs and plenty of computation in between.
+@mistakes
+- **Missing the `__main__` guard.** On spawn platforms, workers re-run your script and fail or multiply.
+- **Lambdas or nested functions as tasks.** They cannot be pickled. Use top-level functions.
+- **Processes for tiny tasks.** Start-up and pickling dominate. Batch work with `chunksize` or stay serial.
+@keys
+- Processes sidestep the GIL: one interpreter per core.
+- Arguments and results are pickled: keep them small and picklable.
+- Guard the entry point with `if __name__ == "__main__":`.
+- Worth it for substantial CPU work; measure the overhead.
+
+=== A9.4
+@idea
+**asyncio** runs many I/O-bound tasks concurrently in a **single thread**. An `async def` function is a **coroutine**; calling it creates a coroutine object, and nothing runs until it is awaited or scheduled. At each `await` on something that waits (a network read, `asyncio.sleep`), the coroutine pauses and the **event loop** runs another one that is ready. Because switches only happen at `await`, there are no surprise interruptions mid-statement, so races are much rarer than with threads.
+
+Concurrency comes from **tasks**. `asyncio.gather(a(), b(), c())` runs coroutines together and returns their results in order. `asyncio.TaskGroup` (3.11+) is the modern, safer form: tasks started in an `async with` block are all awaited at the end, and if one fails, the others are cancelled and the errors are raised together. `asyncio.timeout(2)` puts a deadline on anything.
+
+To avoid overwhelming a server, limit concurrency with an `asyncio.Semaphore`. For pipelines, an `asyncio.Queue` connects producers and consumers. The one rule never to break: no blocking calls inside coroutines. `time.sleep`, `requests.get` or heavy computation freeze the whole loop; use async libraries (`httpx`, `aiohttp`) or push blocking work to a thread with `asyncio.to_thread`.
+@how
+- `async def f(): ...`; `await` inside; start with `asyncio.run(main())`.
+- `await asyncio.gather(*coros)` or `async with asyncio.TaskGroup() as tg: tg.create_task(coro)`.
+- `async with asyncio.timeout(seconds):` raises TimeoutError when exceeded.
+- `sem = asyncio.Semaphore(5)`; `async with sem:` around the limited section.
+- `asyncio.Queue` for producer/consumer pipelines.
+- Never block: `await asyncio.sleep`, async HTTP clients, `await asyncio.to_thread(blocking_fn)`.
+@example python: TaskGroup, a semaphore and a timeout
+import asyncio
+
+active = 0
+peak = 0
+
+async def fetch(name, seconds, sem):
+    global active, peak
+    async with sem:
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(seconds)
+        active -= 1
+        return f"{name} ({seconds}s)"
+
+async def main():
+    sem = asyncio.Semaphore(3)
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(fetch(f"page{i}", 0.1, sem)) for i in range(9)]
+    print([t.result() for t in tasks][:3], "...")
+    print("never more than 3 at once:", peak, "| took about 3 rounds:", 0.25 < loop.time() - start < 0.5)
+
+    try:
+        async with asyncio.timeout(0.15):
+            await fetch("slow", 1.0, sem)
+    except TimeoutError:
+        print("gave up on the slow page after 0.15 s")
+
+asyncio.run(main())
+@note
+Nine fetches ran concurrently, but the semaphore let only three proceed at a time, so they finished in three rounds of 0.1 seconds. The TaskGroup waited for all of them before the block ended. The timeout cancelled the slow fetch instead of waiting a full second.
+@example python: A producer-consumer pipeline with a queue, and errors in a TaskGroup
+import asyncio
+
+async def producer(queue, n):
+    for i in range(1, n + 1):
+        await queue.put(i)
+    await queue.put(None)                      # signal: no more work
+
+async def consumer(queue, results):
+    while (item := await queue.get()) is not None:
+        await asyncio.sleep(0.01)              # pretend to process it
+        results.append(item * item)
+
+async def flaky(n):
+    await asyncio.sleep(0.01 * n)
+    if n == 2:
+        raise ValueError(f"task {n} failed")
+    return n
+
+async def main():
+    queue, results = asyncio.Queue(maxsize=2), []
+    await asyncio.gather(producer(queue, 5), consumer(queue, results))
+    print("squares:", results)
+
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for n in range(1, 4):
+                tg.create_task(flaky(n))
+    except* ValueError as group:
+        print("TaskGroup raised:", [str(e) for e in group.exceptions])
+
+asyncio.run(main())
+@note
+The bounded queue (maxsize 2) makes the producer wait whenever the consumer falls behind, which is natural back-pressure. When one task in the TaskGroup failed, the remaining task was cancelled and the error came out as an exception group, handled with `except*`.
+@mistakes
+- **Calling blocking functions in a coroutine** (`time.sleep`, `requests`). The whole loop freezes. Use async versions or `to_thread`.
+- **Forgetting `await`.** The coroutine never runs, and Python warns "coroutine was never awaited".
+- **Unlimited concurrency against a server.** You may be rate-limited or banned. Use a semaphore.
+@keys
+- Coroutines pause at `await`, letting one thread juggle many waits.
+- `gather` and `TaskGroup` run tasks concurrently; TaskGroup cancels siblings on failure.
+- Timeouts, semaphores and queues control deadlines, load and flow.
+- Never block the event loop.
+
+=== A9.5
+@idea
+Choosing a concurrency model starts with one question: **what is the program waiting for?** If it mostly waits on the network, disk or a database, it is **I/O-bound**; if it keeps a CPU core busy calculating, it is **CPU-bound**. Profile or simply watch CPU usage: a slow program at 5% CPU is waiting; one at 100% of a core is computing.
+
+For **I/O-bound** work, threads and asyncio both overlap the waiting. **Threads** fit when you use ordinary blocking libraries (`requests`, database drivers) and need tens to a few hundred concurrent operations; the code stays familiar. **asyncio** fits when you need thousands of concurrent connections, fine-grained control (timeouts, cancellation, back-pressure), or you are already in an async framework; it requires async libraries throughout. For **CPU-bound** pure-Python work, use **processes**, or move the hot loop into a library that releases the GIL (NumPy, compiled extensions).
+
+**Mixed** workloads combine them: an asyncio program can push blocking calls to threads with `asyncio.to_thread` and CPU work to a process pool with `loop.run_in_executor`. And often the best answer is none of these: a better algorithm, caching, batching requests, or doing less work beats adding concurrency, which always adds complexity.
+@how
+- Low CPU while slow → I/O-bound; one core at 100% → CPU-bound.
+- I/O-bound with blocking libraries → `ThreadPoolExecutor`.
+- Many connections, async libraries, need for cancellation → asyncio.
+- CPU-bound Python → `ProcessPoolExecutor` or NumPy/compiled code.
+- Mixed → asyncio plus `to_thread` / `run_in_executor`.
+- First try the cheaper wins: algorithms, caching, batching.
+@example python: Diagnosing a task by its CPU use
+import time
+
+def io_task():
+    time.sleep(0.2)                            # waiting, not computing
+
+def cpu_task():
+    return sum(i * i for i in range(1_500_000))
+
+def classify(fn):
+    wall_start, cpu_start = time.perf_counter(), time.process_time()
+    fn()
+    wall = time.perf_counter() - wall_start
+    cpu = time.process_time() - cpu_start
+    busy = cpu / wall
+    kind = "CPU-bound -> processes" if busy > 0.7 else "I/O-bound -> threads or asyncio"
+    print(f"{fn.__name__:8} CPU busy {'over 70%' if busy > 0.7 else 'under 70%'} of the time: {kind}")
+
+classify(io_task)
+classify(cpu_task)
+@note
+Comparing CPU time with wall-clock time tells the two kinds apart: the sleeping task used almost no CPU while it waited, while the calculation kept the processor busy the whole time. That ratio is the first thing to check before choosing threads, asyncio or processes.
+@example python: Mixing models: asyncio with threads and processes
+import asyncio
+import time
+from concurrent.futures import ProcessPoolExecutor
+
+def blocking_read(name):
+    time.sleep(0.2)                            # a library with no async version
+    return f"{name} read"
+
+def heavy(n):
+    return sum(i * i for i in range(n))
+
+async def main():
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    reads = await asyncio.gather(*(asyncio.to_thread(blocking_read, f"file{i}") for i in range(4)))
+    print(reads, "| overlapped:", loop.time() - start < 0.5)
+
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        totals = await asyncio.gather(*(loop.run_in_executor(pool, heavy, n) for n in (10, 100)))
+    print("computed in worker processes:", totals)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+@note
+The event loop stayed in charge while four blocking reads ran in threads at once, and CPU work was handed to a process pool, all awaited the same way. This hybrid is how async web servers handle legacy libraries and heavy computations without freezing.
+@mistakes
+- **Choosing a model before diagnosing the bottleneck.** Measure CPU use first.
+- **asyncio with blocking libraries.** You get the complexity without the concurrency.
+- **Adding concurrency when a better algorithm would do.** Concurrency multiplies complexity; try simpler wins first.
+@keys
+- Ask what the program waits for: I/O or CPU.
+- I/O-bound: threads (blocking libraries) or asyncio (many connections, async libraries).
+- CPU-bound: processes or GIL-releasing libraries.
+- Mix with `to_thread` and `run_in_executor`; try algorithms and caching first.
+
+=== A9.P
+@idea
+The project is a **site checker**: given a list of URLs, report each one's status code and response time, and flag the slow and the broken ones. It is the perfect problem to compare **three concurrency models** on the same task, because it is I/O-bound with a clear measure of success.
+
+Build it three times behind one interface, `check_all(urls) -> list[Result]`. Version one is **sequential**: a plain loop, the baseline and the reference for correctness. Version two uses a **thread pool** with a blocking HTTP client. Version three uses **asyncio** with a semaphore (and an async client such as `httpx.AsyncClient` in real use). All three must return identical results for the same input, which your tests can check.
+
+Then **benchmark** honestly: run each version several times against the same targets, report the minimum and median, and vary the number of URLs and the concurrency limit. Develop against a **local test server** with artificial delays and failures, both to make results repeatable and to avoid hammering real websites. Write up what you found in the README: when each model won, and why.
+@how
+- A `Result` dataclass: url, status (or error), elapsed seconds.
+- Same signature for all versions; a test asserts they agree.
+- Every request gets a timeout; failures become results, never crashes.
+- Limit concurrency (pool size or semaphore) and make it a command-line option.
+- Benchmark with repeats; report min and median; test against a local server with delays.
+@example python: Three versions against a local server with delays
+import asyncio
+import threading
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+class Slow(BaseHTTPRequestHandler):
+    def do_GET(self):
+        delay, status = {"/fast": (0.05, 200), "/slow": (0.3, 200), "/missing": (0.05, 404)}.get(self.path, (0.1, 200))
+        time.sleep(delay)
+        self.send_response(status)
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+base = f"http://127.0.0.1:{server.server_address[1]}"
+urls = [base + p for p in ["/fast", "/slow", "/missing", "/a", "/b", "/c"]]
+
+@dataclass(frozen=True)
+class Result:
+    url: str
+    status: int
+
+def check(url):
+    try:
+        with urllib.request.urlopen(url, timeout=2) as r:
+            return Result(url, r.status)
+    except urllib.error.HTTPError as e:
+        return Result(url, e.code)
+
+def sequential(urls):
+    return [check(u) for u in urls]
+
+def threaded(urls, workers=6):
+    with ThreadPoolExecutor(workers) as pool:
+        return list(pool.map(check, urls))
+
+async def with_asyncio(urls, limit=6):
+    sem = asyncio.Semaphore(limit)
+    async def one(u):
+        async with sem:
+            return await asyncio.to_thread(check, u)   # an async HTTP client would go here
+    return await asyncio.gather(*(one(u) for u in urls))
+
+timings = {}
+for name, run in [("sequential", lambda: sequential(urls)), ("threads", lambda: threaded(urls)),
+                  ("asyncio", lambda: asyncio.run(with_asyncio(urls)))]:
+    start = time.perf_counter()
+    results = run()
+    timings[name] = time.perf_counter() - start
+    timings[name + "_results"] = results
+
+print("all three agree:", timings["sequential_results"] == timings["threads_results"] == timings["asyncio_results"])
+print([(r.url.rsplit("/", 1)[1], r.status) for r in timings["threads_results"]])
+print("sequential is roughly the sum of the delays:", timings["sequential"] > 0.6)
+print("threads and asyncio are roughly the slowest delay:", timings["threads"] < 0.5 and timings["asyncio"] < 0.5)
+server.shutdown()
+@note
+A local server with built-in delays makes the comparison repeatable. All three versions return identical results, including the 404, which is what makes the benchmark fair. The sequential version waits for each delay in turn, while the concurrent versions overlap them and finish in about the time of the slowest page.
+@example python: An honest benchmark: repeats, minimum and median
+import statistics
+import time
+
+def benchmark(fn, repeat=5):
+    times = []
+    for _ in range(repeat):
+        start = time.perf_counter()
+        fn()
+        times.append(time.perf_counter() - start)
+    return min(times), statistics.median(times)
+
+def simulated(n_urls, concurrency, delay=0.02):
+    rounds = -(-n_urls // concurrency)           # ceiling division: batches of requests
+    time.sleep(rounds * delay)
+
+print(f"{'urls':>5} {'limit':>5} {'rounds':>6}  faster than limit 1?")
+base = {}
+for n in (10, 40):
+    for limit in (1, 5, 20):
+        best, median = benchmark(lambda: simulated(n, limit))
+        base.setdefault(n, best)
+        print(f"{n:>5} {limit:>5} {-(-n // limit):>6}  {'baseline' if limit == 1 else best < base[n] / 2}")
+@note
+Each configuration is run five times and the minimum and median are kept, so one unlucky run cannot distort the conclusion. The table shows the pattern you should expect from the real checker: time falls with the concurrency limit until there are no more requests to overlap. The real report would also show the median to reveal noise.
+@mistakes
+- **Benchmarking against live websites.** Results vary and you may get blocked. Use a local server with delays.
+- **Versions that disagree.** Then the benchmark compares different work. Test that results are identical.
+- **One run per configuration.** Report the minimum and median of several runs.
+@keys
+- One interface, three implementations: sequential, threads, asyncio.
+- Tests guarantee they return identical results.
+- Timeouts and error results keep the checker robust.
+- Benchmark repeatably against a local server, and write up the findings.
