@@ -1,0 +1,352 @@
+=== A5.1
+@idea
+`import shapes` does three things. It **finds** the module by searching the folders in `sys.path` in order (the script's own folder first, then the standard library, then installed packages). It **runs** the module's code once, top to bottom, creating a module object. And it **caches** that object in `sys.modules`, so every later import anywhere in the program gets the same object without running the code again. That caching is why module-level code runs only once, and why a module is a natural place for shared state like configuration.
+
+A **package** is a folder of modules, usually with an `__init__.py` that runs when the package is imported and can choose what to expose. Inside a package, **relative imports** (`from .circle import area`, `from ..util import clamp`) refer to sibling modules without repeating the package name. Each module's `__name__` is its import name, except for the file you run directly, whose `__name__` is `"__main__"`; hence the `if __name__ == "__main__":` guard for code that should only run as a script. `python -m package.module` runs a module inside a package with its imports working correctly.
+
+**Circular imports** (a imports b, b imports a) fail because one module is used before it has finished running. The fix is a better structure: move the shared code into a third module, or import inside the function that needs it.
+@how
+- Search order: `sys.path` (script folder, standard library, site-packages).
+- `sys.modules` caches modules; a module's top-level code runs once.
+- `__init__.py` runs on package import; re-export names there for a tidy public API.
+- Relative imports inside packages: `from . import x`, `from .x import y`, `from ..pkg import z`.
+- Guard script code with `if __name__ == "__main__":`; run package modules with `python -m pkg.mod`.
+- Break cycles by moving shared code into a new module.
+@example python: A package, its __init__, and the module cache
+import sys
+from pathlib import Path
+
+pkg = Path("shapes")
+pkg.mkdir(exist_ok=True)
+(pkg / "__init__.py").write_text('from .circle import area as circle_area\nprint("  shapes package initialised")\n')
+(pkg / "circle.py").write_text('import math\nfrom ._units import to_cm\n\ndef area(r):\n    return round(math.pi * to_cm(r) ** 2, 2)\n')
+(pkg / "_units.py").write_text('def to_cm(inches):\n    return inches * 2.54\n')
+sys.path.insert(0, ".")
+
+import shapes
+import shapes                                  # second import: cached, nothing runs
+from shapes import circle
+
+print(shapes.circle_area(1), circle.area(1))
+print(shapes.__name__, circle.__name__, "shapes.circle" in sys.modules)
+print(sys.modules["shapes.circle"] is circle)
+@note
+The package's `__init__.py` ran once, despite two imports, because the second came from the `sys.modules` cache. Inside the package, `circle.py` imported its sibling with a relative import, and `__init__.py` re-exported `area` under a friendlier name. The leading underscore marks `_units` as internal.
+@example python: Why circular imports break, and the fix
+import subprocess
+import sys
+from pathlib import Path
+
+Path("orders.py").write_text("from customers import Customer\nclass Order:\n    pass\n")
+Path("customers.py").write_text("from orders import Order\nclass Customer:\n    pass\n")
+result = subprocess.run([sys.executable, "-c", "import orders"], capture_output=True, text=True)
+print(result.stderr.strip().splitlines()[-1].split(" (")[0])
+
+Path("models.py").write_text("class Order:\n    pass\nclass Customer:\n    pass\n")
+Path("orders.py").write_text("from models import Order\n")
+Path("customers.py").write_text("from models import Customer\n")
+result = subprocess.run([sys.executable, "-c", "import orders, customers; print('both import fine')"], capture_output=True, text=True)
+print(result.stdout.strip())
+@note
+`orders` started running, imported `customers`, which tried to import `Order` from the half-finished `orders` module, where `Order` did not exist yet. Moving the shared classes into a third module removed the cycle. Each test runs in a fresh Python process so the module cache starts empty.
+@mistakes
+- **Naming your file like a standard module** (`random.py`, `json.py`). Your file is found first and shadows the real one.
+- **Expecting a re-import to pick up edits.** Modules are cached; restart the program (or use `importlib.reload` in the REPL).
+- **Running a package module as a file** (`python pkg/mod.py`). Relative imports fail. Use `python -m pkg.mod`.
+@keys
+- Import finds via `sys.path`, runs once, caches in `sys.modules`.
+- Packages are folders with `__init__.py`; relative imports link siblings.
+- `__name__ == "__main__"` only for the file being run; use `python -m` for package modules.
+- Fix circular imports by restructuring.
+
+=== A5.2
+@idea
+Different projects need different versions of the same libraries, and installing everything into the system Python soon breaks something. A **virtual environment** is a folder containing its own Python executable link and its own `site-packages`, so each project has an isolated set of packages. `python -m venv .venv` creates one; **activating** it puts its `bin` (or `Scripts` on Windows) first on your PATH, so `python` and `pip` refer to the environment's copies.
+
+`pip install requests` installs a package and its dependencies from PyPI. To let someone else reproduce your setup, record what you use. A **requirements file** lists packages, ideally with exact versions (`pip freeze > requirements.txt`), and `pip install -r requirements.txt` recreates it. Exact pins of every transitive dependency are a **lock file**; they make installs reproducible across machines and over time.
+
+**uv** is a fast, modern tool that combines these jobs. `uv init` creates a project with a `pyproject.toml`, `uv add requests` records the dependency and installs it into an automatically created `.venv`, `uv.lock` pins every package exactly, and `uv run` runs commands inside the environment without activating anything. The ideas are the same as venv and pip; uv just makes the reproducible way the default.
+@how
+- `python -m venv .venv`; activate with `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows); `deactivate` to leave.
+- Always `python -m pip install ...` so pip matches the interpreter.
+- `pip freeze > requirements.txt`; `pip install -r requirements.txt`.
+- uv: `uv init`, `uv add pkg`, `uv remove pkg`, `uv run cmd`, `uv sync` (recreate from the lock file).
+- Commit `pyproject.toml` and the lock file; never commit `.venv`.
+@example bash: An environment with venv and pip
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+(.venv) $ which python
+~/tipcalc/.venv/bin/python
+(.venv) $ python -m pip install --quiet requests==2.32.3
+(.venv) $ python -m pip freeze
+certifi==2026.10.23
+charset-normalizer==3.5.2
+idna==3.20
+requests==2.32.3
+urllib3==2.8.0
+(.venv) $ python -m pip freeze > requirements.txt
+(.venv) $ deactivate
+$ which python
+/usr/local/bin/python
+@note
+After activation, `python` points inside the project's `.venv`, and after `deactivate` it is the system Python again. Installing one package brought in four dependencies, and `pip freeze` pinned all five exactly, which is what makes `requirements.txt` reproducible. This session was recorded on a real machine.
+@example bash: The same job with uv
+$ uv init --app tipcalc
+Initialized project `tipcalc` at `~/tipcalc`
+$ cd tipcalc
+$ uv add requests
+Using CPython 3.12.3 interpreter at: /usr/bin/python3.12
+Creating virtual environment at: .venv
+Resolved 6 packages in 272ms
+Installed 5 packages in 5ms
+ + certifi==2026.10.23
+ + charset-normalizer==3.5.2
+ + idna==3.20
+ + requests==2.34.2
+ + urllib3==2.8.0
+$ cat pyproject.toml
+[project]
+name = "tipcalc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.34.2",
+]
+$ uv run python -c 'import requests; print(requests.__version__)'
+2.34.2
+$ ls
+README.md  main.py  pyproject.toml  uv.lock
+@note
+`uv add` created the environment, installed the packages, wrote the dependency into `pyproject.toml` and pinned everything in `uv.lock`, in one command. `uv run` used the environment without activating it. A teammate runs `uv sync` to get exactly the same versions.
+@mistakes
+- **Installing packages into the system Python.** Projects then conflict. Use a virtual environment per project.
+- **Committing `.venv` to git.** It is large and machine-specific. Commit the requirements or lock file instead.
+- **Plain `pip` when several Pythons exist.** It may install elsewhere. Use `python -m pip`, or uv.
+@keys
+- A virtual environment isolates each project's packages.
+- Activate, install with `python -m pip`, freeze to a requirements file.
+- Lock files pin every dependency for reproducible installs.
+- uv combines environment, install, lock and run into a few fast commands.
+
+=== A5.3
+@idea
+`pyproject.toml` is the single configuration file for a modern Python project. Its `[project]` table holds the **metadata**: name, version, description, required Python version, dependencies and optional extras. Its `[build-system]` table names the **build backend** (hatchling, setuptools, flit, uv_build...) that turns your source into installable files. Other tools (Ruff, pytest, mypy) keep their settings in `[tool.*]` tables of the same file.
+
+Building produces two kinds of **distribution**. An **sdist** (`.tar.gz`) is the source plus metadata. A **wheel** (`.whl`) is a ready-to-install zip: installing it just copies files, which is fast and needs no build tools. `uv build` or `python -m build` creates both in `dist/`.
+
+**Entry points** turn functions into commands. `[project.scripts]` with `tipsplit = "tipsplit.cli:main"` tells the installer to create a `tipsplit` executable that calls `main()`, on every operating system. The recommended **src layout** puts the package in `src/tipsplit/`, so tests cannot accidentally import the source folder instead of the installed package. During development, an **editable install** (`pip install -e .` or `uv sync`) links the environment to your source, so edits take effect without reinstalling.
+@how
+- `[build-system]`: `requires = ["hatchling"]`, `build-backend = "hatchling.build"`.
+- `[project]`: `name`, `version`, `description`, `readme`, `requires-python`, `dependencies`, `[project.optional-dependencies]`.
+- `[project.scripts]` `cmd = "package.module:function"`.
+- Layout: `src/package/__init__.py`, `tests/`, `pyproject.toml`, `README.md`.
+- `uv build` (or `python -m build`) → `dist/*.whl` and `dist/*.tar.gz`.
+- `pip install -e .` for development; `pip install dist/x.whl` to test the real artefact.
+@example toml: A complete pyproject.toml for a CLI package
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tipsplit"
+version = "0.1.0"
+description = "Split a restaurant bill fairly."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff"]
+
+[project.scripts]
+tipsplit = "tipsplit.cli:main"     # creates a `tipsplit` command that calls main()
+
+[tool.ruff]
+line-length = 100
+@note
+The build system and the project metadata are separate tables. Optional dependency groups such as `dev` install with `pip install -e ".[dev]"`. The scripts entry connects a command name to a function, and tools like Ruff read their own `[tool.*]` sections from the same file.
+@example bash: Build a wheel, install it, run the command
+$ find . -type f | sort
+./pyproject.toml
+./src/tipsplit/__init__.py
+./src/tipsplit/cli.py
+$ uv build
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist/tipsplit-0.1.0.tar.gz
+Successfully built dist/tipsplit-0.1.0-py3-none-any.whl
+$ unzip -l dist/tipsplit-0.1.0-py3-none-any.whl     # (file names only)
+tipsplit/__init__.py
+tipsplit/cli.py
+tipsplit-0.1.0.dist-info/METADATA
+tipsplit-0.1.0.dist-info/WHEEL
+tipsplit-0.1.0.dist-info/entry_points.txt
+tipsplit-0.1.0.dist-info/RECORD
+$ python3 -m venv ~/tryit && ~/tryit/bin/pip install --quiet dist/tipsplit-0.1.0-py3-none-any.whl
+$ ~/tryit/bin/tipsplit 84.50 3 --tip 18
+3 people pay 33.24 each
+@note
+The wheel contains the package plus a `dist-info` folder with metadata and the entry point. Installing it into a fresh environment created a real `tipsplit` command. Testing the built wheel in a clean environment catches missing files that an editable install would hide. Recorded on a real machine.
+@mistakes
+- **Testing only with an editable install.** Files left out of the wheel go unnoticed. Install the built wheel in a fresh environment before releasing.
+- **A flat layout where tests import the source folder.** Use the src layout.
+- **Forgetting to bump `version`.** Package indexes refuse to replace an existing version.
+@keys
+- `pyproject.toml` holds metadata, build backend and tool settings.
+- Wheels install by copying files; sdists carry the source.
+- `[project.scripts]` creates cross-platform commands.
+- Use the src layout and editable installs while developing; test the real wheel before release.
+
+=== A5.4
+@idea
+**Git** records snapshots of your project called **commits**, each with a message, an author and a pointer to its parent, so you can see what changed, when and why, and go back to any point. The everyday loop is: edit, `git status` to see what changed, `git add` to **stage** the changes for the next commit, `git commit -m "..."` to record them. Small commits with clear messages ("Validate tip percentage", not "stuff") make history useful.
+
+**Branches** are cheap movable labels for lines of work. Start a branch for each feature or fix (`git switch -c feature/rounding`), commit there, then **merge** it back into `main`. On GitHub or GitLab, the merge usually happens through a **pull request**: others review the diff, CI runs the tests, and only then does it reach main.
+
+Project hygiene goes beyond commits. A `.gitignore` keeps environments, caches and build output out of the repository. A **licence** file tells others what they may do with your code (MIT is common for small open-source projects; without one, nobody may legally reuse it). **Semantic versioning** (MAJOR.MINOR.PATCH) tells users what an upgrade means: patch for fixes, minor for new backwards-compatible features, major for breaking changes. Tag releases with `git tag v1.2.0`.
+@how
+- Loop: `git status`, `git diff`, `git add <files>`, `git commit -m "Imperative summary"`.
+- `git log --oneline --graph` shows history; `git show <commit>` one change.
+- Branches: `git switch -c name`, `git switch main`, `git merge name`; push and open a pull request.
+- `.gitignore`: `.venv/`, `__pycache__/`, `dist/`, `*.pyc`, `.env`.
+- Add `LICENSE` and `README.md` early.
+- SemVer: bump PATCH for fixes, MINOR for features, MAJOR for breaking changes; `git tag -a v0.1.0 -m "..."`.
+@example bash: From first commit to a tagged release
+$ git init -b main
+$ printf '.venv/\n__pycache__/\ndist/\n*.pyc\n' > .gitignore
+$ echo 'print(1)' > app.py
+$ git status --short          # .venv/ and __pycache__/ exist but are ignored
+?? .gitignore
+?? app.py
+$ git add . && git commit -m 'Add app skeleton and .gitignore'
+$ git switch -c feature/rounding
+Switched to a new branch 'feature/rounding'
+$ echo 'print(round(2.675, 2))' >> app.py && git diff
+diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1 +1,2 @@
+ print(1)
++print(round(2.675, 2))
+$ git commit -am 'Show rounding of 2.675'
+$ git switch main && git merge --no-ff -m 'Merge feature/rounding' feature/rounding
+$ git log --oneline --graph
+*   e3d6491 Merge feature/rounding
+|\
+| * 8a9e843 Show rounding of 2.675
+|/
+* 826b7e6 Add app skeleton and .gitignore
+$ git tag -a v0.1.0 -m 'First release' && git describe --tags
+v0.1.0
+@note
+The ignored folders never appeared in `git status`. The feature was developed on its own branch, the diff showed exactly one added line, and the merge commit joined the two lines of history, as the graph shows. The tag marks the release. Recorded on a real machine; your commit ids will differ.
+@example python: Semantic versioning as code
+def bump(version, change):
+    major, minor, patch = map(int, version.split("."))
+    match change:
+        case "breaking":
+            return f"{major + 1}.0.0"
+        case "feature":
+            return f"{major}.{minor + 1}.0"
+        case "fix":
+            return f"{major}.{minor}.{patch + 1}"
+    raise ValueError(f"unknown change type {change!r}")
+
+version = "0.9.3"
+for change in ["fix", "feature", "fix", "breaking", "feature"]:
+    version = bump(version, change)
+    print(f"{change:9} -> {version}")
+
+print(sorted(["1.10.0", "1.2.0", "1.9.1"]), "as text")
+print(sorted(["1.10.0", "1.2.0", "1.9.1"], key=lambda v: tuple(map(int, v.split(".")))), "as versions")
+@note
+Each kind of change bumps one number and resets the ones to its right. The last lines show why versions must be compared as numbers: as text, "1.10.0" sorts before "1.2.0".
+@mistakes
+- **Committing secrets, environments or build output.** Add a `.gitignore` before the first commit; never commit `.env` files.
+- **Huge commits with vague messages.** Commit small, coherent changes with imperative summaries.
+- **Breaking changes in a minor release.** Users who trusted SemVer get broken builds. Bump MAJOR.
+@keys
+- Edit → status → add → commit, with small clear commits.
+- One branch per feature; merge through reviewed pull requests.
+- `.gitignore`, a licence and a README from the start.
+- Semantic versioning tells users what an upgrade means; tag releases.
+
+=== A5.P
+@idea
+The project turns the log analyzer from module 3 into **logtool**, something a stranger can install and use with one command. Packaging is where good code meets other people's machines, and the checklist is concrete.
+
+**Structure**: a src layout package, `pyproject.toml` with complete metadata, a `[project.scripts]` entry point so `logtool` is a real command, and `__version__` kept in one place. **Documentation**: a README that answers in two minutes what it does, how to install it, and how to use it, with real example output; a CHANGELOG listing what changed in each version; a LICENSE. **Quality**: tests in `tests/`, a `.gitignore`, and a clean git history with a tag per release.
+
+Then verify like a stranger would: build the wheel, install it into a **fresh** virtual environment, and run the command from a different folder. That catches the classic mistakes: a module missing from the wheel, a data file not included, an import that only worked because you ran from the project folder. Optionally publish to **TestPyPI** first to rehearse the release.
+@how
+- `src/logtool/{__init__.py, cli.py, parsing.py, report.py}`; `tests/`; `pyproject.toml`; README, CHANGELOG, LICENSE.
+- `[project.scripts] logtool = "logtool.cli:main"`; `main(argv=None)` returns an exit code.
+- `logtool --version` via `argparse`'s `action="version"` and `importlib.metadata.version("logtool")`.
+- `uv build`, then install the wheel in a fresh venv and run it from another folder.
+- Tag `v0.1.0`; write the CHANGELOG entry before tagging.
+@example python: A version flag read from the installed metadata
+import argparse
+from importlib.metadata import PackageNotFoundError, version
+
+def get_version(dist="logtool"):
+    try:
+        return version(dist)
+    except PackageNotFoundError:
+        return "0.0.0+unknown"                     # running from a source checkout
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="logtool")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {get_version()}")
+    parser.add_argument("paths", nargs="*")
+    args = parser.parse_args(argv)
+    print(f"analysing {len(args.paths)} file(s)")
+    return 0
+
+print(main(["a.log", "b.log"]))
+try:
+    main(["--version"])
+except SystemExit as exit:
+    print("exit code", exit.code)
+print("pip's own version, read the same way:", version("pip").count(".") >= 1)
+@note
+`importlib.metadata` reads the version from the installed package's metadata, so `pyproject.toml` stays the single place where the version is written. When the package is not installed, the fallback keeps the tool working. `action="version"` prints and exits with code 0.
+@example text: What a README should cover
+# logtool
+
+Summarise web-server access logs: request counts, status codes,
+top paths and busiest minutes. Streams files of any size.
+
+## Install
+    pipx install logtool          # or: uv tool install logtool
+
+## Usage
+    $ logtool access.log --top 3
+    requests      5,214
+    error rate    2.3%
+    top paths     /  (1,902)   /login  (611)   /api/items  (488)
+
+    $ logtool *.log --status 5xx --json > errors.json
+
+## Options
+    --since TIME   only lines after TIME (ISO 8601)
+    --status CODE  filter by status (404, 5xx, ...)
+    --top N        how many paths to show (default 5)
+    --json         machine-readable output
+
+## Development
+    uv sync && uv run pytest
+
+Licence: MIT
+@note
+In two minutes a stranger learns what the tool does, how to install it, what the output looks like and how to contribute. Real example output is the most persuasive part. `pipx` and `uv tool` install command-line tools in their own isolated environments.
+@mistakes
+- **Only testing from the project folder.** Imports may work by accident. Install the wheel in a fresh environment and run it elsewhere.
+- **Writing the version in several files.** They drift apart. Keep it in `pyproject.toml` and read it with `importlib.metadata`.
+- **A README with no install steps or example output.** Nobody will try it.
+@keys
+- Src layout, complete `pyproject.toml`, an entry point, tests and docs.
+- Read the version from installed metadata.
+- Verify like a stranger: fresh environment, built wheel, another folder.
+- README with install, usage and real output; CHANGELOG and licence; tag releases.

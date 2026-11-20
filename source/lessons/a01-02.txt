@@ -1,0 +1,939 @@
+=== A1.1
+@idea
+Python code runs in an **interpreter**: a program that reads your source, compiles it to bytecode and executes it line by line. You can talk to it in three ways. The **REPL** (type `python` and get a `>>>` prompt) evaluates each line as you type it, which is ideal for trying an idea in seconds. A **script** (`python app.py`) runs a whole file from top to bottom. An **editor** such as VS Code or PyCharm runs scripts for you and adds highlighting, completion and a debugger. Professionals use all three: the REPL to explore, files for anything worth keeping.
+
+Install Python 3.12 or newer from python.org (or your system's package manager) and check with `python --version` (`py --version` on Windows). Arguments typed after the script name arrive in `sys.argv`, a list whose first item is the script name itself.
+
+When something goes wrong, Python prints a **traceback**. Read it from the bottom up: the last line names the exception and its message, and the lines above show the chain of calls that led there, ending at the exact line that failed. Most beginner time is lost by reading tracebacks from the top.
+@how
+- `python` opens the REPL; `exit()` or Ctrl+D (Ctrl+Z, Enter on Windows) leaves it.
+- In the REPL, a bare expression shows its value; in a script, only `print` shows anything.
+- `python script.py arg1 arg2` → `sys.argv == ["script.py", "arg1", "arg2"]`.
+- `_` in the REPL holds the last result; `help(x)` and `dir(x)` explore objects.
+- Read tracebacks bottom-up: exception type, message, then the failing line.
+- `python -i script.py` runs a script and then leaves you in the REPL with its variables.
+@example python: Reading command-line arguments
+import sys
+
+sys.argv = ["greet.py", "Ada"]          # as if run with:  python greet.py Ada
+
+def main(argv):
+    if len(argv) < 2:
+        print(f"usage: {argv[0]} NAME", file=sys.stderr)
+        return 2
+    print(f"Hello, {argv[1]}! ({len(argv) - 1} argument)")
+    return 0
+
+print("exit code:", main(sys.argv))
+print("exit code:", main(["greet.py"]))
+@note
+The first item of `sys.argv` is always the script name. The usage message goes to standard error and the function returns a non-zero code, the convention for "something was wrong" that shells and CI tools check. In a real script you would finish with `sys.exit(main(sys.argv))`.
+@example pycon: The REPL as a calculator and explorer
+>>> 1000 * (1 + 0.05 / 12) ** (12 * 10)
+>>> round(_, 2)
+>>> type(_)
+>>> [name for name in dir("text") if name.startswith("st")]
+>>> int("12") + int("x")
+@note
+`_` holds the previous result, so you can refine a calculation step by step. `dir` lists what an object can do. The last line fails, and the traceback's final line, a ValueError naming the bad text, tells you exactly why.
+@mistakes
+- **Reading the traceback from the top.** The cause is on the last line, and the failing line just above it.
+- **Expecting a script to show values like the REPL does.** Scripts need `print`.
+- **Several Pythons installed, and `pip` installing into the wrong one.** Use `python -m pip` so pip matches the interpreter.
+@keys
+- REPL to explore, scripts to keep, editor to work comfortably.
+- `sys.argv` holds the script name and its arguments.
+- Return non-zero exit codes and print usage to stderr on bad input.
+- Read tracebacks bottom-up.
+
+=== A1.2
+@idea
+Python has three everyday number types. `int` is a whole number of any size (no overflow). `float` is a 64-bit binary floating-point number, so most decimals are approximations: `0.1 + 0.2` is `0.30000000000000004`. For money or exact decimals, use `decimal.Decimal`; for comparisons, use `math.isclose`. `/` always gives a float, `//` gives floor division and `%` the remainder, and both round **towards negative infinity**, so `-7 // 2` is `-4`.
+
+Strings (`str`) are sequences of Unicode characters and are **immutable**: methods like `upper`, `strip` and `replace` return new strings and never change the original. Indexing and slicing use `s[start:stop:step]`, with negative indexes counting from the end and `stop` excluded.
+
+**f-strings** are the standard way to format output. After the colon comes a **format spec**: width, alignment, thousands separators, decimal places and percentages, as in `f"{price:>10,.2f}"`. A trailing `=` (`f"{total=}"`) prints the expression and its value, handy for debugging.
+
+A variable is a **name bound to an object**, not a box. Rebinding a name never changes the object it used to point to.
+@how
+- `/` true division (float), `//` floor division, `%` remainder, `**` power, `divmod(a, b)` both at once.
+- Floats are approximate: `math.isclose(a, b)`; money: `Decimal("0.10")` (from strings).
+- Slicing: `s[2:5]`, `s[-3:]`, `s[::-1]` reverses.
+- Useful methods: `strip`, `split`, `join`, `replace`, `startswith`, `lower`, `casefold`, `count`, `find`.
+- Format specs: `:,.2f` (thousands, 2 decimals), `:>10` (right-align), `:.1%`, `:08.3f`, `:x` (hex).
+- `f"{x=}"` shows the expression and its value.
+@example pycon: Division, rounding and float surprises
+>>> 7 / 2, 7 // 2, 7 % 2, -7 // 2, -7 % 2
+>>> divmod(125, 60)
+>>> 0.1 + 0.2 == 0.3
+>>> import math
+>>> math.isclose(0.1 + 0.2, 0.3)
+>>> from decimal import Decimal
+>>> Decimal("0.10") + Decimal("0.20")
+>>> round(2.5), round(3.5)
+@note
+Floor division and remainder round towards negative infinity, which keeps `a == (a // b) * b + a % b` true. `round` uses banker's rounding (ties go to the even number), which surprises people who expect 3 for `round(2.5)`.
+@example python: Immutability and format specs
+name = "  ada lovelace  "
+clean = name.strip().title()
+print(repr(name), "->", repr(clean))
+
+bill, tip, people = 84.50, 0.18, 3
+share = bill * (1 + tip) / people
+print(f"{'Each pays':<12}|{share:>10.2f}")
+print(f"{'Tip':<12}|{tip:>10.0%}")
+print(f"{'Big number':<12}|{1234567.891:>10,.1f}")
+print(f"{share=:.3f}")
+print(clean[::-1], clean[:3], clean.split())
+@note
+`strip` and `title` returned a new string; `name` still has its spaces. Width and alignment line up the columns, and `share=` prints the expression with its value.
+@mistakes
+- **Comparing floats with `==`.** Use `math.isclose`, or Decimal for money.
+- **Expecting string methods to change the string.** Assign the result: `s = s.strip()`.
+- **`Decimal(0.1)` instead of `Decimal("0.1")`.** The float's error is copied in. Build Decimals from strings.
+@keys
+- `int` is unlimited; `float` is approximate; Decimal is exact for decimals.
+- `//` and `%` round towards negative infinity.
+- Strings are immutable; methods return new strings.
+- f-string format specs control width, alignment, separators and precision.
+
+=== A1.3
+@idea
+Conditionals choose which code runs. `if`/`elif`/`else` tests conditions in order and runs the first block whose condition is **truthy**. Every object has a truth value: `False`, `None`, zero, and empty containers (`""`, `[]`, `{}`, `set()`) are falsy; almost everything else is truthy. So `if items:` means "if the list is not empty", the idiomatic way to write it.
+
+`and` and `or` **short-circuit** and return one of their operands, not necessarily `True` or `False`: `a or b` returns `a` if it is truthy, else `b`. That makes `name = given or "anonymous"` a common default idiom (careful: it also replaces `0` and `""`). Comparisons **chain**: `0 <= x < 10` means `0 <= x and x < 10`, evaluating `x` once.
+
+Python 3.10 added **structural pattern matching**: `match` compares a value against **patterns** that can check shape and extract parts at the same time: literals, sequences like `[x, y]`, mappings like `{"type": "click", "pos": (x, y)}`, class patterns like `Point(x=0)`, alternatives with `|`, and guards with `if`. It shines for commands, parsed data and messages; for simple value checks an `if` or a dictionary is still clearer.
+@how
+- Falsy: `False`, `None`, `0`, `0.0`, `""`, `[]`, `()`, `{}`, `set()`; everything else truthy by default.
+- `x if cond else y` is the conditional expression.
+- Use `is None` / `is not None` for None checks, not `==`.
+- `match value:` with `case pattern:` blocks; `case _:` is the catch-all.
+- Patterns capture names: `case ["move", x, y]:` binds x and y.
+- Add guards: `case [x, y] if x == y:`.
+@example python: Truthiness and short-circuit values
+def describe(items, name=None):
+    label = name or "unnamed"
+    if not items:
+        return f"{label}: empty"
+    return f"{label}: {len(items)} item{'s' if len(items) != 1 else ''}"
+
+print(describe([]), "|", describe([1], "cart"), "|", describe([1, 2, 3], ""))
+print(0 or "default", "|", [] or None, "|", "a" and "b", "|", 0 and 1 / 0)
+temp = 18
+print("comfortable" if 16 <= temp < 24 else "not comfortable")
+@note
+`or` returned its first truthy operand, and `and` stopped at the falsy `0` without evaluating `1 / 0`, so no error. Notice the empty string name was replaced by "unnamed", which is usually but not always what you want.
+@example python: Pattern matching on commands
+def handle(command):
+    match command.split():
+        case ["quit" | "exit"]:
+            return "bye"
+        case ["go", ("north" | "south" | "east" | "west") as direction]:
+            return f"walking {direction}"
+        case ["take", item, *more] if more:
+            return f"taking {item} and {len(more)} more"
+        case ["take", item]:
+            return f"taking {item}"
+        case []:
+            return "say something"
+        case _:
+            return f"unknown: {command!r}"
+
+for c in ["go north", "go up", "take lamp", "take lamp key rope", "exit", "", "dance"]:
+    print(f"{c!r:22} -> {handle(c)}")
+@note
+Each case checks the shape of the word list and captures parts of it in one step. `|` gives alternatives, `as` names the matched part, `*more` collects the rest, and the guard `if more` separates "several items" from "one item". "go up" falls through to the catch-all.
+@mistakes
+- **`if x == None` or `if x == True`.** Use `is None`, and just `if x`.
+- **`value or default` when 0 or "" are valid.** Use `default if value is None else value`.
+- **Using a bare name as a constant in `case`.** `case RED:` captures anything into a new variable `RED`. Use dotted names (`Color.RED`) or literals.
+@keys
+- Empty containers, zero and None are falsy.
+- `and`/`or` short-circuit and return an operand.
+- Comparisons chain: `a < b < c`.
+- `match` checks shape and captures parts; mind guards and the capture trap.
+
+=== A1.4
+@idea
+Python's `for` loop iterates over **any iterable**: lists, strings, dictionaries, files, ranges, generators. You rarely need indexes. When you do, `enumerate(items, start=1)` gives index and item together; to walk two sequences side by side, `zip(a, b)` pairs them up and stops at the shortest (`zip(a, b, strict=True)` raises instead if the lengths differ, which catches bugs). `range(start, stop, step)` produces numbers lazily, without building a list.
+
+`while` loops run while a condition holds, which suits "until something happens" situations: reading until input ends, retrying until success. `break` leaves a loop early; `continue` skips to the next pass.
+
+The unusual **loop `else`** clause runs only if the loop finished **without** `break`. It answers "did the search find anything?" without a flag variable: put the "found it" work before `break`, and the "not found" work in `else`. It reads best when you think of it as "no break".
+
+Never change the length of a list while looping over it; loop over a copy (`for x in items[:]`) or build a new list.
+@how
+- `for i, x in enumerate(items, start=1):` instead of `range(len(items))`.
+- `for a, b in zip(xs, ys, strict=True):` for parallel sequences of equal length.
+- `for k, v in d.items():` for dictionaries.
+- `while True:` with a `break` for loops whose exit is in the middle.
+- `for ... else:` runs `else` only when the loop did not `break`.
+- `reversed(seq)` and `sorted(seq)` loop backwards or in order without changing the data.
+@example python: enumerate, zip and strict
+names = ["Ada", "Grace", "Linus"]
+scores = [92, 88, 75]
+for rank, (name, score) in enumerate(zip(names, scores), start=1):
+    print(f"{rank}. {name:<6} {score}")
+
+try:
+    for pair in zip(names, [1, 2], strict=True):
+        pass
+except ValueError as error:
+    print("ValueError:", error)
+print(list(zip(names, [1, 2])), "- plain zip silently drops Linus")
+@note
+`enumerate` and `zip` combine neatly; the inner parentheses unpack each pair. Plain `zip` quietly stopped early, while `strict=True` raised as soon as the lengths disagreed.
+@example python: while, break and the loop else
+attempts = iter(["wrong", "nope", "hunter2", "extra"])
+tries = 0
+while True:
+    guess = next(attempts)
+    tries += 1
+    if guess == "hunter2":
+        print(f"logged in after {tries} tries")
+        break
+
+def first_multiple(numbers, n):
+    for x in numbers:
+        if x % n == 0:
+            print(f"first multiple of {n}: {x}")
+            break
+    else:
+        print(f"no multiple of {n}")
+
+first_multiple([7, 11, 21, 30], 3)
+first_multiple([7, 11, 13], 3)
+@note
+`while True` with `break` puts the exit test where it naturally belongs. In `first_multiple`, the `else` ran only for the second list, where the loop finished without breaking, so no "found" flag was needed.
+@mistakes
+- **`for i in range(len(items))` to get items.** Loop over the items, with `enumerate` if you need the index.
+- **Removing items from a list while iterating.** Elements get skipped. Build a new list or loop over a copy.
+- **Reading loop `else` as "if the loop did not run".** It means "if the loop did not break".
+@keys
+- Loop over items directly; use `enumerate` and `zip` for indexes and pairs.
+- `zip(strict=True)` catches length mismatches.
+- `while` for loops that run until something happens; `break` and `continue` control flow.
+- Loop `else` runs when no `break` happened.
+
+=== A1.5
+@idea
+**Lists** are ordered, mutable sequences: you can append, insert, remove, sort and replace items in place. **Tuples** are ordered and immutable: once built, they cannot change. Use a list for a collection of similar things whose size changes (a list of orders); use a tuple for a fixed group of different things that belong together (a coordinate `(x, y)`, a database row), and anywhere you need a hashable value, such as a dictionary key.
+
+Because names point to objects, `b = a` does not copy a list: both names refer to the same list, and a change through one is visible through the other. `a[:]`, `list(a)` and `a.copy()` make a **shallow copy**: a new outer list whose items are the same objects. For nested lists, `copy.deepcopy` copies all the way down. The classic trap is `[[0] * 3] * 3`, which creates three references to one inner list.
+
+**Unpacking** assigns the parts of a sequence to names: `x, y = point`, `first, *rest = items`, and swapping with `a, b = b, a`. It makes code shorter and clearer, and it fails loudly if the shape is wrong.
+@how
+- Lists: `append`, `extend`, `insert`, `pop`, `remove`, `sort`, slicing assignment `a[1:3] = [...]`.
+- `b = a` shares; `a.copy()` / `a[:]` copy shallowly; `copy.deepcopy(a)` copies nested data.
+- Build grids with a comprehension: `[[0] * 3 for _ in range(3)]`.
+- Unpack: `x, y = p`, `head, *tail = seq`, `*_, last = seq`, `a, b = b, a`.
+- A one-item tuple needs a comma: `(42,)`.
+- `x in seq` searches; `seq.index(x)` and `seq.count(x)` find positions and counts.
+@example python: The grid trap and the fix
+bad = [[0] * 3] * 3
+bad[0][0] = 9
+print(bad, "- one inner list, three references")
+good = [[0] * 3 for _ in range(3)]
+good[0][0] = 9
+print(good)
+
+import copy
+team = [["Ada", ["python"]], ["Linus", ["c"]]]
+shallow, deep = team.copy(), copy.deepcopy(team)
+team[0][1].append("math")
+print(shallow[0], deep[0])
+@note
+`* 3` repeats the reference, not the list, so changing one row changed all three. The comprehension builds a new inner list on each pass. A shallow copy still shares the inner lists, so it saw "math" appear; the deep copy did not.
+@example pycon: Unpacking in practice
+>>> point = (3, 4)
+>>> x, y = point
+>>> first, *middle, last = [10, 20, 30, 40, 50]
+>>> first, middle, last
+>>> a, b = 1, 2
+>>> a, b = b, a
+>>> a, b
+>>> name, (lat, lon) = ("Port of Spain", (10.65, -61.52))
+>>> lat
+>>> x, y = [1, 2, 3]
+@note
+Unpacking can collect the middle with `*`, swap without a temporary variable and reach into nested shapes. When the shape does not match, Python raises a ValueError instead of guessing.
+@mistakes
+- **Thinking `b = a` copies.** It shares. Copy explicitly.
+- **`[[0] * n] * m` for grids.** Use a comprehension.
+- **`(42)` as a one-item tuple.** That is just 42. Write `(42,)`.
+@keys
+- Lists are mutable collections; tuples are fixed records and can be dictionary keys.
+- Assignment shares objects; copies are shallow unless you use `deepcopy`.
+- Build nested lists with comprehensions.
+- Unpacking makes code clear and fails loudly on the wrong shape.
+
+=== A1.6
+@idea
+A **dictionary** maps keys to values, and a **set** holds unique items. Both are built on a **hash table**: Python computes a number from each key (its hash) and uses it to jump straight to where the value lives. That is why lookups, insertions and membership tests take roughly the same time whether there are ten items or ten million. Since Python 3.7, dictionaries also keep **insertion order**.
+
+Hashing explains the key rules. A key must be **hashable**: its hash must never change while it is in the dictionary. Immutable built-ins (strings, numbers, tuples of hashable items, frozensets) qualify; lists, dicts and sets do not, which is why `d[[1, 2]]` raises a TypeError. Objects that compare equal must have equal hashes, so `1`, `1.0` and `True` are the same key.
+
+Reading a missing key with `d[k]` raises KeyError. `d.get(k, default)` returns a default instead, and `d.setdefault(k, []).append(x)` creates a value on first use. `keys()`, `values()` and `items()` return live **views** that follow later changes. Sets support algebra: `|` union, `&` intersection, `-` difference and `^` symmetric difference.
+@how
+- `d.get(k, default)`; `d.setdefault(k, default)`; `d.pop(k, default)`; `d | other` merges (3.9+).
+- Loop with `for k, v in d.items():`.
+- Keys must be hashable: str, int, float, tuple of hashables, frozenset.
+- `x in d` checks keys; `x in d.values()` searches values (slower).
+- Sets: `a | b`, `a & b`, `a - b`, `a ^ b`, `a <= b` (subset).
+- Remove duplicates while keeping order: `list(dict.fromkeys(items))`.
+@example python: Grouping, merging and key rules
+orders = [("ada", "tea"), ("ben", "coffee"), ("ada", "scone"), ("cy", "tea")]
+by_person = {}
+for person, item in orders:
+    by_person.setdefault(person, []).append(item)
+print(by_person)
+
+defaults = {"size": "M", "milk": True}
+print(defaults | {"size": "L"}, "| unchanged:", defaults)
+
+keys = {1: "int", True: "bool", 1.0: "float"}
+print(keys, "- 1, True and 1.0 are the same key")
+try:
+    {[1, 2]: "list"}
+except TypeError as error:
+    print("TypeError:", error)
+@note
+`setdefault` created each person's list the first time and appended afterwards. `|` built a merged dictionary without touching `defaults`. Because `1 == True == 1.0` and their hashes match, the three assignments wrote to one key, which keeps the first key object and the last value.
+@example python: Set algebra and live views
+python = {"ada", "ben", "cy", "dee"}
+rust = {"cy", "dee", "eve"}
+print(sorted(python & rust), sorted(python | rust))
+print(sorted(python - rust), sorted(python ^ rust))
+print({"cy"} <= rust, "eve" in python)
+
+stock = {"tea": 5}
+items = stock.items()
+stock["cake"] = 2
+print(items)
+print(list(dict.fromkeys(["b", "a", "b", "c", "a"])))
+@note
+Sets answer "who is in both?", "who is in either?", "who is only in python?" in one operator each (sorted here because sets have no order). The `items` view was taken before "cake" was added and still shows it, because views are live. `dict.fromkeys` removes duplicates while keeping first-seen order.
+@mistakes
+- **Using a list as a key.** Convert it to a tuple.
+- **`if k in d: v = d[k]` everywhere.** `d.get(k)` does it in one step.
+- **Changing a dict's size while looping over it.** Python raises RuntimeError. Loop over `list(d)` instead.
+@keys
+- Dicts and sets are hash tables: fast lookups regardless of size.
+- Keys must be hashable; equal values share a key.
+- `get`, `setdefault` and `|` cover most dictionary chores.
+- Set operators answer overlap questions in one step; views are live.
+
+=== A1.7
+@idea
+Functions package logic behind a name and a set of **parameters**. Python's parameter list is flexible: positional parameters, parameters with **defaults**, `*args` to collect extra positional arguments into a tuple, `**kwargs` to collect extra keyword arguments into a dict, and **keyword-only** parameters after a bare `*`, which callers must name. A `/` marks the parameters before it as **positional-only**. Together they let a function's signature say exactly how it should be called.
+
+Default values are evaluated **once**, when the `def` runs, not on every call. A mutable default like `def add(item, bag=[])` is therefore shared between calls and grows forever. Use `None` as the default and create a fresh list inside.
+
+A function returns one object, but that object can be a tuple, so `return low, high` and `lo, hi = bounds(data)` return and unpack several values. Names assigned inside a function are **local**; reading a global works, but assigning to it creates a new local unless you declare `global` (rarely a good idea). A **docstring**, the string right after `def`, documents the function for `help()` and your editor.
+@how
+- Signature order: `def f(pos_only, /, normal, *args, kw_only, **kwargs)`.
+- Keyword-only after `*`: `def connect(host, *, timeout=10)` forces `timeout=` at call sites.
+- Never use mutable defaults; use `None` and create inside.
+- `return a, b` returns a tuple; unpack at the call site.
+- Unpack arguments into a call: `f(*items)`, `f(**options)`.
+- First line of a docstring: one sentence saying what the function returns or does.
+@example python: The mutable default trap
+def add_bad(item, bag=[]):
+    bag.append(item)
+    return bag
+
+def add_good(item, bag=None):
+    if bag is None:
+        bag = []
+    bag.append(item)
+    return bag
+
+print(add_bad("tea"), add_bad("cake"))
+print(add_good("tea"), add_good("cake"))
+print(add_bad.__defaults__, "- the default list was created once and kept")
+@note
+Both calls to `add_bad` used the same list, created when the `def` ran, so the second call returned both items (and the first result shows them too, since it is the same list). The `None` default gives every call a fresh list.
+@example python: A signature that documents itself
+def make_request(url, /, *, method="GET", timeout=10, **headers):
+    """Describe an HTTP request; url is positional, the rest must be named."""
+    names = ", ".join(f"{k.replace('_', '-')}: {v}" for k, v in headers.items())
+    return f"{method} {url} (timeout {timeout}s) [{names}]"
+
+print(make_request("https://example.com"))
+print(make_request("https://example.com", method="POST", user_agent="demo", accept="json"))
+try:
+    make_request("https://example.com", "POST")
+except TypeError as error:
+    print("TypeError:", error)
+
+def stats(values):
+    return min(values), max(values), sum(values) / len(values)
+
+low, high, mean = stats([4, 8, 15, 16, 23, 42])
+print(low, high, round(mean, 2))
+@note
+The bare `*` makes `method` and `timeout` keyword-only, so passing "POST" positionally is rejected, which protects callers from mixing up arguments. Extra named arguments land in `headers`. `stats` returns a tuple that is unpacked into three names.
+@mistakes
+- **Mutable default arguments.** Use `None` and build inside.
+- **Long lists of positional booleans** like `send(msg, True, False)`. Make them keyword-only so calls read clearly.
+- **Relying on globals.** Pass values in and return results; functions are easier to test that way.
+@keys
+- Parameters: positional, defaults, `*args`, keyword-only, `**kwargs`, and `/` for positional-only.
+- Defaults are evaluated once: never use a mutable default.
+- Return several values as a tuple and unpack them.
+- Assignment inside a function creates locals; write docstrings.
+
+=== A1.8
+@idea
+**Exceptions** are Python's way of reporting that something could not be done: a missing file, a bad number, a key that does not exist. When one is raised, Python unwinds the call stack until some code **handles** it with `try`/`except`; if nothing does, the program stops with a traceback.
+
+The full statement has four parts. `try` holds the code that may fail. `except SomeError as e` handles that specific error. `else` runs only if no exception happened, which keeps the `try` block small and avoids catching errors from code you did not mean to protect. `finally` always runs, error or not, and is the place for cleanup (though a `with` block usually does cleanup better).
+
+Catch **specific** exceptions, as close as possible to where you can do something useful about them. A bare `except:` or `except Exception:` hides bugs like typos. Raise your own errors with `raise ValueError("clear message")`, and define **custom exception classes** for your program's own failure modes, subclassing `Exception` (or a more specific built-in). Inside an `except` block, `raise NewError(...) from e` chains the original cause into the traceback.
+@how
+- `try:` / `except (TypeError, ValueError) as e:` / `else:` / `finally:`.
+- Keep `try` blocks small; put follow-up work in `else`.
+- Catch specific exceptions; let unexpected ones propagate.
+- `raise ValueError("amount must be positive")` with a helpful message.
+- `class InsufficientFunds(Exception): ...` for domain errors; add attributes if callers need details.
+- `raise ConfigError("bad config") from e` keeps the original cause.
+@example python: The four clauses in action
+def read_ratio(text):
+    try:
+        a, b = text.split("/")
+        value = int(a) / int(b)
+    except ValueError:
+        return f"{text!r}: not in the form A/B with whole numbers"
+    except ZeroDivisionError:
+        return f"{text!r}: the bottom number cannot be zero"
+    else:
+        return f"{text!r} = {value:.3f}"
+    finally:
+        print(f"  (checked {text!r})")
+
+for t in ["3/4", "3/0", "three/4", "1/2/3"]:
+    print(read_ratio(t))
+@note
+Each error type gets its own message. `else` only ran for "3/4", and `finally` ran every time, even when a `return` inside `except` or `else` was about to leave the function, which is why each "checked" line comes before its result.
+@example python: Custom exceptions with details, and chaining
+class InsufficientFunds(Exception):
+    def __init__(self, balance, amount):
+        super().__init__(f"cannot withdraw {amount}, balance is {balance}")
+        self.shortfall = amount - balance
+
+class ConfigError(Exception):
+    pass
+
+def withdraw(balance, amount):
+    if amount > balance:
+        raise InsufficientFunds(balance, amount)
+    return balance - amount
+
+try:
+    withdraw(50, 80)
+except InsufficientFunds as error:
+    print(f"{error} (short by {error.shortfall})")
+
+def load_port(settings):
+    try:
+        return int(settings["port"])
+    except (KeyError, ValueError) as error:
+        raise ConfigError("port must be a whole number") from error
+
+try:
+    load_port({"port": "eighty"})
+except ConfigError as error:
+    print(f"ConfigError: {error} | caused by {error.__cause__!r}")
+@note
+The custom exception carries a readable message and a `shortfall` attribute callers can use. `raise ... from error` translates a low-level error into one that makes sense for your program while keeping the original in `__cause__`, which a traceback shows as "The above exception was the direct cause...".
+@mistakes
+- **`except:` or `except Exception: pass`.** It silently swallows real bugs. Catch what you expect.
+- **Huge `try` blocks.** You end up catching errors from the wrong line. Keep them small and use `else`.
+- **Raising bare `Exception("...")`.** Use a specific built-in or your own class so callers can catch it precisely.
+@keys
+- `try`/`except`/`else`/`finally`: protect, handle, continue, clean up.
+- Catch specific exceptions near where you can act on them.
+- Define custom exception classes for your domain; give them good messages.
+- `raise ... from e` preserves the original cause.
+
+=== A1.P
+@idea
+The module project is a **contact book**: a command-line program to add, find, update, delete and list contacts, with the data saved between runs. It is small, but it exercises everything from this module: strings and formatting, conditionals and `match`, loops, dictionaries, functions and exceptions.
+
+Plan the **data model** first. A dictionary keyed by a normalised name (lower case, trimmed) gives instant lookups and prevents duplicates like "Ada" and " ada ". Each value is a small dictionary of fields. Saving to **JSON** keeps the data human-readable and needs only the standard library.
+
+Then separate the program into layers. **Pure functions** do the work on the data (`add_contact(book, name, phone)` returns or modifies the book and raises an exception on bad input). A thin **command loop** reads lines, dispatches with `match`, calls the functions and prints results or error messages. Storage functions load and save the file. This structure keeps each part small and testable: the functions can be checked without typing anything, and the loop has almost no logic of its own.
+@how
+- Key contacts by a normalised name: `name.strip().casefold()`; keep the display name as a field.
+- Validate input in the data functions; raise ValueError or KeyError with clear messages.
+- Command loop: read a line, `match line.split(maxsplit=1)`, call a function, catch the expected errors.
+- Save with `json.dump(book, f, indent=2)`; load with a fallback to `{}` when the file is missing.
+- Write to a temporary file and rename it, so a crash never leaves a half-written file.
+@example python: The data layer, tested without any typing
+import re
+
+def key(name):
+    return " ".join(name.split()).casefold()
+
+def add(book, name, phone):
+    if not re.fullmatch(r"[\d\s()+-]{7,}", phone):
+        raise ValueError(f"{phone!r} does not look like a phone number")
+    if key(name) in book:
+        raise KeyError(f"{name.strip()} is already in the book")
+    book[key(name)] = {"name": " ".join(name.split()), "phone": phone}
+
+def find(book, text):
+    return [c for k, c in sorted(book.items()) if text.casefold() in k]
+
+book = {}
+add(book, "Ada Lovelace", "555-0100")
+add(book, "Alan  Turing", "+44 20 7946 0000")
+for name, phone in [(" ada lovelace ", "555-0199"), ("Grace Hopper", "call me")]:
+    try:
+        add(book, name, phone)
+    except (KeyError, ValueError) as error:
+        print("refused:", error.args[0])
+print([c["name"] for c in find(book, "a")], find(book, "turing"))
+@note
+Normalising the key caught the duplicate despite different spacing and capitals, and validation rejected a phone that is not a number. Using `error.args[0]` prints the message cleanly (a KeyError's `str` would add quotes). None of this needed the command loop.
+@example python: Saving safely and a match-based command loop
+import json
+import os
+from pathlib import Path
+
+PATH = Path("contacts.json")
+
+def save(book):
+    tmp = PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(book, indent=2))
+    os.replace(tmp, PATH)                     # atomic: the old file or the new one, never half
+
+def load():
+    try:
+        return json.loads(PATH.read_text())
+    except FileNotFoundError:
+        return {}
+
+def run(lines):
+    book = load()
+    for line in lines:
+        match line.split(maxsplit=1):
+            case ["add", rest]:
+                name, _, phone = rest.rpartition(" ")
+                book[name.casefold()] = {"name": name, "phone": phone}
+                print(f"added {name}")
+            case ["list"]:
+                print("; ".join(f"{c['name']} {c['phone']}" for c in book.values()) or "(empty)")
+            case ["quit"]:
+                break
+            case _:
+                print(f"unknown command: {line!r}")
+    save(book)
+
+run(["list", "add Ada Lovelace 555-0100", "add Ben Ng 555-0142", "dance", "quit", "list"])
+print("after restart:", sorted(load()))
+@note
+`os.replace` swaps in the new file in one step, so a crash mid-save cannot corrupt the contacts. The loop is thin: it splits each line, matches the shape and stops at "quit" (the last "list" never runs). Loading again shows the data survived "restarting" the program.
+@mistakes
+- **Keying by the raw name.** "Ada" and "ada " become two contacts. Normalise.
+- **Logic inside the input loop.** It cannot be tested. Put the work in functions.
+- **Writing the data file in place.** A crash halfway leaves it corrupt. Write a temporary file and replace.
+@keys
+- Plan the data model: normalised keys, small dicts of fields, JSON storage.
+- Pure data functions validate and raise; the command loop just dispatches.
+- `match` keeps command parsing readable.
+- Save atomically with a temporary file and `os.replace`.
+
+=== A2.1
+@idea
+A **comprehension** builds a collection from an iterable in one expression: `[f(x) for x in items if cond(x)]` for a list, `{k: v for ...}` for a dict, `{x for ...}` for a set. It replaces the "create an empty list, loop, append" pattern with a line that says what the result is, and it runs a little faster.
+
+A **generator expression** looks the same with parentheses, `(f(x) for x in items)`, but builds nothing: it produces values one at a time as they are requested. Passed straight into a function such as `sum`, `max`, `any` or `"".join`, it processes a million items with almost no memory: `sum(len(line) for line in file)`.
+
+Comprehensions can nest (`for row in grid for x in row` flattens a grid, reading left to right like nested loops) and filter at any level. But readability is the goal. When a comprehension needs several conditions, side effects (printing, appending elsewhere) or more than two `for` clauses, a plain loop reads better. Comprehensions are for building values, not for running actions.
+@how
+- `[expr for x in it if cond]`, `{k: v for k, v in pairs}`, `{expr for x in it}`.
+- Conditional value (not filter): `[x if x > 0 else 0 for x in nums]`, with the `if` before `for`.
+- Generator expression: `(expr for x in it)`; inside a call, drop the extra parentheses: `sum(x * x for x in nums)`.
+- Nested: `[x for row in grid for x in row]` reads like the loops in order.
+- `any(...)` and `all(...)` stop early on generator expressions.
+- If it does not fit on one or two lines, use a loop.
+@example python: Filter versus transform, and dict comprehensions
+nums = [4, -2, 7, 0, -5, 9]
+print([n for n in nums if n > 0])
+print([n if n > 0 else 0 for n in nums])
+
+prices = {"tea": 2.5, "cake": 4.0, "scone": 3.25}
+print({item: round(p * 1.15, 2) for item, p in prices.items()})
+print({p: item for item, p in prices.items() if p > 3})
+
+grid = [[1, 2, 3], [4, 5, 6]]
+print([x for row in grid for x in row], [[row[i] for row in grid] for i in range(3)])
+@note
+An `if` at the end filters; `if/else` at the front chooses a value for every item. The dict comprehension can transform values or even swap keys and values. The nested form flattens the grid, and a comprehension inside a comprehension transposes it.
+@example python: Generator expressions save memory and stop early
+import sys
+
+squares_list = [n * n for n in range(1_000_000)]
+squares_gen = (n * n for n in range(1_000_000))
+print("list size in bytes over a million:", sys.getsizeof(squares_list) > 1_000_000)
+print("generator size in bytes under 500:", sys.getsizeof(squares_gen) < 500)
+print(sum(n * n for n in range(1_000_000)))
+
+checked = []
+def is_big(n):
+    checked.append(n)
+    return n > 100
+
+print(any(is_big(n) for n in [5, 50, 500, 5000, 50000]), "after checking", checked)
+@note
+The list holds a million numbers; the generator holds only its current position, yet `sum` gets the same total. `any` stopped as soon as it found 500, so 5000 and 50000 were never checked.
+@mistakes
+- **Comprehensions for side effects**, like `[print(x) for x in items]`. Use a loop.
+- **Putting the `if/else` in the wrong place.** Filtering `if` goes at the end; a value choice goes at the front.
+- **Reusing a generator.** It is used up after one pass; a second `sum` gives 0.
+@keys
+- List, dict and set comprehensions build collections clearly.
+- A trailing `if` filters; a leading `x if c else y` transforms.
+- Generator expressions are lazy: little memory, early stopping with `any`/`all`.
+- Prefer a loop when the comprehension gets complicated.
+
+=== A2.2
+@idea
+`sorted(iterable)` returns a **new** sorted list from any iterable; `list.sort()` sorts a list **in place** and returns `None` (so `x = items.sort()` sets `x` to None, a classic bug). Both accept `reverse=True` and, most importantly, a **key function**: a function called once per item whose result is used for comparing. `sorted(words, key=len)` sorts by length; `key=str.casefold` sorts case-insensitively.
+
+For records, `operator.itemgetter("year")` and `operator.attrgetter("name")` build key functions for dictionaries and objects, and a key that returns a **tuple** sorts by several fields at once: `key=lambda b: (b["author"], -b["year"])` sorts by author, then newest first.
+
+Python's sort is **stable**: items that compare equal keep their original order. That allows sorting by several fields in passes, from the least important to the most important, which is handy when one field must be descending and another ascending but you cannot negate it (strings). Related tools: `min` and `max` take the same `key`, and `heapq.nlargest(n, items, key=...)` finds the top few without sorting everything.
+@how
+- `sorted(it, key=..., reverse=...)` returns a list; `lst.sort(...)` returns None.
+- Keys: `len`, `str.casefold`, `itemgetter("field")`, `attrgetter("attr")`, or a `lambda`.
+- Multi-field: return a tuple; negate numbers for descending within ascending.
+- Stability: sort by the secondary field first, then by the primary.
+- `min`/`max(..., key=...)`; `heapq.nlargest(3, items, key=...)` for top-N.
+- Sort dict items by value: `sorted(d.items(), key=itemgetter(1))`.
+@example python: Keys, tuples and itemgetter
+from operator import itemgetter
+
+books = [
+    {"title": "Dune", "author": "Herbert", "year": 1965},
+    {"title": "Emma", "author": "Austen", "year": 1815},
+    {"title": "Persuasion", "author": "Austen", "year": 1817},
+    {"title": "Children of Dune", "author": "Herbert", "year": 1976},
+]
+print([b["title"] for b in sorted(books, key=itemgetter("year"))])
+print([b["title"] for b in sorted(books, key=lambda b: (b["author"], -b["year"]))])
+print(max(books, key=itemgetter("year"))["title"])
+
+words = ["banana", "Apple", "cherry", "apple", "Date"]
+print(sorted(words), sorted(words, key=str.casefold))
+result = words.sort()
+print(result, words)
+@note
+The tuple key sorts by author, and within each author newest first thanks to the negated year. Plain sorting puts capital letters first; `str.casefold` ignores case. `sort()` changed `words` in place and returned None.
+@example python: Stable multi-pass sorting and top-N
+import heapq
+from operator import itemgetter
+
+staff = [("Cy", "sales", 50), ("Ada", "eng", 70), ("Ben", "eng", 70), ("Dee", "sales", 65), ("Eve", "eng", 55)]
+
+by_name = sorted(staff, key=itemgetter(0), reverse=True)          # secondary: name, Z to A
+by_salary = sorted(by_name, key=itemgetter(2), reverse=True)      # primary: salary, high to low
+print([s[0] for s in by_salary])
+
+print(heapq.nlargest(2, staff, key=itemgetter(2)))
+print(sorted(staff, key=itemgetter(1, 2)))
+@note
+Ada and Ben earn the same, so after the stable second pass they keep the order from the first pass (names Z to A: Ben before Ada). This works even though names cannot be negated. `nlargest` finds the top two without sorting the whole list, and `itemgetter(1, 2)` builds a tuple key from two positions.
+@mistakes
+- **`items = items.sort()`.** That sets `items` to None. Use `sorted` or call `sort()` on its own line.
+- **Negating strings for descending order.** It does not work. Use stable passes with `reverse=True`.
+- **Sorting the whole list to get the top three.** `heapq.nlargest` or `max` is simpler and faster for big data.
+@keys
+- `sorted` returns a new list; `list.sort` sorts in place and returns None.
+- Key functions decide what is compared; tuples sort by several fields.
+- The sort is stable, so multi-pass sorting works.
+- `min`, `max` and `heapq.nlargest` take the same key functions.
+
+=== A2.3
+@idea
+The `collections` module provides specialised containers that replace whole patterns of hand-written code.
+
+**Counter** counts things: `Counter(words)` is a dict from item to count, with `most_common(n)`, arithmetic between counters and missing keys reading as 0. **defaultdict** creates a default value on first access: `defaultdict(list)` makes grouping a one-liner, `defaultdict(int)` a tally. **deque** ("deck") is a double-ended queue with fast appends and pops at **both** ends, where a list is slow at the front; with `maxlen` it keeps only the last N items, perfect for "recent history". **namedtuple** creates small immutable record types with named fields that still behave like tuples. **ChainMap** looks keys up in several dictionaries in order, without copying, which suits layered settings (command line, then environment, then defaults).
+
+Knowing these saves code and bugs. A loop of `if word in counts: counts[word] += 1 else: counts[word] = 1` is a `Counter`; a list used as a queue with `pop(0)` is a `deque`. Dataclasses (module 4) have largely replaced namedtuple for records you write by hand, but namedtuples remain common in libraries and for lightweight tuple-compatible results.
+@how
+- `Counter(iterable)`, `.most_common(n)`, `c1 + c2`, `c1 - c2`, `c.total()`.
+- `defaultdict(list)` for grouping, `defaultdict(int)` for tallies, `defaultdict(set)` for unique groups.
+- `deque(maxlen=n)`; `appendleft`, `popleft`, `rotate`.
+- `Point = namedtuple("Point", "x y")`; `p.x`, `p._replace(x=1)`, `p._asdict()`.
+- `ChainMap(cli, env, defaults)["key"]` checks each mapping in order.
+- Use `deque.popleft()` instead of `list.pop(0)` for queues.
+@example python: Counter and defaultdict replace counting loops
+from collections import Counter, defaultdict
+
+log = ["GET /", "GET /about", "POST /login", "GET /", "GET /", "POST /login", "DELETE /item/3"]
+methods = Counter(line.split()[0] for line in log)
+print(methods.most_common(2), methods["PUT"], methods.total())
+
+paths_by_method = defaultdict(set)
+for line in log:
+    method, path = line.split()
+    paths_by_method[method].add(path)
+print({m: sorted(p) for m, p in paths_by_method.items()})
+
+monday, tuesday = Counter(tea=5, coffee=3), Counter(tea=2, cake=4)
+print(monday + tuesday, monday - tuesday)
+@note
+`Counter` counted the methods in one line, and a missing key ("PUT") reads as 0 instead of raising. `defaultdict(set)` created an empty set the first time each method appeared. Counter arithmetic adds counts, and subtraction drops results that are zero or less.
+@example python: deque, namedtuple and ChainMap
+from collections import ChainMap, deque, namedtuple
+import timeit
+
+recent = deque(maxlen=3)
+for page in ["home", "docs", "blog", "about", "contact"]:
+    recent.append(page)
+print(list(recent))
+
+t_list = timeit.timeit("q.pop(0); q.append(1)", setup="q = list(range(100_000))", number=2000)
+t_deque = timeit.timeit("q.popleft(); q.append(1)", setup="from collections import deque; q = deque(range(100_000))", number=2000)
+print("deque.popleft faster than list.pop(0):", t_deque < t_list)
+
+Point = namedtuple("Point", "x y")
+p = Point(3, 4)
+print(p, p.x + p.y, p._replace(y=0), tuple(p))
+
+defaults = {"theme": "light", "font": 14}
+user = {"theme": "dark"}
+settings = ChainMap(user, defaults)
+print(settings["theme"], settings["font"], dict(settings))
+@note
+The deque kept only the three most recent pages. Removing from the front of a list shifts every other item, while a deque does it in constant time. The namedtuple has readable field names and is still a tuple; ChainMap found "theme" in `user` and fell back to `defaults` for "font".
+@mistakes
+- **`list.pop(0)` in a queue.** It gets slower as the list grows. Use `deque.popleft()`.
+- **Forgetting that reading a missing key on a defaultdict creates it.** Use `in` or `.get()` to check without creating.
+- **Hand-written counting loops.** `Counter` is shorter, faster and has `most_common`.
+@keys
+- `Counter` counts and ranks; missing keys are 0.
+- `defaultdict` creates default values on first access, ideal for grouping.
+- `deque` is fast at both ends; `maxlen` keeps the last N.
+- `namedtuple` gives tuples named fields; `ChainMap` layers dictionaries.
+
+=== A2.4
+@idea
+**Big-O notation** describes how the work an algorithm does grows as its input grows, ignoring constant factors. O(1) is constant (a dictionary lookup), O(log n) grows very slowly (binary search), O(n) grows in proportion (one pass over a list), O(n log n) is the cost of a good sort, and O(n²) is a loop inside a loop over the same data. The difference only shows at scale: at n = 1,000, an O(n²) algorithm does a million steps where O(n) does a thousand; at n = 1,000,000 it is a trillion versus a million.
+
+Python's built-in structures have costs worth knowing. A list is an array: indexing and `append` are O(1) (append is **amortised** O(1), since the list occasionally reallocates but the average stays constant), but `x in list`, `insert(0, x)` and `pop(0)` are O(n). Dicts and sets are **hash tables**: lookup, insertion and membership are O(1) on average, because the key's hash points straight at its slot.
+
+So the most common optimisation in Python is not clever code but the right container: turning repeated list searches into set lookups often turns O(n²) into O(n). Always confirm with measurement (`timeit`), because constant factors and real data matter too.
+@how
+- O(1) dict/set lookup, list index, append; O(n) list search, insert/pop at front, `in` on a list.
+- O(n log n) sorting; O(log n) binary search with `bisect` on sorted data.
+- A loop inside a loop over the same data is usually O(n²).
+- Replace repeated `x in some_list` with a set built once.
+- Space matters too: building a full list costs O(n) memory; a generator costs O(1).
+- Measure with `timeit`, comparing at two or three input sizes to see the growth.
+@example python: Watching growth by counting steps
+def count_pairs_quadratic(items):
+    steps = 0
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            steps += 1
+    return steps
+
+def count_with_set(items):
+    seen, steps = set(), 0
+    for x in items:
+        steps += 1
+        seen.add(x)
+    return steps
+
+for n in [10, 100, 1000]:
+    data = list(range(n))
+    print(f"n={n:>5}: nested loops {count_pairs_quadratic(data):>7} steps, one pass {count_with_set(data):>5} steps")
+@note
+Each tenfold increase in n multiplies the nested-loop steps by about a hundred, the signature of O(n²), while the single pass grows tenfold, O(n). Counting steps shows the shape of the growth without any timing noise.
+@example python: The right container, measured
+import timeit
+from bisect import bisect_left
+
+for n in [1_000, 10_000, 100_000]:
+    setup = f"data = list(range({n})); s = set(data); target = {n - 1}"
+    t_list = timeit.timeit("target in data", setup=setup, number=200)
+    t_set = timeit.timeit("target in s", setup=setup, number=200)
+    print(f"n={n:>7}: set lookup faster than list search: {t_set < t_list}")
+
+sorted_ids = list(range(0, 1_000_000, 3))
+i = bisect_left(sorted_ids, 300_000)
+print("binary search found", sorted_ids[i], "at index", i, "in about", len(sorted_ids).bit_length(), "steps")
+@note
+Membership in a list scans every item, so it slows as the list grows, while a set lookup jumps straight to the item. `bisect` finds a position in a sorted list by halving the range each step: about 19 steps for over 300,000 items. Timings vary per computer, so only the comparisons are printed.
+@mistakes
+- **`if x in big_list` inside a loop.** That is O(n²). Build a set once.
+- **Assuming faster-looking code is faster.** Measure with `timeit` at several sizes.
+- **Optimising code that runs once on ten items.** Big-O matters at scale; clarity matters always.
+@keys
+- Big-O describes growth: O(1), O(log n), O(n), O(n log n), O(n²).
+- Lists are fast at the end and slow to search; dicts and sets look up in O(1).
+- Replacing list searches with set lookups is the commonest big win.
+- Confirm with `timeit` at increasing sizes.
+
+=== A2.5
+@idea
+The classic data structures are worth building once by hand, so you understand what the standard library gives you and when to use it. A **stack** is last-in, first-out: push and pop at the same end. It models undo history, nested brackets and recursion; a Python list (`append`/`pop`) is a perfect stack. A **queue** is first-in, first-out: add at the back, remove at the front. It models jobs waiting their turn and breadth-first search; use `collections.deque`, not a list.
+
+A **linked list** stores each item in a node that points to the next one. Inserting at the front is O(1) and nothing has to shift, but reaching item n takes n steps. In Python you will rarely need one (deque covers most uses), but nodes-and-pointers is the foundation of trees and graphs, and a favourite interview topic.
+
+**Binary search** finds an item in **sorted** data by comparing with the middle and discarding half the range each step: O(log n). It is easy to get subtly wrong (off-by-one errors, infinite loops), which is why the `bisect` module exists. A **priority queue**, where the smallest item always comes out first, is provided by `heapq`.
+@how
+- Stack: list with `append` and `pop`; check `if stack:` before popping.
+- Queue: `deque` with `append` and `popleft`.
+- Linked list: nodes with `value` and `next`; walk with `while node: ... node = node.next`.
+- Binary search: `lo, hi = 0, len(a)`; loop while `lo < hi`; compare `a[mid]`; or use `bisect`.
+- Priority queue: `heapq.heappush(h, (priority, item))` and `heappop(h)`.
+- Know the costs: stack and queue ops O(1); linked list access O(n); binary search O(log n).
+@example python: A stack checks brackets, a queue explores a maze
+from collections import deque
+
+def balanced(text):
+    pairs, stack = {")": "(", "]": "[", "}": "{"}, []
+    for ch in text:
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in pairs:
+            if not stack or stack.pop() != pairs[ch]:
+                return False
+    return not stack
+
+print([balanced(t) for t in ["f(a[1], {b})", "f(a[1)]", "((", ""]])
+
+maze = ["S.#", "..#", "#.E"]
+def shortest(maze):
+    queue, seen = deque([(0, 0, 0)]), {(0, 0)}
+    while queue:
+        r, c, steps = queue.popleft()
+        if maze[r][c] == "E":
+            return steps
+        for nr, nc in [(r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)]:
+            if 0 <= nr < 3 and 0 <= nc < 3 and maze[nr][nc] != "#" and (nr, nc) not in seen:
+                seen.add((nr, nc))
+                queue.append((nr, nc, steps + 1))
+
+print("shortest path:", shortest(maze), "steps")
+@note
+The stack remembers the most recent unclosed bracket, so a closing bracket must match the top. The queue explores the maze in rings of increasing distance (breadth-first search), so the first time it reaches E is guaranteed to be the shortest route.
+@example python: A linked list and a hand-written binary search
+class Node:
+    def __init__(self, value, next=None):
+        self.value, self.next = value, next
+
+head = None
+for v in [3, 2, 1]:
+    head = Node(v, head)                      # insert at the front: O(1)
+node, values = head, []
+while node:
+    values.append(node.value)
+    node = node.next
+print(values)
+
+def binary_search(a, target):
+    lo, hi, steps = 0, len(a), 0
+    while lo < hi:
+        steps += 1
+        mid = (lo + hi) // 2
+        if a[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid
+    found = lo < len(a) and a[lo] == target
+    return (lo if found else -1), steps
+
+data = list(range(0, 2000, 2))
+print(binary_search(data, 1234), binary_search(data, 1235), binary_search(data, 0))
+@note
+Inserting at the head is instant and walking the list follows the `next` pointers. The binary search finds 1234 in 1000 items in 10 steps, reports -1 for an odd number that is not there, and handles the first element correctly; the half-open range `[lo, hi)` avoids the usual off-by-one bugs.
+@mistakes
+- **Using a list as a queue.** `pop(0)` is O(n). Use deque.
+- **Binary search on unsorted data.** It returns nonsense silently. Sort first or use a set.
+- **Writing your own when the library has it.** In real code use list, deque, `bisect` and `heapq`.
+@keys
+- Stack (LIFO): list `append`/`pop`; queue (FIFO): deque `append`/`popleft`.
+- Linked lists: cheap inserts, slow access; the basis of trees and graphs.
+- Binary search halves sorted data each step; prefer `bisect`.
+- `heapq` gives a priority queue.
+
+=== A2.P
+@idea
+The project is an **LRU cache** (least recently used). A cache keeps the results of expensive work so repeated requests are instant; because memory is limited, it holds at most N entries, and when full it evicts the entry that has gone unused the longest. Both `get` and `put` must be **O(1)**, which is the interesting part.
+
+No single structure does it. A dictionary gives O(1) lookup but no notion of "least recently used". A list can keep usage order, but moving an item to the end is O(n). The classic answer combines a hash map with a **doubly linked list**: the dict maps keys to list nodes, and the list keeps nodes in usage order, so moving a node to the front and removing the tail are both O(1).
+
+In Python, `collections.OrderedDict` packages exactly this combination: `move_to_end(key)` and `popitem(last=False)` are O(1). Building it once with OrderedDict, then once by hand with your own nodes, teaches both the idea and the tools. In real code, the decorator `functools.lru_cache` caches a function's results this way, and `cache_info()` reports hits and misses.
+@how
+- Operations: `get(key)` returns the value (or None) and marks it recently used; `put(key, value)` inserts or updates, evicting the oldest when full.
+- OrderedDict version: `move_to_end(key)` on every access; `popitem(last=False)` to evict.
+- Hand-made version: dict of key → node; doubly linked list with dummy head and tail nodes.
+- Test eviction order, updates of existing keys and capacity 1.
+- `@functools.lru_cache(maxsize=128)` for function results; `.cache_info()`, `.cache_clear()`.
+@example python: An LRU cache with OrderedDict
+from collections import OrderedDict
+
+class LRUCache:
+    def __init__(self, capacity):
+        self.capacity, self.data = capacity, OrderedDict()
+
+    def get(self, key):
+        if key not in self.data:
+            return None
+        self.data.move_to_end(key)            # now the most recently used
+        return self.data[key]
+
+    def put(self, key, value):
+        self.data[key] = value
+        self.data.move_to_end(key)
+        if len(self.data) > self.capacity:
+            evicted, _ = self.data.popitem(last=False)
+            print(f"  evicted {evicted}")
+
+cache = LRUCache(2)
+cache.put("a", 1)
+cache.put("b", 2)
+print(cache.get("a"))
+cache.put("c", 3)
+print(cache.get("b"), cache.get("a"), cache.get("c"), list(cache.data))
+@note
+Reading "a" made it recently used, so adding "c" evicted "b", the least recently used. Every operation is O(1): OrderedDict is internally a hash map plus a doubly linked list.
+@example python: The standard library version and its statistics
+from functools import lru_cache
+
+calls = 0
+
+@lru_cache(maxsize=None)
+def fib(n):
+    global calls
+    calls += 1
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+print(fib(80), "computed with", calls, "real calls")
+print(fib.cache_info())
+
+@lru_cache(maxsize=2)
+def square(n):
+    print(f"  computing {n}")
+    return n * n
+
+for n in [2, 3, 2, 4, 3]:
+    square(n)
+print(square.cache_info())
+@note
+Without caching, `fib(80)` would take longer than the age of the universe; with it, each value is computed once (81 calls). The small cache shows eviction: 2 was a hit, then adding 4 pushed out 3, so 3 had to be computed again.
+@mistakes
+- **A list for the usage order.** Moving an item is O(n). Use OrderedDict or a linked list.
+- **Forgetting to mark an item as used on `get`.** Then it is not least-recently-used, just first-in-first-out.
+- **Caching functions with side effects or mutable arguments.** `lru_cache` requires hashable arguments and assumes the same input gives the same output.
+@keys
+- An LRU cache evicts the least recently used entry when full.
+- O(1) get and put need a hash map plus a doubly linked list.
+- OrderedDict provides both: `move_to_end` and `popitem(last=False)`.
+- `functools.lru_cache` caches function results and reports hits and misses.

@@ -1,0 +1,1031 @@
+=== A3.1
+@idea
+Reading and writing files always follows the same shape: open, use, close. The `with` statement makes the closing automatic: `with open(path) as f:` closes the file when the block ends, even if an exception is raised inside it. That object is a **context manager**, and the pattern works the same for locks, network connections and database transactions.
+
+Text files have an **encoding**: the rule for turning characters into bytes. Use UTF-8 explicitly (`encoding="utf-8"`): the default depends on the operating system, and code that works on your Mac can fail on a Windows machine with a UnicodeDecodeError. Binary files (images, archives) are opened with `"rb"`/`"wb"` and give `bytes`.
+
+`pathlib.Path` is the modern way to handle paths: `/` joins parts, `.name`, `.stem`, `.suffix` and `.parent` take paths apart, `.exists()`, `.is_file()` and `.glob("*.csv")` query the disk, and `read_text`/`write_text` handle small files in one call. For big files, **iterate over the file object**: `for line in f:` reads one line at a time, so a 10 GB log uses almost no memory, whereas `f.read()` or `readlines()` load everything at once.
+@how
+- `with open(path, encoding="utf-8") as f:`; modes `"r"`, `"w"` (truncate), `"a"` (append), `"x"` (create, fail if exists), add `"b"` for bytes.
+- `Path(...) / "sub" / "file.txt"`; `.name`, `.stem`, `.suffix`, `.parent`, `.with_suffix(".bak")`.
+- `path.read_text(encoding="utf-8")` / `write_text(...)` for small files.
+- `for line in f:` for large files; `line.rstrip("\n")` removes the newline.
+- `path.glob("*.log")`, `rglob("*.py")` for recursive search; `mkdir(parents=True, exist_ok=True)`.
+- `newline=""` when opening CSV files (next lesson).
+@example python: Taking paths apart and searching
+from pathlib import Path
+
+root = Path("project")
+for name in ["src/app.py", "src/util.py", "tests/test_app.py", "README.md", "data/2026/log.txt"]:
+    p = root / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(f"# {p.name}\n", encoding="utf-8")
+
+readme = root / "README.md"
+print(readme.name, readme.stem, readme.suffix, readme.parent, readme.with_suffix(".txt").name)
+print(sorted(str(p.relative_to(root)) for p in root.rglob("*.py")))
+print([p.name for p in sorted(root.iterdir())])
+@note
+`/` builds paths that work on every operating system. `rglob` searched all subfolders, and `relative_to` gives tidy paths for display. `mkdir(parents=True, exist_ok=True)` creates the whole chain and does not complain if it already exists.
+@example python: Streaming a large file line by line
+from pathlib import Path
+
+log = Path("big.log")
+with log.open("w", encoding="utf-8") as f:
+    for i in range(200_000):
+        f.write(f"{i} {'ERROR' if i % 1000 == 0 else 'INFO'} request handled\n")
+
+errors = 0
+longest = ""
+with log.open(encoding="utf-8") as f:
+    for line in f:                            # one line at a time, never the whole file
+        if " ERROR " in line:
+            errors += 1
+        longest = max(longest, line.rstrip("\n"), key=len)
+print(f"{log.stat().st_size:,} bytes, {errors} errors, longest line: {longest!r}")
+print(f.closed, "- the with block closed the file")
+
+try:
+    Path("café.txt").write_bytes("café".encode("latin-1"))
+    Path("café.txt").read_text(encoding="utf-8")
+except UnicodeDecodeError as error:
+    print("UnicodeDecodeError:", error.reason)
+@note
+The loop holds one line at a time, so it would handle a file of any size. After the `with` block the file is closed automatically. The last part writes text in one encoding and reads it in another, which fails: always know (and state) the encoding.
+@mistakes
+- **Opening files without `with`.** An exception leaves them open. Always use a `with` block.
+- **Omitting `encoding=`.** The default differs between systems. Say `encoding="utf-8"`.
+- **`f.read()` on huge files.** It loads everything into memory. Iterate over the lines.
+@keys
+- `with open(...)` closes files automatically, even on errors.
+- State the encoding; UTF-8 is the safe default.
+- `pathlib.Path` joins, splits and searches paths portably.
+- Iterate over a file to process large data line by line.
+
+=== A3.2
+@idea
+**JSON** and **CSV** are the two formats you will meet most. JSON represents nested data (objects, arrays, strings, numbers, booleans, null), mapping naturally to Python dicts, lists, str, int/float, bool and None. `json.dumps`/`loads` convert to and from strings; `json.dump`/`load` work with files. JSON has no dates, sets, tuples or Decimals, so you decide how to convert them (often to ISO strings or lists), for example with a `default=` function.
+
+**CSV** is flat: rows of fields, usually with a header line. The `csv` module handles the tricky parts (fields containing commas, quotes and newlines) that a naive `line.split(",")` gets wrong. `csv.DictReader` yields each row as a dict keyed by the header; `DictWriter` writes dicts. Open CSV files with `newline=""` so the module controls line endings.
+
+Every CSV field is a **string**. Converting types is your job, and real-world files are messy: missing values, stray spaces, "N/A", thousands separators. Robust code converts each row inside a `try`, collects the bad rows with their line numbers, and carries on, instead of crashing on row 9,812 of 10,000.
+@how
+- `json.dumps(obj, indent=2, sort_keys=True)`, `json.loads(text)`; `json.dump(obj, f)`, `json.load(f)`.
+- Custom types: `json.dumps(obj, default=str)` or a function converting dates and Decimals.
+- `csv.DictReader(f)`, `csv.DictWriter(f, fieldnames=[...])` with `writeheader()` and `writerows()`.
+- Open with `newline=""` and `encoding="utf-8"`.
+- Convert types per row; catch ValueError and record `reader.line_num`.
+- `json.JSONDecodeError` reports the line and column of broken JSON.
+@example python: JSON with types it does not know
+import json
+from datetime import date
+from decimal import Decimal
+
+order = {"id": 7, "placed": date(2026, 11, 20), "total": Decimal("12.50"), "tags": {"gift", "rush"}}
+
+def to_json(value):
+    if isinstance(value, (date, Decimal)):
+        return str(value)
+    if isinstance(value, set):
+        return sorted(value)
+    raise TypeError(f"cannot serialise {type(value).__name__}")
+
+try:
+    json.dumps(order)
+except TypeError as error:
+    print("TypeError:", error)
+text = json.dumps(order, default=to_json, sort_keys=True)
+print(text)
+back = json.loads(text)
+print(type(back["placed"]).__name__, back["tags"])
+
+try:
+    json.loads('{"id": 7, "total": 12.5,}')
+except json.JSONDecodeError as error:
+    print(f"bad JSON at line {error.lineno}, column {error.colno}: {error.msg}")
+@note
+`json.dumps` refuses dates, Decimals and sets; the `default` function converts them. Loading gives back plain strings and lists, so the reader must convert them again if it needs real dates. A trailing comma is invalid JSON, and the error says exactly where.
+@example python: Reading a messy CSV without crashing
+import csv
+import io
+
+raw = '''name,qty,price
+"Tea, green",3,2.50
+Scones,two,3.00
+Cake,1,
+"Coffee ""Strong""",2,4.25
+'''
+good, bad = [], []
+reader = csv.DictReader(io.StringIO(raw, newline=""))
+for row in reader:
+    try:
+        good.append({"name": row["name"], "qty": int(row["qty"]), "price": float(row["price"])})
+    except ValueError as error:
+        bad.append((reader.line_num, row["name"], str(error)))
+
+for item in good:
+    print(item)
+for line, name, why in bad:
+    print(f"line {line} ({name}): {why}")
+
+out = io.StringIO()
+writer = csv.DictWriter(out, fieldnames=["name", "total"])
+writer.writeheader()
+writer.writerows({"name": g["name"], "total": g["qty"] * g["price"]} for g in good)
+print(out.getvalue())
+@note
+The quoted fields with commas and doubled quotes came through intact, something `split(",")` would break. Two bad rows were reported with line numbers while the good rows carried on. `DictWriter` quotes fields that need it when writing back out.
+@mistakes
+- **Splitting CSV lines on commas.** Quoted fields break it. Use the `csv` module.
+- **Forgetting that CSV values are strings.** `"3" + "2"` is `"32"`. Convert types.
+- **Letting one bad row stop the whole import.** Catch, record the line number, continue.
+@keys
+- JSON for nested data, CSV for flat tables.
+- Convert unsupported types with `default=` when writing JSON.
+- `DictReader`/`DictWriter` handle quoting; open with `newline=""`.
+- Convert and validate each row; report bad rows with line numbers.
+
+=== A3.3
+@idea
+Dates and times are full of traps, and the `datetime` module gives you the tools to avoid them. `date` is a calendar day, `datetime` a day and time, `timedelta` a duration. Subtracting two datetimes gives a timedelta; adding a timedelta moves a date. `strftime` formats dates as text and `strptime` parses text into dates; for machine-readable text, ISO 8601 (`2026-11-20T14:30:00+00:00`) with `isoformat()` and `fromisoformat()` is the standard.
+
+A datetime without time-zone information is **naive**: it does not say which 14:30 it means. One with a `tzinfo` is **aware** and refers to a single moment. Python refuses to compare naive and aware values, which is a feature. The rule used by almost every serious system: **store and compute in UTC, convert to local time only for display**. `datetime.now(timezone.utc)` gives the current moment as an aware UTC value.
+
+Real time zones come from `zoneinfo.ZoneInfo("America/Toronto")`, which knows each region's daylight-saving rules. Those rules create oddities: on the day clocks change, a day is 23 or 25 hours long, and some local times happen twice or not at all. Doing arithmetic in UTC sidesteps them.
+@how
+- `date(2026, 11, 20)`, `datetime(2026, 11, 20, 14, 30, tzinfo=ZoneInfo("Europe/Paris"))`, `timedelta(days=3, hours=2)`.
+- `datetime.now(timezone.utc)` for the current moment; avoid `utcnow()` (naive) and plain `now()` for storage.
+- `dt.astimezone(ZoneInfo("Asia/Tokyo"))` converts the same moment to another zone.
+- `isoformat()` / `fromisoformat()` for storage and APIs; `strftime("%d %b %Y")` for people.
+- `strptime(text, "%d/%m/%Y")` parses a known format.
+- Compare and subtract aware values only; never mix naive and aware.
+@example python: Aware times, conversion and ISO strings
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+meeting = datetime(2026, 11, 20, 9, 30, tzinfo=ZoneInfo("America/Toronto"))
+for city in ["Europe/London", "Asia/Tokyo", "America/Port_of_Spain"]:
+    local = meeting.astimezone(ZoneInfo(city))
+    print(f"{city:22} {local:%a %d %b %H:%M} (UTC{local:%z})")
+
+stamp = meeting.astimezone(timezone.utc).isoformat()
+print("stored as", stamp)
+print(datetime.fromisoformat(stamp) == meeting, "- same moment, different zone")
+
+naive = datetime(2026, 11, 20, 9, 30)
+try:
+    naive < meeting
+except TypeError as error:
+    print("TypeError:", error)
+print(datetime.strptime("20/11/2026", "%d/%m/%Y").date() + timedelta(weeks=2))
+@note
+One meeting time converted to three cities, each with its own offset. Stored as an ISO string in UTC, it compares equal to the original, because aware datetimes compare moments, not clock readings. Comparing with a naive value is refused rather than guessed.
+@example python: The day the clocks change
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+tz = ZoneInfo("America/Toronto")
+before = datetime(2026, 11, 1, 0, 0, tzinfo=tz)          # clocks go back at 2:00 that night
+after = datetime(2026, 11, 2, 0, 0, tzinfo=tz)
+print("calendar day length:", (after.astimezone(timezone.utc) - before.astimezone(timezone.utc)))
+
+wall = before + timedelta(hours=24)
+real = (before.astimezone(timezone.utc) + timedelta(hours=24)).astimezone(tz)
+print("+24h on the wall clock:", f"{wall:%d %b %H:%M %Z}")
+print("+24h of real time:     ", f"{real:%d %b %H:%M %Z}")
+
+first = datetime(2026, 11, 1, 1, 30, tzinfo=tz, fold=0)
+second = datetime(2026, 11, 1, 1, 30, tzinfo=tz, fold=1)
+print("1:30 happened twice:", f"{first:%H:%M %Z}", "and", f"{second:%H:%M %Z}",
+      "-", second.astimezone(timezone.utc) - first.astimezone(timezone.utc), "apart")
+@note
+That day really lasted 25 hours. Adding 24 hours to a local datetime moves the wall clock (same time next day), while adding 24 hours in UTC moves real time and lands an hour earlier on the clock. 1:30 a.m. occurred twice that night; `fold` chooses which one.
+@mistakes
+- **Storing naive local times.** They are ambiguous. Store aware UTC values.
+- **`datetime.utcnow()`.** It returns a naive value that looks like UTC but is not marked as such. Use `datetime.now(timezone.utc)`.
+- **Fixed offsets like UTC−5 for a region.** Daylight saving changes them. Use `ZoneInfo` names.
+@keys
+- `date`, `datetime`, `timedelta`; ISO 8601 for storage, `strftime` for display.
+- Naive values have no zone; aware values are real moments.
+- Store and calculate in UTC; convert to local only for display.
+- `zoneinfo` handles daylight saving, including 23- and 25-hour days.
+
+=== A3.4
+@idea
+A **regular expression** is a small pattern language for matching text: "four digits, a dash, two digits" is `\d{4}-\d{2}`. Python's `re` module offers `re.search` (first match anywhere), `re.fullmatch` (the whole string must match, ideal for validation), `re.findall`/`finditer` (all matches), `re.sub` (replace) and `re.split`. Always write patterns as **raw strings** (`r"\d+"`) so backslashes reach the regex engine untouched.
+
+**Groups** in parentheses capture parts of a match; **named groups** `(?P<year>\d{4})` make the result readable: `m["year"]` or `m.groupdict()`. Quantifiers (`*`, `+`, `?`, `{2,5}`) are **greedy** by default: they match as much as possible and then back off. Adding `?` (`.*?`, `+?`) makes them **lazy**, matching as little as possible, which is usually what you want between delimiters.
+
+For a pattern used repeatedly, `re.compile` builds it once. For complex patterns, `re.VERBOSE` allows whitespace and comments inside the pattern, turning an unreadable line into a documented one. And know when to stop: regexes are great for tokens, log lines and validation, but not for parsing nested formats like HTML or JSON, which have real parsers.
+@how
+- Classes: `\d` digit, `\w` word character, `\s` whitespace, `.` anything but newline, `[A-Za-z]`, `[^,]` not a comma.
+- Anchors: `^` start, `$` end, `\b` word boundary.
+- Quantifiers: `*` 0+, `+` 1+, `?` 0 or 1, `{m,n}`; add `?` for lazy.
+- Groups: `( )` capture, `(?P<name> )` named, `(?: )` group without capturing.
+- `re.fullmatch` for validation; `finditer` for match objects with positions.
+- `re.compile(pattern, re.VERBOSE | re.IGNORECASE)`; `re.sub(pattern, repl, text)` with `\g<name>` or a function.
+@example python: Named groups, finditer and sub with a function
+import re
+
+LOG = re.compile(r"(?P<time>\d{2}:\d{2}) (?P<level>[A-Z]+) (?P<msg>.*)")
+lines = ["09:14 ERROR disk full", "09:15 INFO retrying", "garbage line"]
+for line in lines:
+    m = LOG.fullmatch(line)
+    print(m.groupdict() if m else f"no match: {line!r}")
+
+text = "Contact ada@example.com or ben.ng@mail.example.org today."
+for m in re.finditer(r"[\w.]+@[\w.]+\.\w+", text):
+    print(f"{m.group()} at {m.start()}-{m.end()}")
+
+def to_celsius(m):
+    return f"{(float(m['f']) - 32) * 5 / 9:.0f}°C"
+print(re.sub(r"(?P<f>\d+(\.\d+)?)°F", to_celsius, "Highs of 86°F, lows of 59°F."))
+print(re.sub(r"(\d{4})-(\d{2})-(\d{2})", r"\3/\2/\1", "due 2026-11-20"))
+@note
+`fullmatch` rejects the garbage line, and `groupdict` gives named parts. `finditer` reports where each match is. `re.sub` accepts a function, so each match can be converted with real code, or a template with group references like `\3`.
+@example python: Greedy versus lazy, and a verbose pattern
+import re
+
+html = '<b>tea</b> and <b>cake</b>'
+print(re.findall(r"<b>(.*)</b>", html))
+print(re.findall(r"<b>(.*?)</b>", html))
+
+PHONE = re.compile(r"""
+    ^\(?(?P<area>\d{3})\)?   # area code, brackets optional
+    [\s.-]?                  # optional separator
+    (?P<exchange>\d{3})
+    [\s.-]?
+    (?P<line>\d{4})$
+""", re.VERBOSE)
+for raw in ["(416) 555-0199", "416.555.0199", "4165550199", "416-55-0199"]:
+    m = PHONE.match(raw)
+    print(f"{raw:16}", f"{m['area']}-{m['exchange']}-{m['line']}" if m else "invalid")
+@note
+The greedy `.*` ran from the first `<b>` to the last `</b>`, swallowing " and "; the lazy `.*?` stopped at each closing tag. The verbose pattern explains each piece in comments and accepts several phone formats while rejecting a malformed one.
+@mistakes
+- **Forgetting the `r` prefix.** `"\b"` is a backspace character, not a word boundary. Use raw strings.
+- **`re.match` for validation.** It only anchors the start. Use `fullmatch`.
+- **Regexes for HTML or JSON.** Use a real parser.
+@keys
+- Raw strings, then `search`, `fullmatch`, `findall`/`finditer`, `sub`, `split`.
+- Named groups make matches readable.
+- Quantifiers are greedy; add `?` for lazy.
+- Compile reused patterns; use `re.VERBOSE` to document complex ones.
+
+=== A3.5
+@idea
+A command-line tool is often the most useful form a Python program can take: it runs on servers, in scripts and in CI, and composes with other tools. `argparse` turns `sys.argv` into a tidy namespace object and handles the boring, error-prone parts: types, defaults, required values, help text and error messages.
+
+You declare what the program accepts. **Positional** arguments are required and identified by position (`logtool access.log`). **Options** start with dashes and have names (`--level ERROR`, short form `-l`). **Flags** are options without values (`--verbose`, with `action="store_true"`). `type=int` converts and validates, `choices=[...]` limits values, `nargs="+"` accepts several. Larger tools use **subcommands**, like `git commit` and `git push`, each with its own arguments, via `add_subparsers`.
+
+Well-behaved tools follow conventions: `--help` explains everything (argparse generates it), errors go to **stderr**, and the **exit code** tells the caller what happened: 0 for success, non-zero for failure (argparse itself exits with 2 for bad usage). Structure the program as `main(argv=None)` returning an exit code, so tests can call it with a list of arguments.
+@how
+- `parser = argparse.ArgumentParser(prog=..., description=...)`.
+- `add_argument("path")` positional; `add_argument("-n", "--count", type=int, default=10)`; `add_argument("--verbose", action="store_true")`.
+- `choices=[...]`, `nargs="+"`, `required=True`, `help="..."`, `metavar="N"`.
+- Subcommands: `sub = parser.add_subparsers(dest="command", required=True)`; `sub.add_parser("stats")`.
+- `def main(argv=None): args = parser.parse_args(argv)`; finish with `sys.exit(main())`.
+- Print errors to `sys.stderr`; return 0 on success, 1 for failure.
+@example python: Subcommands and a testable main
+import argparse
+import sys
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="notes", description="Keep short notes.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    add = sub.add_parser("add", help="add a note")
+    add.add_argument("text", nargs="+")
+    add.add_argument("--tag", choices=["work", "home"], default="home")
+    show = sub.add_parser("show", help="show recent notes")
+    show.add_argument("-n", type=int, default=3, metavar="N", help="how many (default 3)")
+    return parser
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    if args.command == "add":
+        print(f"added [{args.tag}] {' '.join(args.text)}")
+    elif args.command == "show":
+        print(f"showing the last {args.n} notes")
+    return 0
+
+print(main(["add", "buy", "tea", "--tag", "work"]))
+print(main(["show", "-n", "5"]))
+sys.stderr = sys.stdout                      # let this page show argparse's error output
+for bad in [["show", "-n", "lots"], ["add", "x", "--tag", "garden"]]:
+    try:
+        main(bad)
+    except SystemExit as exit:
+        print("exit code", exit.code)
+@note
+Because `main` takes a list, it can be called directly in tests instead of from a shell. Bad input produces argparse's usage line and a specific error message, then exit code 2. The stderr redirect only exists so the errors appear on this page.
+@example python: The help text you get for free
+import argparse
+
+parser = argparse.ArgumentParser(prog="resize", description="Resize images in a folder.")
+parser.add_argument("folder", help="folder containing the images")
+parser.add_argument("-w", "--width", type=int, required=True, help="new width in pixels")
+parser.add_argument("--format", choices=["png", "jpg", "webp"], default="png")
+parser.add_argument("-v", "--verbose", action="store_true", help="print each file")
+parser.print_help()
+print()
+print(parser.parse_args(["photos", "-w", "800", "-v"]))
+@note
+argparse writes the usage line and the full help from your declarations, including defaults and choices. The parsed result is a namespace with one attribute per argument, already converted to the right types.
+@mistakes
+- **Parsing `sys.argv` by hand.** You will reinvent help, errors and type checks badly.
+- **Calling `parse_args()` at import time.** Tests cannot pass arguments. Put it in `main(argv=None)`.
+- **Exiting with 0 on failure.** Scripts and CI then think everything worked. Return non-zero.
+@keys
+- argparse declares positionals, options and flags, with types and choices.
+- Subcommands structure larger tools.
+- `--help` and error messages come for free.
+- `main(argv=None)` returning an exit code makes the tool testable.
+
+=== A3.6
+@idea
+`logging` gives a program a record of what it did, with levels, timestamps and sources, sent wherever you choose. Four kinds of object cooperate. **Loggers** are what your code calls (`log.info(...)`); they are named and arranged in a hierarchy by dots, so `app.db` is a child of `app`. **Handlers** decide where records go: the console, a file, a rotating file, syslog. **Formatters** decide what a line looks like. **Levels** and **filters** decide what passes.
+
+Messages flow up the hierarchy: a record logged on `app.db` is passed to `app`'s handlers and then the root logger's. So the standard setup is simple: each module calls `logging.getLogger(__name__)`, and only the program's entry point configures handlers, once. Libraries should never configure logging themselves.
+
+**Configuration** belongs outside the code. The twelve-factor convention reads settings from **environment variables**: `LOG_LEVEL=DEBUG python app.py` turns on detail for one run without editing anything. `os.environ.get("LOG_LEVEL", "INFO")` with validation gives a safe default. For several handlers or per-module levels, `logging.config.dictConfig` takes the whole setup as a dictionary, which can itself be loaded from a file.
+@how
+- `log = logging.getLogger(__name__)` in each module; configure only in `main`.
+- Levels: DEBUG < INFO < WARNING < ERROR < CRITICAL; logger and handler levels both filter.
+- `logging.basicConfig(level=..., format=...)` for simple programs; `dictConfig` for several handlers.
+- `RotatingFileHandler(path, maxBytes=..., backupCount=...)` keeps log files from growing forever.
+- Read settings from the environment: `os.environ.get("LOG_LEVEL", "INFO").upper()`.
+- Lazy formatting: `log.debug("rows=%d", n)`.
+@example python: Logger hierarchy and two handlers with different levels
+import io
+import logging
+import sys
+
+root = logging.getLogger("shop")
+root.setLevel(logging.DEBUG)
+
+console = logging.StreamHandler(sys.stdout)
+console.setLevel(logging.WARNING)
+console.setFormatter(logging.Formatter("CONSOLE %(levelname)s %(name)s: %(message)s"))
+root.addHandler(console)
+
+stream = io.StringIO()                   # stands in for a log file
+memory = logging.StreamHandler(stream)
+memory.setLevel(logging.DEBUG)
+memory.setFormatter(logging.Formatter("FILE    %(levelname)-7s %(name)s: %(message)s"))
+root.addHandler(memory)
+
+db = logging.getLogger("shop.db")
+db.debug("connected in %d ms", 12)
+db.warning("slow query: %.1f s", 2.4)
+logging.getLogger("shop.cart").info("3 items")
+print(stream.getvalue(), end="")
+@note
+Both loggers are children of "shop", so their records travelled up to its two handlers. The console handler only lets warnings through, while the second handler (standing in for a log file) records everything. One record, two destinations, two levels.
+@example python: Settings from the environment, with dictConfig
+import logging
+import logging.config
+import os
+import sys
+
+def setup_logging(environ):
+    level = environ.get("LOG_LEVEL", "INFO").upper()
+    if level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+        print(f"unknown LOG_LEVEL {level!r}, using INFO", file=sys.stdout)
+        level = "INFO"
+    logging.config.dictConfig({
+        "version": 1,
+        "formatters": {"short": {"format": "%(levelname)s %(name)s: %(message)s"}},
+        "handlers": {"out": {"class": "logging.StreamHandler", "stream": "ext://sys.stdout", "formatter": "short"}},
+        "root": {"level": level, "handlers": ["out"]},
+        "disable_existing_loggers": False,
+    })
+
+log = logging.getLogger("app")
+for env in [{}, {"LOG_LEVEL": "debug"}, {"LOG_LEVEL": "loud"}]:
+    print(f"-- LOG_LEVEL={env.get('LOG_LEVEL', '(unset)')}")
+    setup_logging(env)
+    log.debug("details")
+    log.info("started")
+print("this run's real LOG_LEVEL:", os.environ.get("LOG_LEVEL", "(unset)"))
+@note
+The same code logged more or less depending only on the environment, and an invalid value fell back to INFO with a message instead of crashing. Passing the environment in as a dictionary makes the function easy to test; the real program calls `setup_logging(os.environ)`.
+@mistakes
+- **Configuring logging inside library modules.** It fights the application's setup. Only `main` configures.
+- **Adding handlers every time a function runs.** Each record is then printed several times. Configure once.
+- **Hard-coding settings that differ between machines.** Read them from the environment.
+@keys
+- Loggers (named, hierarchical) → handlers (where) → formatters (how), filtered by levels.
+- `getLogger(__name__)` per module; configure once at the entry point.
+- Different handlers can have different levels.
+- Read settings like LOG_LEVEL from the environment, with validation and defaults.
+
+=== A3.P
+@idea
+The project is a **log analyzer**: a command-line tool you could actually run on a server. Given one or more web-server access logs, it reports the number of requests, the status code breakdown, the most requested paths, the busiest minutes and the error rate, with options to filter by time range or status and to output JSON for other tools.
+
+It brings the whole module together. **Regular expressions** parse each line into fields; **datetime** handles timestamps; **pathlib** and streaming file reads handle large files and globs; **Counter** aggregates; **argparse** provides the interface; **logging** reports skipped lines and progress; **JSON** gives machine-readable output.
+
+Design it as a pipeline of small functions: `read_lines(paths)` yields lines from every file, `parse(line)` returns a record or None, `filter_records(records, ...)` applies the options, and `summarise(records)` builds the report. Generators connect them, so memory stays flat however big the logs are, and each stage can be tested alone. Malformed lines are counted and logged at DEBUG level, never fatal: real logs always contain surprises.
+@how
+- Parse the Common Log Format with one compiled regex with named groups.
+- Convert the timestamp with `strptime(..., "%d/%b/%Y:%H:%M:%S %z")`.
+- Chain generators: read → parse → filter → summarise.
+- Aggregate with `Counter` for statuses, paths and minutes.
+- Options: `--since`, `--status`, `--top N`, `--json`; exit 1 if no file could be read.
+@example python: Parsing access-log lines into records
+import re
+from datetime import datetime
+
+LINE = re.compile(r'(?P<ip>\S+) \S+ \S+ \[(?P<time>[^\]]+)\] "(?P<method>[A-Z]+) (?P<path>\S+) [^"]*" (?P<status>\d{3}) (?P<size>\d+|-)')
+
+def parse(line):
+    m = LINE.match(line)
+    if not m:
+        return None
+    rec = m.groupdict()
+    rec["time"] = datetime.strptime(rec["time"], "%d/%b/%Y:%H:%M:%S %z")
+    rec["status"] = int(rec["status"])
+    rec["size"] = 0 if rec["size"] == "-" else int(rec["size"])
+    return rec
+
+sample = [
+    '203.0.113.9 - - [20/Nov/2026:09:14:02 +0000] "GET /index.html HTTP/1.1" 200 5120',
+    '198.51.100.4 - - [20/Nov/2026:09:14:05 +0000] "POST /login HTTP/1.1" 401 -',
+    'this line is broken',
+]
+for line in sample:
+    rec = parse(line)
+    print(rec and f"{rec['time']:%H:%M:%S} {rec['method']} {rec['path']} -> {rec['status']} ({rec['size']} bytes)")
+@note
+One compiled regex with named groups pulls out every field, then types are converted: a real aware datetime, integer status and size (with "-" meaning zero). A broken line gives None instead of an exception, so the caller can count and skip it.
+@example python: The streaming pipeline and the report
+import json
+import re
+from collections import Counter
+
+LINE = re.compile(r'\S+ \S+ \S+ \[[^:]+:(?P<minute>\d\d:\d\d):\d\d [^\]]+\] "\S+ (?P<path>\S+) [^"]*" (?P<status>\d{3})')
+
+def parse_all(lines, skipped):
+    for line in lines:
+        m = LINE.match(line)
+        if m:
+            yield m["minute"], m["path"], int(m["status"])
+        else:
+            skipped.append(line)
+
+def summarise(records, top=2):
+    statuses, paths, minutes, total = Counter(), Counter(), Counter(), 0
+    for minute, path, status in records:
+        total += 1
+        statuses[status // 100 * 100] += 1
+        paths[path] += 1
+        minutes[minute] += 1
+    errors = statuses[400] + statuses[500]
+    return {"requests": total, "error_rate": round(errors / total, 3), "status_classes": dict(sorted(statuses.items())),
+            "top_paths": paths.most_common(top), "busiest_minute": minutes.most_common(1)[0]}
+
+log = [f'1.2.3.4 - - [20/Nov/2026:09:{m:02d}:00 +0000] "GET {p} HTTP/1.1" {s}'
+       for m, p, s in [(14, "/", 200), (14, "/login", 401), (15, "/", 200), (15, "/", 500), (15, "/cart", 200)]]
+log.insert(2, "garbage")
+skipped = []
+report = summarise(parse_all(iter(log), skipped))
+print(json.dumps(report))
+print("skipped lines:", len(skipped))
+@note
+Records flow from the generator straight into the counters, so memory use does not depend on the log size. The report is a plain dictionary, ready to print as a table or as JSON for other tools, and the malformed line was counted rather than crashing the run.
+@mistakes
+- **Reading whole files into lists.** Server logs can be gigabytes. Stream them through generators.
+- **Crashing on the first odd line.** Count and skip malformed lines, and log them at DEBUG.
+- **Mixing parsing, filtering and printing.** Separate stages are testable and reusable.
+@keys
+- A regex with named groups parses each line; convert types right away.
+- Generators chain read → parse → filter → summarise with flat memory use.
+- Counter does the aggregation; JSON output serves other tools.
+- argparse and logging make it a real, scriptable tool.
+
+=== A4.1
+@idea
+A **class** bundles data and the functions that work on it into a new type. Each **instance** created from it has its own data in **instance attributes** (usually set in `__init__` through `self`), and shares the class's **methods**. `self` is simply the instance the method was called on: `cart.add(item)` is `Cart.add(cart, item)`.
+
+Attributes defined in the class body, outside any method, are **class attributes**, shared by every instance. They suit constants and defaults (`max_items = 50`). The trap: a **mutable** class attribute such as a list is shared too, so appending through one instance changes it for all of them. Per-instance containers belong in `__init__`.
+
+Good classes keep their data **valid**. The constructor checks its arguments, and methods that change state enforce the rules (a balance cannot go negative), raising clear, preferably custom, exceptions. That way, once an object exists, the rest of the program can trust it, instead of every caller re-checking. Python also lets you look attributes up dynamically (`getattr`) and inspect an instance's own data in `vars(obj)`, which shows the line between instance and class data clearly.
+@how
+- `class Cart:` with `def __init__(self, owner):` setting `self.owner = owner`.
+- Methods take `self` first; call them as `obj.method(...)`.
+- Class attributes for shared constants; instance attributes (in `__init__`) for per-object data.
+- Never use a mutable class attribute for per-instance data.
+- Validate in `__init__` and in mutating methods; raise custom exceptions.
+- `vars(obj)` shows instance attributes; `type(obj).attr` reads class attributes.
+@example python: The shared-list trap
+class BadCart:
+    items = []                           # one list, shared by every cart!
+    def add(self, item):
+        self.items.append(item)
+
+class Cart:
+    tax_rate = 0.13                      # a shared constant is fine
+    def __init__(self, owner):
+        self.owner = owner
+        self.items = []                  # each cart gets its own list
+    def add(self, item):
+        self.items.append(item)
+
+a, b = BadCart(), BadCart()
+a.add("tea")
+print("bad:", a.items, b.items)
+
+c, d = Cart("ada"), Cart("ben")
+c.add("tea")
+print("good:", c.items, d.items)
+print(vars(c), Cart.tax_rate, c.tax_rate)
+c.tax_rate = 0.05
+print(vars(c), Cart.tax_rate, d.tax_rate)
+@note
+The bad cart's list belongs to the class, so Ben's cart shows Ada's tea. Assigning `c.tax_rate` did not change the class: it created a new instance attribute on `c` that hides the class one, while `d` still sees 0.13.
+@example python: An object that keeps itself valid
+class InsufficientFunds(Exception):
+    pass
+
+class Account:
+    def __init__(self, owner, balance=0):
+        if not owner.strip():
+            raise ValueError("owner must not be empty")
+        if balance < 0:
+            raise ValueError("opening balance cannot be negative")
+        self.owner, self.balance, self.history = owner, balance, []
+
+    def withdraw(self, amount):
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        if amount > self.balance:
+            raise InsufficientFunds(f"{self.owner} has {self.balance}, asked for {amount}")
+        self.balance -= amount
+        self.history.append(-amount)
+
+acct = Account("Ada", 100)
+for amount in [30, 500, -5]:
+    try:
+        acct.withdraw(amount)
+        print(f"withdrew {amount}, balance {acct.balance}")
+    except (InsufficientFunds, ValueError) as error:
+        print(f"{type(error).__name__}: {error}")
+print(acct.history)
+@note
+Every way of changing the balance goes through a method that checks the rules, so an Account can never end up negative or with a nonsense history. The custom exception lets callers handle "not enough money" separately from programming errors like a negative amount.
+@mistakes
+- **Mutable class attributes for per-object data.** Every instance shares them. Create them in `__init__`.
+- **Forgetting `self`.** A method without it fails when called, and an assignment without `self.` creates a local variable.
+- **Objects that can exist in invalid states.** Validate in the constructor and the methods that change data.
+@keys
+- A class defines a type; instances hold their own data via `self`.
+- Class attributes are shared; instance attributes belong to one object.
+- Never use mutable class attributes for per-instance state.
+- Validate in `__init__` and mutating methods so objects stay trustworthy.
+
+=== A4.2
+@idea
+**Dunder methods** (double-underscore names like `__len__`) are how your classes plug into Python's syntax and built-ins. `len(x)` calls `x.__len__()`, `x == y` calls `__eq__`, `x + y` calls `__add__`, `for i in x` calls `__iter__`, `x[0]` calls `__getitem__`, `if x:` calls `__bool__` (or `__len__`). Implement the right ones and your objects feel built in.
+
+Two string methods matter most. `__repr__` is for developers: unambiguous, ideally looking like the code that would recreate the object (`Money(1250, 'CAD')`); it is what the REPL, debuggers and containers show. `__str__` is for users (`$12.50`) and falls back to `__repr__` if missing. Always write a `__repr__`.
+
+Comparison methods work together. `__eq__` defines equality; if you define it, also define `__hash__` (or accept that instances become unhashable). For ordering, define `__eq__` and `__lt__` and let `functools.total_ordering` fill in the rest. When an operation does not make sense for the other operand's type, return the special value `NotImplemented` rather than raising, so Python can try the other operand's method or give a proper TypeError.
+@how
+- `__repr__` always; `__str__` when a user-facing form differs.
+- `__eq__` + `__hash__` (hash a tuple of the same fields) for value objects.
+- `@functools.total_ordering` with `__eq__` and `__lt__` gives all six comparisons.
+- Arithmetic: `__add__`, `__sub__`, `__mul__`; `__radd__` for `0 + obj` (so `sum` works).
+- Containers: `__len__`, `__getitem__`, `__iter__`, `__contains__`.
+- Return `NotImplemented` for unsupported operand types.
+@example python: A value type: repr, equality, ordering and arithmetic
+from functools import total_ordering
+
+@total_ordering
+class Money:
+    def __init__(self, cents, currency="CAD"):
+        self.cents, self.currency = cents, currency
+    def __repr__(self):
+        return f"Money({self.cents}, {self.currency!r})"
+    def __str__(self):
+        return f"${self.cents / 100:,.2f} {self.currency}"
+    def __eq__(self, other):
+        if not isinstance(other, Money):
+            return NotImplemented
+        return (self.cents, self.currency) == (other.cents, other.currency)
+    def __hash__(self):
+        return hash((self.cents, self.currency))
+    def __lt__(self, other):
+        if not isinstance(other, Money) or other.currency != self.currency:
+            return NotImplemented
+        return self.cents < other.cents
+    def __add__(self, other):
+        if not isinstance(other, Money) or other.currency != self.currency:
+            return NotImplemented
+        return Money(self.cents + other.cents, self.currency)
+    def __radd__(self, other):
+        return self if other == 0 else NotImplemented
+
+prices = [Money(1250), Money(399), Money(1250)]
+print(prices, "|", prices[0], "|", sum(prices))
+print(prices[0] == prices[2], prices[1] < prices[0], max(prices), len(set(prices)))
+try:
+    Money(100) + 5
+except TypeError as error:
+    print("TypeError:", error)
+@note
+`repr` appears inside the list, `str` when printing one value. `__radd__` handles the `0 + Money` that `sum` starts with, `total_ordering` derived `max`'s comparisons from `__lt__`, and `__hash__` lets equal amounts collapse in a set. Returning NotImplemented produced a proper TypeError for `Money + 5`.
+@example python: A container that works with len, in, indexing and for
+class Playlist:
+    def __init__(self, name, tracks=()):
+        self.name, self._tracks = name, list(tracks)
+    def __repr__(self):
+        return f"Playlist({self.name!r}, {self._tracks!r})"
+    def __len__(self):
+        return len(self._tracks)
+    def __getitem__(self, index):
+        result = self._tracks[index]
+        return Playlist(self.name, result) if isinstance(index, slice) else result
+    def __contains__(self, track):
+        return track.casefold() in (t.casefold() for t in self._tracks)
+
+road = Playlist("Road trip", ["Africa", "Hey Jude", "Imagine", "Respect"])
+print(len(road), road[0], road[-1], road[1:3])
+print("imagine" in road, "Yesterday" in road, bool(Playlist("empty")))
+for i, track in enumerate(road, 1):
+    print(i, track, end="  ")
+print()
+@note
+`__getitem__` alone made the playlist iterable (Python calls it with 0, 1, 2... until IndexError) and supports slices, here returning a new Playlist. `__contains__` gives case-insensitive `in`, and `__len__` also defines truthiness, so an empty playlist is falsy.
+@mistakes
+- **Defining `__eq__` without `__hash__`.** Python then sets `__hash__` to None and instances cannot go in sets or be dict keys.
+- **Raising TypeError instead of returning NotImplemented.** Python cannot try the other operand's method.
+- **A `__repr__` that hides the important fields.** Debugging gets harder. Show what distinguishes objects.
+@keys
+- Dunder methods connect classes to syntax and built-ins.
+- Always write `__repr__`; add `__str__` for users.
+- `__eq__` with `__hash__`; `total_ordering` from `__lt__`.
+- Container protocols (`__len__`, `__getitem__`, `__contains__`) make objects feel native.
+
+=== A4.3
+@idea
+**Inheritance** lets a class reuse and specialise another: `class EmailNotifier(Notifier)` gets all of Notifier's methods and can **override** some of them. Inside an override, `super().method(...)` calls the parent's version, so you extend behaviour instead of copying it. With multiple inheritance, Python follows the **method resolution order** (MRO), a single, predictable list of classes shown by `Class.__mro__`; `super()` means "the next class in the MRO", not simply "my parent".
+
+An **abstract base class** (from `abc`) defines methods that subclasses **must** implement: decorating a method with `@abstractmethod` makes the base class impossible to instantiate and gives a clear error if a subclass forgets one. It documents and enforces an interface.
+
+Inheritance is powerful but couples classes tightly: a change in the parent ripples into every child, and deep hierarchies become hard to follow. **Composition**, where an object holds other objects and delegates work to them, is often more flexible: a `Report` that *has* an exporter can switch from PDF to CSV at runtime, while a `PdfReport` subclass is stuck. A good test: inheritance for genuine "is a" relationships with shared behaviour, composition for "has a" or "uses a".
+@how
+- `class Child(Parent):`; override methods; call `super().__init__(...)` in the child's `__init__`.
+- `Class.__mro__` shows the lookup order; `isinstance(obj, Parent)` respects inheritance.
+- `from abc import ABC, abstractmethod`; subclasses must implement every abstract method.
+- Prefer composition: pass collaborators into `__init__` and call their methods.
+- Keep hierarchies shallow, one or two levels.
+@example python: super(), abstract methods and the MRO
+from abc import ABC, abstractmethod
+
+class Notifier(ABC):
+    def __init__(self, recipient):
+        self.recipient = recipient
+    def send(self, message):
+        return f"{type(self).__name__} -> {self.recipient}: {self.format(message)}"
+    @abstractmethod
+    def format(self, message): ...
+
+class Email(Notifier):
+    def __init__(self, recipient, subject):
+        super().__init__(recipient)
+        self.subject = subject
+    def format(self, message):
+        return f"[{self.subject}] {message}"
+
+class UrgentEmail(Email):
+    def format(self, message):
+        return super().format(message.upper() + "!")
+
+print(Email("ada@example.com", "Hi").send("lunch at noon"))
+print(UrgentEmail("ops@example.com", "Alert").send("disk full"))
+print([c.__name__ for c in UrgentEmail.__mro__])
+
+class Sms(Notifier):
+    pass
+try:
+    Sms("555-0100")
+except TypeError as error:
+    print("TypeError:", error)
+@note
+`send` lives in the base class and calls `format`, which each subclass supplies; UrgentEmail extends Email's version through `super()`. The MRO shows the lookup order. Sms forgot `format`, and the abstract base class refused to create it at all, rather than failing later.
+@example python: Composition: swapping behaviour at runtime
+import json
+
+class CsvExporter:
+    def export(self, rows):
+        return "\n".join(",".join(str(v) for v in row.values()) for row in rows)
+
+class JsonExporter:
+    def export(self, rows):
+        return json.dumps(rows)
+
+class Report:
+    def __init__(self, title, exporter):
+        self.title, self.exporter = title, exporter
+        self.rows = []
+    def add(self, **row):
+        self.rows.append(row)
+    def render(self):
+        return f"{self.title}\n{self.exporter.export(self.rows)}"
+
+report = Report("Sales", CsvExporter())
+report.add(item="tea", qty=3)
+report.add(item="cake", qty=1)
+print(report.render())
+report.exporter = JsonExporter()
+print(report.render())
+@note
+The report *has* an exporter and delegates to it. Switching formats was one assignment, and adding a new format is a new small class with an `export` method; with inheritance it would be a new Report subclass for every format, multiplied by every kind of report.
+@mistakes
+- **Forgetting `super().__init__()`.** The parent's attributes are never set. Call it in the child's `__init__`.
+- **Deep inheritance trees for code reuse.** They become fragile. Prefer composition.
+- **Assuming `super()` means "my parent".** With multiple inheritance it follows the MRO.
+@keys
+- Inheritance specialises a class; `super()` extends the parent's behaviour.
+- The MRO decides method lookup; inspect it with `__mro__`.
+- Abstract base classes enforce required methods.
+- Prefer composition for flexibility; inherit for real "is a" relationships.
+
+=== A4.4
+@idea
+In Python, attributes are public by default, and that is fine: start with plain attributes. If you later need to validate or compute a value, **`@property`** turns a method into something accessed like an attribute, so `user.email` can run checking code on assignment without changing any calling code. That is why Python does not need Java-style `get_x()`/`set_x()` methods.
+
+A property has a getter (the decorated method) and optionally a **setter** (`@email.setter`) that validates new values; with no setter it is **read-only**. Computed properties (`area` from width and height) never go stale, because they are calculated on access.
+
+Privacy is a **convention**: a single leading underscore (`_balance`) means "internal, don't touch from outside", and tools and readers respect it. A double underscore (`__secret`) triggers **name mangling** to `_ClassName__secret`, which mainly prevents accidental clashes in subclasses; it is not security. Two other decorators change what a method receives: `@classmethod` gets the class (`cls`) and is the standard way to write **alternative constructors** like `Date.from_string(...)`; `@staticmethod` gets neither and is just a function that lives in the class namespace.
+@how
+- `@property def x(self): return self._x`; `@x.setter def x(self, value): ...validate...; self._x = value`.
+- Read-only: a property with no setter. Computed: return a calculation.
+- `_name` means internal; `__name` mangles to `_Class__name`.
+- `@classmethod def from_json(cls, text): return cls(...)` for alternative constructors (works for subclasses too).
+- `@staticmethod` for helpers that need neither instance nor class.
+- Start with plain attributes; switch to a property when you need logic.
+@example python: Validated, read-only and computed properties
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width                 # goes through the setter
+        self.height = height
+
+    @property
+    def width(self):
+        return self._width
+
+    @width.setter
+    def width(self, value):
+        if value <= 0:
+            raise ValueError(f"width must be positive, got {value}")
+        self._width = value
+
+    @property
+    def area(self):                        # computed, read-only
+        return self._width * self.height
+
+r = Rectangle(3, 4)
+print(r.width, r.area)
+r.width = 10
+print(r.width, r.area, "- area follows the new width")
+for action in (lambda: setattr(r, "width", -1), lambda: setattr(r, "area", 99)):
+    try:
+        action()
+    except (ValueError, AttributeError) as error:
+        print(f"{type(error).__name__}: {error}")
+@note
+Callers use plain attribute syntax while the setter validates, even in `__init__`. `area` is recalculated on every access so it never goes stale, and with no setter, assigning to it is refused with an AttributeError.
+@example python: classmethod constructors, staticmethods and name mangling
+from datetime import date
+
+class Event:
+    def __init__(self, title, day):
+        self.title, self.day = title, day
+        self.__token = "internal"
+
+    @classmethod
+    def from_string(cls, text):
+        title, _, iso = text.partition("@")
+        return cls(title.strip(), date.fromisoformat(iso.strip()))
+
+    @staticmethod
+    def is_weekend(day):
+        return day.weekday() >= 5
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.title!r}, {self.day})"
+
+class Meetup(Event):
+    pass
+
+e = Event.from_string("Python night @ 2026-11-21")
+m = Meetup.from_string("Rust club @ 2026-11-24")
+print(e, m, Event.is_weekend(e.day), Event.is_weekend(m.day))
+print([name for name in vars(e) if "token" in name])
+@note
+`from_string` receives the class it was called on, so `Meetup.from_string` builds a Meetup without any extra code. The static method needs no instance at all. The double-underscore attribute was stored as `_Event__token`: renamed, not hidden.
+@mistakes
+- **Writing getters and setters for every attribute.** Use plain attributes and add properties only when needed.
+- **Storing the value under the property's own name.** `self.width = value` inside the setter calls itself forever. Use `self._width`.
+- **Treating `__name` as security.** It is only renamed; anyone can still reach it.
+@keys
+- Start with public attributes; use `@property` to add logic without changing callers.
+- Setters validate; properties without setters are read-only; computed properties never go stale.
+- `_name` is a convention; `__name` is mangled, not private.
+- `@classmethod` for alternative constructors; `@staticmethod` for plain helpers.
+
+=== A4.5
+@idea
+Much of what classes hold is plain data, and writing `__init__`, `__repr__` and `__eq__` by hand for each is tedious. **`@dataclass`** generates them from type-annotated fields. Options fine-tune it: `frozen=True` makes instances immutable (and hashable), `order=True` adds comparisons field by field, `slots=True` saves memory, and `field(default_factory=list)` gives each instance its own mutable default. A `__post_init__` method runs after the generated `__init__` for validation or derived fields, and `dataclasses.replace(obj, x=1)` copies with changes, the natural way to "modify" a frozen instance.
+
+**Enum** defines a fixed set of named constants: `class Status(Enum): OPEN = 1`. Members are singletons, compare by identity, print readably, can be iterated, and catch typos (`Status.OPNE` fails immediately, while a string "opne" would slip through). `StrEnum` members are also strings, handy for JSON and databases. `match` works nicely with them.
+
+**Protocol** (from `typing`) describes an interface by **structure**: any class with the right methods satisfies it, with no inheritance needed. It formalises duck typing for type checkers (module 7): a function that accepts a `SupportsClose` will accept a file, a socket or your own class, as long as it has `close()`.
+@how
+- `@dataclass class Item: name: str; qty: int = 1; tags: list[str] = field(default_factory=list)`.
+- `@dataclass(frozen=True, order=True, slots=True)` as needed; `replace(obj, field=value)` to copy.
+- `__post_init__(self)` validates or computes derived fields.
+- `class Color(Enum): RED = auto()`; `Color["RED"]`, `Color(1)`, `list(Color)`; `StrEnum` for string values.
+- `class Closer(Protocol): def close(self) -> None: ...`; add `@runtime_checkable` for `isinstance` checks.
+@example python: Dataclass options in action
+from dataclasses import dataclass, field, replace, FrozenInstanceError
+
+@dataclass(order=True)
+class Task:
+    priority: int
+    title: str = field(compare=False)
+    tags: list[str] = field(default_factory=list, compare=False)
+
+    def __post_init__(self):
+        if not 1 <= self.priority <= 5:
+            raise ValueError(f"priority must be 1-5, got {self.priority}")
+
+tasks = [Task(3, "write tests"), Task(1, "fix outage", ["urgent"]), Task(2, "review PR")]
+print(sorted(tasks)[0])
+print(Task(2, "a") == Task(2, "b"), "- titles are excluded from comparison")
+try:
+    Task(9, "impossible")
+except ValueError as error:
+    print("ValueError:", error)
+
+@dataclass(frozen=True)
+class Point:
+    x: float
+    y: float
+
+p = Point(1, 2)
+try:
+    p.x = 5
+except FrozenInstanceError as error:
+    print("FrozenInstanceError:", error)
+print(replace(p, x=5), p, {p, Point(1, 2)})
+@note
+`order=True` sorts by the fields that take part in comparison (only `priority` here), and `__post_init__` rejected an invalid priority. The frozen Point refuses changes, `replace` makes a modified copy, and equal frozen points collapse in a set because they are hashable.
+@example python: Enums and a Protocol
+from enum import Enum, StrEnum, auto
+from typing import Protocol, runtime_checkable
+
+class Status(StrEnum):
+    OPEN = auto()
+    CLOSED = auto()
+
+class Priority(Enum):
+    LOW = 1
+    HIGH = 2
+
+print(Status.OPEN, Status("closed"), Status.OPEN == "open", [s.value for s in Status])
+print(Priority(2), Priority["LOW"].value, Priority.HIGH is Priority(2))
+try:
+    Priority(7)
+except ValueError as error:
+    print("ValueError:", error)
+
+@runtime_checkable
+class Shape(Protocol):
+    def area(self) -> float: ...
+
+class Square:
+    def __init__(self, side): self.side = side
+    def area(self): return self.side ** 2
+
+class Label:
+    text = "hi"
+
+def total_area(shapes: list[Shape]) -> float:
+    return sum(s.area() for s in shapes)
+
+print(total_area([Square(2), Square(3)]), isinstance(Square(1), Shape), isinstance(Label(), Shape))
+@note
+`StrEnum` members are real strings, which is why `Status.OPEN == "open"` is True and they serialise cleanly; `auto()` used the lower-case name. Looking up an unknown value fails loudly. Square satisfies the Shape protocol without inheriting from it, simply by having `area`; Label does not.
+@mistakes
+- **Mutable defaults in a dataclass** (`tags: list = []`). Python refuses; use `field(default_factory=list)`.
+- **Magic strings for states.** A typo goes unnoticed. Use an Enum.
+- **Inheriting from a Protocol to satisfy it.** Not needed: matching methods are enough.
+@keys
+- `@dataclass` writes `__init__`, `__repr__` and `__eq__` from annotated fields.
+- `frozen`, `order`, `field(default_factory=...)` and `__post_init__` cover most needs; `replace` copies.
+- Enums give named, typo-proof constants; `StrEnum` doubles as strings.
+- Protocols describe interfaces by structure: duck typing that type checkers understand.
+
+=== A4.P
+@idea
+The project is a **library system**: books with copies, members who borrow them, loans with due dates, and rules (members may hold at most three loans, overdue members cannot borrow, a copy cannot be lent twice). It is a small **domain model**, the kind of object design that sits at the heart of most business applications.
+
+Plan the objects and who owns what. Dataclasses fit the records: `Book` (frozen, identified by ISBN), `Member`, `Loan`. One coordinating object, `Library`, holds the collections and is the **only** place that changes state: `library.lend(isbn, member_id, today)` checks every rule, then creates the loan. Keeping the rules in one owner means no other code can bypass them, and the tests for each rule are obvious.
+
+Use **custom exceptions** for rule violations (`LimitReached`, `NotAvailable`, `HasOverdue`), so the interface layer can show a precise message. Pass the date in rather than reading the clock inside, which makes overdue logic trivially testable. Finally, **persistence**: convert the state to plain dictionaries (`dataclasses.asdict`) and save JSON; loading rebuilds the objects. The domain code knows nothing about files, so the storage format can change later without touching the rules.
+@how
+- Dataclasses: `Book(isbn, title)` frozen; `Member(id, name)`; `Loan(isbn, member_id, due)`.
+- `Library` owns dicts of books, members, copy counts and loans; all changes go through its methods.
+- One exception class per rule, sharing a base `LibraryError`.
+- Pass `today` into methods; never call `date.today()` inside the rules.
+- Persistence: `asdict` to save, constructors to rebuild; keep it in separate functions.
+@example python: The domain model and its rules
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+class LibraryError(Exception): pass
+class NotAvailable(LibraryError): pass
+class LimitReached(LibraryError): pass
+class HasOverdue(LibraryError): pass
+
+@dataclass(frozen=True)
+class Book:
+    isbn: str
+    title: str
+
+@dataclass
+class Loan:
+    isbn: str
+    member: str
+    due: date
+
+@dataclass
+class Library:
+    books: dict = field(default_factory=dict)
+    copies: dict = field(default_factory=dict)
+    loans: list = field(default_factory=list)
+    MAX_LOANS = 3
+
+    def add(self, book, copies=1):
+        self.books[book.isbn] = book
+        self.copies[book.isbn] = self.copies.get(book.isbn, 0) + copies
+
+    def lend(self, isbn, member, today):
+        mine = [l for l in self.loans if l.member == member]
+        if any(l.due < today for l in mine):
+            raise HasOverdue(f"{member} has an overdue book")
+        if len(mine) >= self.MAX_LOANS:
+            raise LimitReached(f"{member} already has {self.MAX_LOANS} loans")
+        out = sum(l.isbn == isbn for l in self.loans)
+        if out >= self.copies.get(isbn, 0):
+            raise NotAvailable(f"no copies of {self.books[isbn].title} left")
+        self.loans.append(Loan(isbn, member, today + timedelta(days=14)))
+
+lib = Library()
+lib.add(Book("111", "Dune"), copies=1)
+lib.add(Book("222", "Emma"), copies=5)
+day = date(2026, 11, 1)
+for isbn, member, when in [("111", "ada", day), ("111", "ben", day), ("222", "ada", day), ("222", "ada", day),
+                           ("222", "ada", day), ("222", "ben", day + timedelta(days=20)), ("222", "ada", day + timedelta(days=20))]:
+    try:
+        lib.lend(isbn, member, when)
+        print(f"{when} lent {lib.books[isbn].title} to {member}")
+    except LibraryError as error:
+        print(f"{when} refused ({type(error).__name__}): {error}")
+@note
+Every rule lives in `lend`, and each violation raises its own exception type, all catchable through the shared base class. Passing the date in made the overdue rule easy to exercise: twenty days later, Ada's loans from 1 November are overdue, while Ben can still borrow.
+@example python: Saving and loading without touching the rules
+import json
+from dataclasses import asdict, dataclass
+from datetime import date
+
+@dataclass
+class Loan:
+    isbn: str
+    member: str
+    due: date
+
+def save(loans):
+    return json.dumps([asdict(l) | {"due": l.due.isoformat()} for l in loans], indent=1)
+
+def load(text):
+    return [Loan(d["isbn"], d["member"], date.fromisoformat(d["due"])) for d in json.loads(text)]
+
+loans = [Loan("111", "ada", date(2026, 11, 15)), Loan("222", "ben", date(2026, 11, 30))]
+text = save(loans)
+print(text)
+back = load(text)
+print(back == loans, back[0].due - date(2026, 11, 1))
+@note
+`asdict` turns a dataclass into a plain dictionary; the date becomes an ISO string, the one type JSON cannot hold. Loading rebuilds real Loan objects with real dates, equal to the originals. The domain classes know nothing about JSON, so a database could replace this later.
+@mistakes
+- **Rules scattered across the interface code.** Some path will skip a check. Keep them in one owner.
+- **Reading the clock inside business rules.** Tests cannot control time. Pass the date in.
+- **Saving objects with pickle for long-term data.** It is fragile and unsafe to load from others. Use JSON with explicit conversion.
+@keys
+- Dataclasses for records; one coordinating object enforces every rule.
+- A custom exception per rule, with a shared base class.
+- Inject the date so time-based rules are testable.
+- Keep persistence separate: `asdict` + JSON out, constructors back in.

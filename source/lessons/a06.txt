@@ -1,0 +1,596 @@
+=== A6.1
+@idea
+Every `for` loop runs on the **iterator protocol**. `iter(obj)` asks an **iterable** for an **iterator**; `next(iterator)` returns the next value, and raises `StopIteration` when there are none left, which is how `for` knows to stop. Lists, dicts, files and ranges are iterables; an iterator is a one-way cursor over them that remembers its position and is used up after one pass.
+
+Writing `__iter__` and `__next__` by hand works, but a **generator function** is far easier: any function containing `yield` returns a generator, an iterator whose code runs only when the next value is requested and pauses at each `yield`, keeping its local variables until it resumes. This is **lazy evaluation**: values are produced one at a time, on demand, so a generator can describe an enormous or even infinite sequence while holding a single value in memory.
+
+Generators **compose** into pipelines, like Unix pipes: read lines → parse → filter → transform, each stage a small generator consuming the previous one. Nothing runs until the final consumer (a `for` loop, `sum`, `list`) pulls values through, and memory stays flat however large the input. `yield from other` delegates to another iterable, handy for flattening and recursion.
+@how
+- `it = iter(x)`; `next(it)`; `next(it, default)` avoids StopIteration.
+- A function with `yield` returns a generator; it runs up to the next `yield` on each `next()`.
+- Generators are single-use: loop again by calling the function again.
+- Pipelines: `parsed = (parse(l) for l in lines)`, then `errors = (r for r in parsed if r.level == "ERROR")`.
+- `yield from iterable` yields every item of another iterable.
+- Infinite generators are fine; stop them with `itertools.islice` or `break`.
+@example python: Watching a generator pause and resume
+def countdown(n):
+    print("  (starting)")
+    while n > 0:
+        yield n
+        print(f"  (resumed after {n})")
+        n -= 1
+    print("  (finished)")
+
+gen = countdown(3)
+print("created, nothing has run yet:", type(gen).__name__)
+print(next(gen))
+print(next(gen))
+print(list(gen))
+print(next(gen, "exhausted"))
+@note
+Creating the generator ran none of its code; each `next` ran just up to the following `yield`, keeping `n` between calls. `list` pulled the remaining values, and once finished the generator is exhausted for good, so `next` returned the default instead of raising StopIteration.
+@example python: A lazy pipeline over an infinite source
+import itertools
+import random
+
+def readings(seed=7):
+    rng = random.Random(seed)
+    for n in itertools.count(1):              # never ends on its own
+        yield n, round(rng.gauss(20, 4), 1)
+
+def above(stream, limit):
+    for n, value in stream:
+        if value > limit:
+            yield n, value
+
+def flagged(stream):
+    for n, value in stream:
+        yield f"reading #{n}: {value}°C"
+
+alerts = flagged(above(readings(), 26))
+for line in itertools.islice(alerts, 3):
+    print(line)
+
+def flatten(items):
+    for x in items:
+        if isinstance(x, list):
+            yield from flatten(x)
+        else:
+            yield x
+print(list(flatten([1, [2, [3, 4]], [], 5])))
+@note
+The source never ends, yet the program finished: each stage pulled one value at a time, and `islice` stopped after three alerts. Only the readings needed to find them were ever generated. `yield from` makes the recursive flatten short.
+@mistakes
+- **Iterating a generator twice.** The second pass is empty. Recreate it, or store a list if you really need it twice.
+- **Calling `list()` on a huge or infinite generator.** You lose the laziness, or never finish. Consume it gradually.
+- **Expecting generator code to run when it is created.** Nothing happens until the first `next`.
+@keys
+- `iter` and `next` drive every loop; StopIteration ends it.
+- `yield` turns a function into a lazy, resumable generator.
+- Generators are single-use and hold one value at a time.
+- Chain generators into pipelines; `yield from` delegates.
+
+=== A6.2
+@idea
+In Python, functions are **objects**: they can be stored in variables, passed as arguments and returned from other functions. That makes a functional style possible. A **lambda** is a small anonymous function written as an expression, `lambda x: x * 2`, best for short keys and callbacks; anything longer deserves a `def` with a name.
+
+`map(f, items)` applies a function to every item and `filter(pred, items)` keeps items for which the predicate is true; both are lazy iterators. In everyday Python, comprehensions usually read better (`[f(x) for x in items if p(x)]`), but `map` is neat with an existing function: `map(str.strip, lines)`. `functools.reduce(f, items, start)` folds a sequence into one value by applying `f` repeatedly; for sums, products and maxima the built-ins (`sum`, `math.prod`, `max`) are clearer.
+
+`functools.partial(f, arg)` **pre-fills** arguments, creating a specialised function: `partial(round, ndigits=2)`. `functools.lru_cache` and `functools.cache` **memoise** pure functions, remembering results for arguments already seen. The `operator` module provides functions for operators (`operator.add`, `itemgetter`, `attrgetter`, `methodcaller`) that make these tools read well.
+@how
+- `lambda args: expression`; prefer `def` for anything non-trivial.
+- `map(f, it)`, `filter(pred, it)`: lazy; wrap in `list()` to see results.
+- `reduce(f, it, initial)` folds; prefer `sum`, `math.prod`, `max`, `"".join` when they fit.
+- `partial(f, *args, **kwargs)` pre-fills arguments.
+- `@cache` / `@lru_cache(maxsize=N)` for pure, expensive functions.
+- `operator.mul`, `itemgetter`, `attrgetter`, `methodcaller("upper")`.
+@example python: Functions as values: a dispatch table and higher-order functions
+import operator
+
+OPS = {"+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv}
+
+def calculate(a, op, b):
+    return OPS[op](a, b)
+
+print([calculate(6, op, 3) for op in OPS])
+
+def apply_twice(func, value):
+    return func(func(value))
+
+def make_multiplier(n):
+    return lambda x: x * n
+
+triple = make_multiplier(3)
+print(apply_twice(triple, 2), apply_twice(str.upper, "hi"), list(map(triple, [1, 2, 3])))
+print(list(map(str.strip, ["  tea ", "cake  "])), list(filter(None, [0, 1, "", "x", None, []])))
+@note
+Functions sit in a dictionary like any other value, so a lookup chooses the operation. `make_multiplier` returns a new function, and `apply_twice` takes one. `filter(None, ...)` keeps only truthy items, a handy idiom.
+@example python: reduce, partial and caching
+from functools import cache, partial, reduce
+import math
+import time
+
+print(reduce(lambda acc, word: acc + len(word), ["tea", "for", "two"], 0))
+print(reduce(math.gcd, [84, 126, 210]), math.prod([2, 3, 7]))
+
+price = partial(round, ndigits=2)
+to_binary = partial(int, base=2)
+print(price(3.14159), to_binary("101101"))
+
+@cache
+def slow_lookup(code):
+    time.sleep(0.2)
+    return code.upper()
+
+start = time.perf_counter()
+results = [slow_lookup(c) for c in ["yul", "yyz", "yul", "yul", "yyz"]]
+print(results, "five calls in under 0.5 s:", time.perf_counter() - start < 0.5)
+print(slow_lookup.cache_info())
+@note
+`reduce` folds a list into one value: a running total, or the greatest common divisor of several numbers. `partial` created specialised versions of `round` and `int`. The cache made only two real (slow) lookups for five calls, as `cache_info` confirms.
+@mistakes
+- **Long lambdas.** They are hard to read and debug. Use a named `def`.
+- **`list(map(lambda x: ..., items))` where a comprehension is clearer.** Prefer the comprehension.
+- **Caching functions with side effects or changing data.** The cache returns stale results. Only cache pure functions.
+@keys
+- Functions are objects: store, pass and return them.
+- `map` and `filter` are lazy; comprehensions are often clearer.
+- `reduce` folds; built-ins usually say it better.
+- `partial` pre-fills arguments; `cache` memoises pure functions.
+
+=== A6.3
+@idea
+A **decorator** is a function that takes a function and returns a replacement, usually a **wrapper** that adds behaviour before or after calling the original. `@timer` above `def work():` is shorthand for `work = timer(work)`. Decorators package cross-cutting concerns (timing, logging, retries, caching, access checks) so they are written once and applied with one line.
+
+They rely on **closures**: a function defined inside another remembers the variables of the enclosing function even after it returns. The wrapper remembers `func`, the function it wraps. Use `nonlocal` to rebind such a variable (for example, a call counter).
+
+Two details separate a good decorator from a broken one. First, write the wrapper as `def wrapper(*args, **kwargs)` and pass them through, so it works for any signature, and return the original's result. Second, apply `@functools.wraps(func)` to the wrapper so it keeps the original's name, docstring and signature; otherwise every decorated function shows up as "wrapper" in tracebacks and help. A **decorator with arguments**, like `@retry(times=3)`, is one level deeper: a function that takes the arguments and returns the actual decorator.
+@how
+- `def deco(func): @wraps(func) def wrapper(*args, **kwargs): ...; return func(*args, **kwargs); return wrapper`.
+- `@deco` above a def means `f = deco(f)`.
+- Closures remember enclosing variables; `nonlocal x` to rebind one.
+- With arguments: `def retry(times): def deco(func): ...; return deco`.
+- Stacked decorators apply bottom-up: the nearest one wraps first.
+- Store state on the wrapper (`wrapper.calls = 0`) when callers need to read it.
+@example python: Timing and counting, with and without wraps
+import functools
+import time
+
+def counted(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        wrapper.calls += 1
+        return func(*args, **kwargs)
+    wrapper.calls = 0
+    return wrapper
+
+def careless(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+@counted
+def greet(name, punctuation="!"):
+    """Return a greeting."""
+    return f"Hello, {name}{punctuation}"
+
+@careless
+def farewell(name):
+    """Return a goodbye."""
+    return f"Bye, {name}"
+
+print(greet("Ada"), greet("Ben", punctuation="?"), "| calls:", greet.calls)
+print(greet.__name__, "|", greet.__doc__)
+print(farewell.__name__, "|", farewell.__doc__, "- metadata lost without wraps")
+@note
+The wrapper passed every argument through, including keywords, and counted calls in an attribute. With `functools.wraps`, `greet` keeps its name and docstring; `farewell`, wrapped carelessly, now claims to be called "wrapper" with no documentation.
+@example python: A decorator with arguments: retry
+import functools
+
+def retry(times=3, exceptions=(Exception,)):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, times + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as error:
+                    print(f"  attempt {attempt} failed: {error}")
+            raise RuntimeError(f"{func.__name__} failed after {times} attempts")
+        return wrapper
+    return decorator
+
+responses = iter([ConnectionError("timeout"), ConnectionError("reset"), "200 OK"])
+
+@retry(times=3, exceptions=(ConnectionError,))
+def fetch():
+    result = next(responses)
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+print(fetch())
+
+@retry(times=2, exceptions=(ConnectionError,))
+def always_down():
+    raise ConnectionError("no route")
+
+try:
+    always_down()
+except RuntimeError as error:
+    print("RuntimeError:", error)
+@note
+`retry(times=3, ...)` runs first and returns the real decorator, which then wraps `fetch`. Only the listed exception types trigger a retry; anything else (a bug) would pass straight through. The second function fails every time, so the decorator gives up with a clear message.
+@mistakes
+- **Forgetting `@functools.wraps`.** Names, docstrings and signatures are lost.
+- **Not returning the original's result.** The decorated function silently returns None.
+- **Writing `@retry` without parentheses for a decorator that takes arguments.** The function itself becomes `times`. Use `@retry()`.
+@keys
+- A decorator takes a function and returns a wrapper; `@d` means `f = d(f)`.
+- Closures let the wrapper remember the original function and other state.
+- Pass `*args, **kwargs` through, return the result, and use `functools.wraps`.
+- Decorators with arguments add one more level of nesting.
+
+=== A6.4
+@idea
+A **context manager** runs setup code before a block and cleanup code after it, no matter how the block ends: normally, through `return`, or with an exception. The `with` statement is how you use one: `with open(path) as f:` guarantees the file is closed. The same shape fits locks (acquire/release), database transactions (commit or roll back), temporary directories, changing the working directory, and timing a block.
+
+Any class can be a context manager by defining `__enter__` and `__exit__`. `__enter__` runs at the start, and its return value is what `as` binds. `__exit__(exc_type, exc, traceback)` runs at the end; if the block raised, the three arguments describe the exception, otherwise they are all None. Returning True from `__exit__` **suppresses** the exception, which should be rare and deliberate.
+
+For most cases, `contextlib.contextmanager` is simpler: write a generator function that does the setup, `yield`s once (the yielded value is the `as` target), and does the cleanup afterwards. Put the `yield` inside `try`/`finally` so cleanup happens even when the block fails. `contextlib` also provides ready-made helpers: `suppress(FileNotFoundError)`, `redirect_stdout`, `chdir` (3.11+) and `ExitStack` for a variable number of managers.
+@how
+- Class: `__enter__(self)` returns the `as` value; `__exit__(self, exc_type, exc, tb)` cleans up.
+- Return True from `__exit__` only to intentionally swallow an exception.
+- `@contextmanager` generator: setup; `try: yield value` / `finally: cleanup`.
+- Several at once: `with open(a) as f, open(b) as g:`.
+- `contextlib.suppress(...)`, `redirect_stdout(buffer)`, `chdir(path)`, `ExitStack()`.
+@example python: A transaction-style context manager class
+class Transaction:
+    def __init__(self, account):
+        self.account = account
+
+    def __enter__(self):
+        self.snapshot = dict(self.account)
+        print("  begin")
+        return self.account
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            print("  commit")
+        else:
+            self.account.clear()
+            self.account.update(self.snapshot)
+            print(f"  rollback ({exc_type.__name__}: {exc})")
+        return False                           # do not hide the error
+
+acct = {"balance": 100}
+with Transaction(acct) as a:
+    a["balance"] -= 30
+print(acct)
+
+try:
+    with Transaction(acct) as a:
+        a["balance"] -= 500
+        if a["balance"] < 0:
+            raise ValueError("overdrawn")
+except ValueError:
+    print("caller still sees the error")
+print(acct)
+@note
+On success `__exit__` received three Nones and committed. When the block raised, `__exit__` got the exception, restored the snapshot and returned False, so the ValueError still reached the caller. The balance is back to 70, not -430.
+@example python: Generator-based managers and contextlib helpers
+import contextlib
+import io
+import os
+import tempfile
+import time
+
+@contextlib.contextmanager
+def timed(label):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        print(f"{label}: {'fast' if time.perf_counter() - start < 0.5 else 'slow'}")
+
+@contextlib.contextmanager
+def working_in(path):
+    old = os.getcwd()
+    os.chdir(path)
+    try:
+        yield path
+    finally:
+        os.chdir(old)
+
+with timed("sum of squares"):
+    total = sum(i * i for i in range(100_000))
+
+start_dir = os.getcwd()
+with tempfile.TemporaryDirectory() as tmp, working_in(tmp):
+    print("inside a temp folder:", os.getcwd() != start_dir)
+print("back where we were:", os.getcwd() == start_dir)
+
+with contextlib.suppress(FileNotFoundError):
+    os.remove("does-not-exist.txt")
+buffer = io.StringIO()
+with contextlib.redirect_stdout(buffer):
+    print("captured, not shown")
+print("buffer holds:", repr(buffer.getvalue()))
+@note
+Each `@contextmanager` function does setup, yields, and cleans up in `finally`, so the working directory is restored even if the block fails. Two managers share one `with` line. `suppress` ignores one specific error, and `redirect_stdout` captures printed output.
+@mistakes
+- **No `try`/`finally` around the `yield`.** If the block raises, cleanup never runs.
+- **Returning True from `__exit__` by accident.** Every exception in the block silently disappears.
+- **Manual cleanup with `close()` calls.** An exception skips them. Use `with`.
+@keys
+- `with` guarantees cleanup however the block ends.
+- `__enter__` returns the `as` value; `__exit__` sees any exception.
+- `@contextmanager` with `try: yield` / `finally:` is the easy way to write one.
+- `contextlib` has `suppress`, `redirect_stdout`, `chdir` and `ExitStack`.
+
+=== A6.5
+@idea
+`itertools` is a toolbox of fast, lazy building blocks for iteration. `chain` joins iterables end to end; `islice` slices any iterator; `count`, `cycle` and `repeat` produce endless streams; `accumulate` gives running totals; `pairwise` yields consecutive pairs; `product`, `permutations` and `combinations` generate arrangements; `groupby` groups **consecutive** items with the same key, so the data must usually be sorted by that key first; `batched` (3.12+) splits a stream into chunks.
+
+**Extended unpacking** generalises assignment: `first, *rest = items`, `*_, last = items`, nested patterns, and `*`/`**` in calls and literals (`[*a, *b]`, `{**defaults, **overrides}`). The **walrus operator** `:=` assigns inside an expression, which removes duplicated work in loops and comprehensions: `while (line := f.readline()):` or `[y for x in data if (y := f(x)) > 0]`.
+
+`match` gets most useful with richer patterns: mapping patterns pick keys out of dictionaries (`{"type": "order", "items": [first, *_]}`), class patterns match objects by attributes (`Point(x=0, y=y)`), and **guards** (`case ... if condition`) add conditions the pattern alone cannot express. Together these let code describe the *shape* of data instead of digging through it with indexes.
+@how
+- `chain`, `islice`, `accumulate`, `pairwise`, `batched`, `product`, `combinations`, `permutations`.
+- `groupby(sorted(data, key=k), key=k)` groups by a key; it only joins neighbours.
+- Unpacking: `a, *b = seq`; merge with `[*x, *y]`, `{**d1, **d2}`; call with `f(*args, **kw)`.
+- Walrus: `if (m := pattern.match(s)):`, `while (chunk := f.read(4096)):`.
+- Match on dicts and classes: `case {"kind": "click", "pos": (x, y)}:`, `case Point(x=0):`; guards with `if`.
+@example python: groupby, pairwise, accumulate and batched
+from itertools import accumulate, batched, groupby, pairwise, combinations
+
+sales = [("mon", "tea", 3), ("tue", "cake", 2), ("mon", "cake", 5), ("tue", "tea", 4), ("mon", "tea", 1)]
+by_day = sorted(sales, key=lambda s: s[0])
+for day, rows in groupby(by_day, key=lambda s: s[0]):
+    print(day, sum(qty for _, _, qty in rows))
+print([k for k, _ in groupby("aaabccaa")], "- unsorted: only neighbours group")
+
+temps = [12, 15, 14, 19, 18, 22]
+print([b - a for a, b in pairwise(temps)], list(accumulate(temps, max)))
+print(list(batched(range(7), 3)), list(combinations("ABC", 2)))
+@note
+After sorting by day, `groupby` produced one group per day; on unsorted text it grouped only neighbouring letters, so "a" appears twice. `pairwise` gave day-to-day changes, `accumulate` with `max` a running maximum, and `batched` fixed-size chunks with a shorter last one.
+@example python: Walrus, merging with **, and match on dicts and classes
+import re
+from dataclasses import dataclass
+
+ORDER = re.compile(r"(\w+) x(\d+)")
+lines = ["tea x2", "nonsense", "cake x10"]
+parsed = [(m[1], int(m[2])) for line in lines if (m := ORDER.fullmatch(line))]
+print(parsed)
+
+defaults = {"size": "M", "milk": True, "sugar": 0}
+print({**defaults, "sugar": 2, "extra": "cinnamon"})
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+def describe(event):
+    match event:
+        case {"type": "click", "at": Point(x=0, y=y)}:
+            return f"click on the left edge at height {y}"
+        case {"type": "click", "at": Point(x=x, y=y)} if x == y:
+            return f"click on the diagonal at {x}"
+        case {"type": "keys", "keys": [first, *rest]}:
+            return f"{first!r} pressed, then {len(rest)} more"
+        case {"type": kind}:
+            return f"unhandled {kind}"
+
+for e in [{"type": "click", "at": Point(0, 7)}, {"type": "click", "at": Point(4, 4)},
+          {"type": "keys", "keys": ["a", "b", "c"]}, {"type": "scroll", "dy": 3}]:
+    print(describe(e))
+@note
+The walrus operator matched each line once and reused the result, so the regex did not run twice. `**` merged dictionaries with later keys winning. The mapping patterns ignore extra keys, the class pattern checks attributes, and the guard handles a condition the pattern cannot express.
+@mistakes
+- **`groupby` on unsorted data.** Equal keys that are not adjacent form separate groups. Sort by the same key first.
+- **Using `:=` everywhere.** It shines in loops and comprehensions; elsewhere a plain assignment reads better.
+- **Assuming mapping patterns require an exact match.** Extra keys are allowed; use `**rest` if you need them.
+@keys
+- `itertools` gives lazy building blocks: chain, islice, accumulate, pairwise, batched, product, groupby.
+- `groupby` only groups neighbours: sort first.
+- Extended unpacking and `*`/`**` merging make data shuffling concise.
+- The walrus avoids repeated work; `match` with mapping, class patterns and guards describes data shapes.
+
+=== A6.6
+@idea
+Python variables are **names bound to objects**. Assignment never copies: `b = a` makes a second name for the same object. Every object has an **identity** (`id(obj)`, compared with `is`), a **type**, and a **value** (compared with `==`). `is` asks "same object?", `==` asks "equal value?". Use `is` only for singletons like `None`, because small-integer and string caching make `is` on other values unpredictable.
+
+**Mutability** decides what happens when two names share an object. Changing a mutable object (list, dict, set) in place is visible through every name; "changing" an immutable one (int, str, tuple) actually creates a new object and rebinds only the name used. Function arguments follow the same rule ("pass by object reference"): a function can mutate a list you pass in, but reassigning its parameter does not affect your variable. `copy.copy` duplicates the outer object; `copy.deepcopy` duplicates everything inside it too.
+
+CPython frees memory with **reference counting**: each object counts the names and containers pointing at it, and is destroyed when the count reaches zero (a cycle collector handles reference loops). The **GIL** (global interpreter lock) lets only one thread run Python bytecode at a time in standard CPython, simplifying memory management; it is why threads help with waiting (I/O) but not with pure-Python number crunching, which needs processes (module 9). Python 3.13 added an experimental free-threaded build without the GIL.
+@how
+- `==` value equality; `is` identity; `is None` for None checks.
+- Mutating (`append`, `d[k] = v`) affects every name; rebinding (`x = ...`, `x += 1` on immutables) affects one.
+- Functions receive references: mutation is visible to the caller, rebinding is not.
+- `copy.copy` shallow, `copy.deepcopy` deep.
+- `sys.getrefcount(obj)` shows references (plus one for the call itself).
+- Threads for I/O-bound work; processes for CPU-bound Python because of the GIL.
+@example python: Mutation versus rebinding, inside and outside functions
+def add_item(basket, item):
+    basket.append(item)          # mutates the caller's list
+
+def replace_basket(basket):
+    basket = ["new"]             # rebinds the local name only
+    return basket
+
+mine = ["tea"]
+add_item(mine, "cake")
+replace_basket(mine)
+print(mine)
+
+a = (1, 2)
+b = a
+a += (3,)                        # tuples are immutable: a new tuple, a rebound name
+print(a, b, a is b)
+
+x = [1, 2]
+y = x
+x += [3]                         # lists are mutable: += extends in place
+print(x, y, x is y)
+print([1, 2] == [1, 2], [1, 2] is [1, 2], None is None)
+@note
+The function's `append` changed the caller's list, while its reassignment did not. The same `+=` behaves differently by type: for a tuple it builds a new object, so `b` still sees the old one; for a list it extends in place, so `y` sees the change. Two equal lists are still two separate objects.
+@example python: Reference counts, cycles and the GIL in action
+import gc
+import sys
+import threading
+import time
+
+data = []
+print("references:", sys.getrefcount(data) - 1)
+alias = data
+holder = {"d": data}
+print("after two more:", sys.getrefcount(data) - 1)
+del alias, holder
+print("after deleting them:", sys.getrefcount(data) - 1)
+
+class Node:
+    pass
+a, b = Node(), Node()
+a.other, b.other = b, a          # a reference cycle
+del a, b
+print("cycle objects collected:", gc.collect() >= 2)
+
+def count(n):
+    while n:
+        n -= 1
+
+start = time.perf_counter(); count(3_000_000); count(3_000_000); serial = time.perf_counter() - start
+threads = [threading.Thread(target=count, args=(3_000_000,)) for _ in range(2)]
+start = time.perf_counter()
+for t in threads: t.start()
+for t in threads: t.join()
+threaded = time.perf_counter() - start
+print("two threads at least 1.5x faster for pure Python work:", serial / threaded > 1.5)
+@note
+The count rose with each new name or container reference and fell when they were deleted. Two objects pointing at each other never reach zero on their own, so the cycle collector cleaned them up. Running pure-Python counting in two threads was not substantially faster than running it twice in a row, because the GIL lets one thread execute at a time (on the standard build).
+@mistakes
+- **`if x is 0` or `is "text"`.** It depends on caching. Use `==`; keep `is` for None.
+- **Expecting a function to leave your list alone.** It can mutate it. Pass a copy if that matters.
+- **Using threads to speed up CPU-bound Python.** The GIL prevents it on standard CPython. Use processes.
+@keys
+- Names point at objects; assignment never copies.
+- `is` checks identity, `==` checks value.
+- Mutation is shared by every name; rebinding changes one name.
+- Reference counting frees memory; the GIL limits threads to one running Python bytecode at a time.
+
+=== A6.P
+@idea
+The project is **utilz**, a small, well-documented utility library that collects the tools from this module into something you would happily import in other projects: a `@retry` decorator with backoff, a `@timed` decorator and context manager, `chunked` and `window` generators, a `first(iterable, default)` helper, a `memoize` with expiry, and a `pipe` that composes functions.
+
+Library code has a higher bar than application code because strangers depend on it. Each public function needs a clear name, type hints, a docstring with an example, and predictable behaviour on edge cases (empty input, a size of zero, an exhausted iterator). Errors should be raised early with helpful messages. The **public API** is explicit: names without a leading underscore, listed in `__all__`, re-exported from the package's `__init__.py`; everything else is an implementation detail you may change.
+
+Doctests double as documentation and tests: the examples in docstrings are run by `python -m doctest` or pytest, so the documentation can never quietly drift from the behaviour. Package it as in module 5, so `pip install` works.
+@how
+- One module per theme: `decorators.py`, `iterators.py`, `functional.py`; re-export in `__init__.py`.
+- `__all__ = ["retry", "chunked", ...]` defines the public API.
+- Docstrings with a summary line, parameters, return value and a doctest example.
+- Validate arguments early (`if size < 1: raise ValueError(...)`).
+- Run the doctests in CI; aim for every public function to have at least one.
+@example python: Lazy helpers with doctests that run
+import doctest
+from collections import deque
+from itertools import islice
+
+def chunked(iterable, size):
+    """Yield lists of up to ``size`` items.
+
+    >>> list(chunked("abcdefg", 3))
+    [['a', 'b', 'c'], ['d', 'e', 'f'], ['g']]
+    >>> list(chunked([], 2))
+    []
+    >>> list(chunked("ab", 0))
+    Traceback (most recent call last):
+    ValueError: size must be at least 1, got 0
+    """
+    if size < 1:
+        raise ValueError(f"size must be at least 1, got {size}")
+    it = iter(iterable)
+    while batch := list(islice(it, size)):
+        yield batch
+
+def window(iterable, n):
+    """Yield sliding windows of ``n`` consecutive items as tuples.
+
+    >>> list(window([1, 2, 3, 4], 2))
+    [(1, 2), (2, 3), (3, 4)]
+    """
+    it = iter(iterable)
+    buf = deque(islice(it, n - 1), maxlen=n)
+    for item in it:
+        buf.append(item)
+        yield tuple(buf)
+
+def first(iterable, default=None):
+    """Return the first item, or ``default`` if there is none.
+
+    >>> first(x for x in range(10) if x > 6)
+    7
+    >>> first([], default="empty")
+    'empty'
+    """
+    return next(iter(iterable), default)
+
+print(doctest.testmod())
+@note
+Every function documents itself with examples, including the empty case and the error message, and `doctest.testmod` ran all six and reported no failures. Note the doctest for an exception: only the first and last traceback lines are needed. The validation happens before any work, so a bad size fails at once.
+@example python: retry with exponential backoff and a pipe
+import functools
+import time
+
+__all__ = ["retry", "pipe"]
+
+def retry(times=3, delay=0.01, backoff=2.0, exceptions=(Exception,)):
+    """Retry a function on the given exceptions, waiting longer after each failure."""
+    if times < 1:
+        raise ValueError("times must be at least 1")
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            wait = delay
+            for attempt in range(1, times + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions:
+                    if attempt == times:
+                        raise
+                    wrapper.waits.append(round(wait, 3))
+                    time.sleep(wait)
+                    wait *= backoff
+        wrapper.waits = []
+        return wrapper
+    return decorator
+
+def pipe(*funcs):
+    """Compose functions left to right: pipe(f, g)(x) == g(f(x))."""
+    return lambda value: functools.reduce(lambda acc, f: f(acc), funcs, value)
+
+attempts = iter([OSError, OSError, OSError, "data"])
+@retry(times=4, exceptions=(OSError,))
+def download():
+    result = next(attempts)
+    if result is OSError:
+        raise OSError("network down")
+    return result
+
+print(download(), "after waiting", download.waits)
+clean = pipe(str.strip, str.lower, lambda s: s.replace(" ", "-"))
+print(clean("  Hello Python World "), "| public API:", __all__)
+@note
+Each failure doubled the wait (0.01, 0.02, 0.04 seconds), the standard exponential backoff that avoids hammering a struggling service; on the last attempt the original exception is re-raised unchanged. `pipe` composes small functions into one, reading in the order they run.
+@mistakes
+- **No `__all__` or underscore convention.** Users import internals, and you can never change them.
+- **Docstrings without examples.** Readers guess at behaviour; doctests make examples checkable.
+- **Ignoring edge cases.** Empty input and zero sizes are where library bugs live.
+@keys
+- A library needs clear names, docstrings, hints and predictable edge cases.
+- Define the public API with `__all__` and re-exports.
+- Doctests keep documentation and behaviour in sync.
+- Validate arguments early with helpful messages.
