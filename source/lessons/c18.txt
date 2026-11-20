@@ -1,0 +1,141 @@
+=== 18.1
+@idea
+**Packaging** turns a folder of Python files into something others (or you, on another computer) can install with one `pip install` command. An installed package can be imported from anywhere and can provide command-line programs, and its dependencies are installed along with it.
+
+A modern project has a standard layout: a `pyproject.toml` file describing the project, a `src/` folder containing the package (a folder with an `__init__.py`), a `tests/` folder and a README. `pyproject.toml` holds the name, version, description, required Python version, dependencies and **entry points**: `[project.scripts]` maps a command name to a function, and pip creates that command when it installs the package.
+
+Install and develop inside a **virtual environment**, a private folder of packages for one project. `python -m venv .venv` creates it; activating it makes `python` and `pip` use it. Then `pip install -e .` installs your own project in **editable** mode, so changes to the source take effect immediately without reinstalling. Each project gets its own environment, so their dependencies never clash.
+@how
+- Layout: `pyproject.toml`, `README.md`, `src/yourpkg/__init__.py`, `src/yourpkg/cli.py`, `tests/`.
+- `[build-system]` names the build tool (setuptools, hatchling...); `[project]` holds name, version, dependencies.
+- `[project.scripts]` `name = "yourpkg.cli:main"` creates a command that calls `main()`.
+- `python -m venv .venv`, then activate (`source .venv/bin/activate`, or `.venv\Scripts\activate` on Windows).
+- `pip install -e .` installs your project in editable mode; `pip install -e ".[dev]"` adds optional extras.
+- Add `.venv/` to `.gitignore`; it should never be committed.
+@example bash: Project layout and pyproject.toml
+$ tree teatime
+teatime
+├── pyproject.toml
+├── README.md
+├── src
+│   └── teatime
+│       ├── __init__.py
+│       └── cli.py
+└── tests
+    └── test_cli.py
+$ cat teatime/pyproject.toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "teatime"
+version = "0.1.0"
+description = "Tells you how long to brew your tea"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+teatime = "teatime.cli:main"
+@note
+`src/teatime` is the importable package. `[project.scripts]` says: create a command called `teatime` that runs the `main` function in `teatime/cli.py`. The `dev` extra lists tools needed only while developing.
+@example python: The code behind the command
+import sys
+
+TIMES = {"green": 2, "black": 4, "herbal": 6, "oolong": 3}
+
+def brew_time(kind):
+    """Minutes to brew a kind of tea, or None if unknown."""
+    return TIMES.get(kind.strip().lower())
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if not args:
+        print("usage: teatime KIND   (one of: " + ", ".join(sorted(TIMES)) + ")")
+        return 1
+    minutes = brew_time(args[0])
+    if minutes is None:
+        print(f"unknown tea {args[0]!r}")
+        return 1
+    print(f"Brew {args[0].lower()} tea for {minutes} minutes.")
+    return 0
+
+for argv in [["Black"], ["rooibos"], []]:
+    print(f"$ teatime {' '.join(argv)}".rstrip(), "->", "exit", main(argv))
+@note
+This would live in `src/teatime/cli.py`. `main` takes an optional argument list, so tests can call it directly; when pip's generated `teatime` command runs it, `argv` is `None` and the real command line is used. Returning 0 or 1 becomes the program's exit status.
+@mistakes
+- **Installing packages globally for every project.** Versions clash between projects. Use one virtual environment per project.
+- **Committing the `.venv` folder.** It is large and specific to one computer. Add it to `.gitignore`; others recreate it from `pyproject.toml`.
+- **Forgetting `-e` while developing.** Without it you must reinstall after every change.
+- **An entry point that does not match the code.** `teatime.cli:main` must be a real module and function, or the command fails when run.
+@keys
+- `pyproject.toml` describes the project, its dependencies and its commands.
+- Use the `src/` layout with a package folder and a `tests/` folder.
+- One virtual environment per project; `pip install -e .` for editable installs.
+- `[project.scripts]` turns a function into an installable command.
+
+=== 18.2
+@idea
+Once a project is packaged, you can **build** it into files that others install. `python -m build` (after `pip install build`) produces two files in a `dist/` folder: a **source distribution** (`.tar.gz`, the source code plus metadata) and a **wheel** (`.whl`, a ready-to-install archive). Wheels install quickly because nothing needs to be built on the user's machine.
+
+To share a package publicly, upload it to **PyPI**, the Python Package Index, with `twine upload dist/*`. Practise first on **TestPyPI**, a separate sandbox, so mistakes do not end up on the real index; package names and versions there are first come, first served, and an uploaded version can never be replaced. Bump the version number in `pyproject.toml` for every release.
+
+Not everyone has Python installed. **PyInstaller** bundles your script, the modules it uses and a Python interpreter into a single folder or executable that runs on its own (`pyinstaller --onefile app.py`). Build on each operating system you want to support: a Windows executable must be built on Windows.
+@how
+- `pip install build`, then `python -m build` → `dist/name-version.tar.gz` and `dist/name-version-py3-none-any.whl`.
+- Test the wheel in a fresh virtual environment: `pip install dist/name-version-py3-none-any.whl`.
+- `pip install twine`; `twine upload --repository testpypi dist/*` for practice, then `twine upload dist/*`.
+- Each upload needs a new version number (for example 0.1.0 → 0.1.1).
+- `pip install pyinstaller`; `pyinstaller --onefile app.py` creates `dist/app` (or `app.exe`).
+- Build standalone executables on each target system.
+@example bash: Building and installing a wheel
+$ cd teatime
+$ python -m pip install build
+$ python -m build
+...
+Successfully built teatime-0.1.0.tar.gz and teatime-0.1.0-py3-none-any.whl
+$ ls dist
+teatime-0.1.0-py3-none-any.whl
+teatime-0.1.0.tar.gz
+$ python -m venv /tmp/tryit && source /tmp/tryit/bin/activate
+(tryit) $ pip install dist/teatime-0.1.0-py3-none-any.whl
+...
+Successfully installed teatime-0.1.0
+(tryit) $ teatime green
+Brew green tea for 2 minutes.
+@note
+`py3-none-any` in the wheel name means "any Python 3, no compiled code, any operating system". Installing it into a brand new environment proves the package works outside your project folder, which catches files you forgot to include.
+@example python: What a wheel contains
+import zipfile
+from pathlib import Path
+
+# A wheel is a ZIP file with a fixed layout; this builds a tiny one by hand to look inside.
+wheel = Path("teatime-0.1.0-py3-none-any.whl")
+with zipfile.ZipFile(wheel, "w") as z:
+    z.writestr("teatime/__init__.py", "")
+    z.writestr("teatime/cli.py", "def main(): print('brew!')\n")
+    z.writestr("teatime-0.1.0.dist-info/METADATA", "Metadata-Version: 2.1\nName: teatime\nVersion: 0.1.0\n")
+    z.writestr("teatime-0.1.0.dist-info/entry_points.txt", "[console_scripts]\nteatime = teatime.cli:main\n")
+
+name, version, python_tag, abi, platform = wheel.stem.split("-")
+print(f"name={name} version={version} python={python_tag} abi={abi} platform={platform}")
+with zipfile.ZipFile(wheel) as z:
+    for item in z.namelist():
+        print(" ", item)
+    print(z.read("teatime-0.1.0.dist-info/entry_points.txt").decode())
+@note
+A wheel is just a ZIP archive: the package files plus a `dist-info` folder with metadata and the entry points pip uses to create commands. The file name itself encodes the name, version and which Pythons and systems it supports. Real wheels are made by `python -m build`; this one was assembled by hand only to look inside.
+@mistakes
+- **Uploading to the real PyPI first.** Versions cannot be replaced. Practise on TestPyPI.
+- **Reusing a version number.** PyPI rejects it. Bump the version for every release.
+- **Not testing the built wheel in a clean environment.** Files missing from the package only show up there.
+- **Expecting one PyInstaller build to run everywhere.** Build on each operating system.
+@keys
+- `python -m build` creates a source distribution and a wheel in `dist/`.
+- A wheel is a ZIP with the package and metadata; its name encodes version and compatibility.
+- Upload with twine, to TestPyPI first; every release needs a new version.
+- PyInstaller bundles a program with Python for people who do not have it installed.

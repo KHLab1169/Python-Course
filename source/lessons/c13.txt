@@ -1,0 +1,137 @@
+=== 13.1
+@idea
+A **database** stores data in **tables** (rows and columns) and answers questions about it with **SQL**, a language made for that job. Python's `sqlite3` module talks to **SQLite**, a complete database stored in a single file (or in memory), with nothing to install. It is used in phones, browsers and countless programs, and it is perfect for learning and for small applications.
+
+Every Python database module follows the same pattern, the **DB-API**. `sqlite3.connect("file.db")` opens a **connection**. You run SQL with `conn.execute(...)` (or through a **cursor**). Changes (INSERT, UPDATE, DELETE) are kept in a pending **transaction** until you call `conn.commit()`; queries (SELECT) give rows back, which you read with `fetchone()`, `fetchall()` or a `for` loop.
+
+The most important rule: never build SQL by pasting values into a string. Use **placeholders** (`?`) and pass the values separately: `conn.execute("SELECT * FROM pets WHERE name = ?", (name,))`. The database then treats the value strictly as data. Building the string yourself allows **SQL injection**, where text typed by a user becomes part of the command, and also breaks on ordinary input like a name containing an apostrophe.
+@how
+- `conn = sqlite3.connect("data.db")` (or `":memory:"` for a throwaway database).
+- `conn.execute("CREATE TABLE ...")`, `conn.execute("INSERT INTO t VALUES (?, ?)", (a, b))`, `conn.executemany(sql, rows)`.
+- `conn.commit()` saves changes; `with conn:` commits automatically at the end of the block (or rolls back on error).
+- `cur = conn.execute("SELECT ...")`; then `cur.fetchone()`, `cur.fetchall()` or `for row in cur:`.
+- Placeholders `?` for values, always. Column and table names cannot be placeholders.
+- `conn.row_factory = sqlite3.Row` lets you read columns by name: `row["name"]`.
+@example python: Create, insert, query
+import sqlite3
+
+conn = sqlite3.connect(":memory:")
+conn.execute("CREATE TABLE books (title TEXT, author TEXT, year INTEGER, rating REAL)")
+books = [
+    ("Dune", "Frank Herbert", 1965, 4.5),
+    ("Emma", "Jane Austen", 1815, 4.1),
+    ("Neuromancer", "William Gibson", 1984, 4.0),
+    ("Persuasion", "Jane Austen", 1817, 4.3),
+]
+with conn:
+    conn.executemany("INSERT INTO books VALUES (?, ?, ?, ?)", books)
+
+for title, year in conn.execute("SELECT title, year FROM books WHERE year < 1900 ORDER BY year"):
+    print(year, title)
+
+count, avg = conn.execute("SELECT COUNT(*), AVG(rating) FROM books WHERE author = ?", ("Jane Austen",)).fetchone()
+print(f"Austen: {count} books, average rating {avg:.1f}")
+@note
+`executemany` inserts every row with one call, and `with conn:` commits them. The SELECT gives rows back as tuples that unpack in the loop. The second query passes the author through a placeholder and reads one row of aggregate results.
+@example python: Why placeholders matter
+import sqlite3
+
+conn = sqlite3.connect(":memory:")
+conn.execute("CREATE TABLE users (name TEXT, is_admin INTEGER)")
+conn.executemany("INSERT INTO users VALUES (?, ?)", [("ada", 1), ("ben", 0), ("o'brien", 0)])
+
+typed = "nobody' OR '1'='1"
+unsafe_sql = f"SELECT name FROM users WHERE name = '{typed}'"
+print("unsafe query finds:", conn.execute(unsafe_sql).fetchall())
+
+safe = conn.execute("SELECT name FROM users WHERE name = ?", (typed,)).fetchall()
+print("safe query finds:  ", safe)
+
+print(conn.execute("SELECT is_admin FROM users WHERE name = ?", ("o'brien",)).fetchone())
+@note
+Pasted into the string, the typed text rewrote the query so it matched every user: that is SQL injection. With a placeholder the same text is just a name that matches nobody. Placeholders also handle the apostrophe in "o'brien", which would break a hand-built string.
+@mistakes
+- **Building SQL with f-strings or `+`.** It invites injection and breaks on quotes. Always use `?` placeholders.
+- **Forgetting to commit.** Inserts look fine in your program but vanish when it ends. Call `conn.commit()` or use `with conn:`.
+- **Passing a single value without a tuple.** `execute(sql, ("ada"))` is a string, not a tuple. Write `("ada",)` with a comma.
+- **Using placeholders for table or column names.** They only work for values. Choose names from a fixed list in your code.
+@keys
+- `sqlite3` gives you a full SQL database in a file, with no setup.
+- Connect, execute SQL, commit changes, fetch query results.
+- Always pass values through `?` placeholders, never by building the SQL string.
+- `with conn:` commits on success and rolls back on error.
+
+=== 13.2
+@idea
+A real database application usually has three parts: **getting data in** (importing a file or reading user input), **asking questions** (queries), and **presenting answers**. This lesson puts them together: read a CSV file with the `csv` module, load it into an SQLite table, and let SQL do the work of filtering, sorting, grouping and totalling.
+
+SQL shines at questions that would take several loops in Python. `GROUP BY` collects rows that share a value and lets you compute `COUNT`, `SUM`, `AVG`, `MIN` and `MAX` per group. `ORDER BY ... DESC LIMIT 3` gives a top three. `WHERE` filters rows before grouping and `HAVING` filters groups after. Learning a handful of these clauses pays off in every job that touches data.
+
+Convert values to the right type on the way in. CSV files contain only text, so `"1762949"` must become the number `1762949` before insertion, or sorting and arithmetic will treat it as text ("9" sorts after "10"). Declaring column types in `CREATE TABLE` documents your intent, and converting in Python makes it certain.
+@how
+- `csv.DictReader(file)` gives each row as a dictionary keyed by the header line.
+- Convert numbers with `int()` or `float()` before inserting.
+- `GROUP BY col` with `COUNT(*)`, `SUM(x)`, `AVG(x)`; `HAVING` filters groups.
+- `ORDER BY x DESC LIMIT n` for top-n lists.
+- Keep each query in a small function with parameters, so the menu or UI just calls functions.
+- `conn.row_factory = sqlite3.Row` makes results readable by column name.
+@example python: Importing a CSV file and asking questions
+import csv
+import sqlite3
+from pathlib import Path
+
+Path("sales.csv").write_text("""date,shop,product,qty,price
+2026-11-02,Montreal,tea,10,4.5
+2026-11-02,Toronto,tea,4,4.5
+2026-11-03,Montreal,cake,6,3.25
+2026-11-05,Toronto,coffee,12,3.0
+2026-11-06,Montreal,coffee,9,3.0
+2026-11-07,Toronto,cake,2,3.25
+""")
+
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+conn.execute("CREATE TABLE sales (date TEXT, shop TEXT, product TEXT, qty INTEGER, price REAL)")
+with open("sales.csv", newline="") as f, conn:
+    rows = [(r["date"], r["shop"], r["product"], int(r["qty"]), float(r["price"])) for r in csv.DictReader(f)]
+    conn.executemany("INSERT INTO sales VALUES (?, ?, ?, ?, ?)", rows)
+
+print("Revenue per shop:")
+for row in conn.execute("SELECT shop, SUM(qty * price) AS revenue FROM sales GROUP BY shop ORDER BY revenue DESC"):
+    print(f"  {row['shop']:<9} {row['revenue']:>7.2f}")
+
+best = conn.execute("SELECT product, SUM(qty) AS units FROM sales GROUP BY product ORDER BY units DESC LIMIT 1").fetchone()
+print("Best seller:", best["product"], best["units"], "units")
+@note
+`DictReader` reads the header, so each row is a dictionary; the numbers are converted before insertion. `GROUP BY` totals revenue per shop in one query, and `ORDER BY ... LIMIT 1` picks the best seller. `sqlite3.Row` lets the code use column names instead of positions.
+@example python: Queries as functions behind a menu
+import sqlite3
+
+conn = sqlite3.connect(":memory:")
+conn.execute("CREATE TABLE foods (name TEXT, kcal INTEGER, kind TEXT)")
+conn.executemany("INSERT INTO foods VALUES (?, ?, ?)",
+                 [("apple", 52, "fruit"), ("banana", 89, "fruit"), ("bread", 265, "grain"),
+                  ("rice", 130, "grain"), ("cheddar", 403, "dairy")])
+
+def under(limit):
+    return [n for (n,) in conn.execute("SELECT name FROM foods WHERE kcal < ? ORDER BY kcal", (limit,))]
+
+def by_kind():
+    return conn.execute("SELECT kind, COUNT(*), ROUND(AVG(kcal)) FROM foods GROUP BY kind ORDER BY kind").fetchall()
+
+menu = {"1": ("Foods under 100 kcal", lambda: under(100)), "2": ("Average per kind", by_kind)}
+for choice in ["1", "2", "9"]:
+    label, action = menu.get(choice, ("Unknown choice", lambda: "try 1 or 2"))
+    print(f"{choice}. {label}: {action()}")
+@note
+Each question is a small function that takes parameters, so it is easy to test and reuse. The dictionary maps a typed choice to a function, which avoids a long if/elif chain; `get` with a default handles unknown choices.
+@mistakes
+- **Inserting numbers as text.** "100" sorts before "9" and cannot be summed reliably. Convert with `int()` or `float()` first.
+- **Opening CSV files without `newline=""`.** On some systems you get blank rows. The csv documentation recommends `newline=""`.
+- **Doing in Python what SQL does better.** Fetching every row to total them in a loop is slow for big tables. Let `SUM` and `GROUP BY` do it.
+- **Using `WHERE` to filter on an aggregate.** `WHERE COUNT(*) > 2` is an error; filter groups with `HAVING`.
+@keys
+- Import with `csv.DictReader`, converting values to the right types.
+- `GROUP BY` with `COUNT`, `SUM` and `AVG` answers per-category questions in one query.
+- `ORDER BY ... DESC LIMIT n` gives top-n lists.
+- Wrap each query in a function with parameters and connect a menu or UI to them.

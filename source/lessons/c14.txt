@@ -1,0 +1,264 @@
+=== 14.1
+@idea
+Programs on a network talk through **sockets**: two endpoints connected by a channel that carries bytes in both directions. One side is the **server**: it waits at a known address for others to connect. The other side is the **client**: it connects to that address, sends a request and reads the reply. A web browser and a web server, a chat app and its service, a game and its host all work this way underneath.
+
+An address has two parts. The **host** identifies the computer (`"localhost"` or `"127.0.0.1"` means this same computer, which is perfect for experiments). The **port** is a number from 1 to 65535 that identifies the program on that computer; web servers use 80 and 443, and numbers above 1024 are free for your own programs.
+
+A server goes through four steps: create a socket, `bind` it to a host and port, `listen`, then `accept` connections in a loop. `accept` waits until a client connects and returns a new socket just for that conversation. A client only needs to `connect` (or `socket.create_connection`). Both sides then use `sendall` and `recv`, which work with **bytes**, so text must be encoded before sending and decoded after receiving.
+@how
+- Server: `socket.socket()` → `bind((host, port))` → `listen()` → `conn, addr = accept()`.
+- Client: `socket.create_connection((host, port))`.
+- `conn.sendall(data_bytes)` sends everything; `conn.recv(1024)` reads up to 1024 bytes and returns `b""` when the other side closes.
+- Encode text before sending (`text.encode()`), decode after receiving (`data.decode()`).
+- Use `with` so sockets are closed; set `SO_REUSEADDR` so a restarted server can reuse its port.
+- Port 0 asks the system for any free port, which suits tests.
+@example python: An echo server and client in one program
+import socket
+import threading
+
+def serve(server, clients):
+    for _ in range(clients):
+        conn, address = server.accept()          # wait for one client
+        with conn:
+            data = conn.recv(1024)
+            conn.sendall(b"echo: " + data.upper())
+
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("127.0.0.1", 0))                    # 0: pick any free port
+server.listen()
+port = server.getsockname()[1]
+thread = threading.Thread(target=serve, args=(server, 2))
+thread.start()
+
+for message in ["hello", "how are you?"]:
+    with socket.create_connection(("127.0.0.1", port)) as client:
+        client.sendall(message.encode("utf-8"))
+        print(client.recv(1024).decode("utf-8"))
+
+thread.join()
+server.close()
+print("port was a number above 1024:", port > 1024)
+@note
+The server runs in a background thread so one program can play both roles; normally they are separate programs, often on separate computers. Each connection carries bytes, so the client encodes before sending and decodes the reply.
+@example python: A tiny protocol: commands and replies
+import socket
+import threading
+
+def handle(command):
+    """The 'protocol': one line in, one line out."""
+    word, _, rest = command.partition(" ")
+    if word == "ADD":
+        return str(sum(int(n) for n in rest.split()))
+    if word == "UPPER":
+        return rest.upper()
+    return f"ERROR unknown command {word!r}"
+
+def serve(server, clients):
+    for _ in range(clients):
+        conn, _ = server.accept()
+        with conn:
+            conn.sendall(handle(conn.recv(1024).decode()).encode())
+
+server = socket.create_server(("127.0.0.1", 0))
+port = server.getsockname()[1]
+t = threading.Thread(target=serve, args=(server, 3))
+t.start()
+
+for cmd in ["ADD 2 3 37", "UPPER shout this", "PING"]:
+    with socket.create_connection(("127.0.0.1", port)) as c:
+        c.sendall(cmd.encode())
+        print(f"{cmd!r:>20} -> {c.recv(1024).decode()}")
+t.join()
+server.close()
+@note
+Both sides agree on a format: a command word, a space and some text. That agreement is a **protocol**, just like HTTP is for the web. Keeping the logic in `handle` means it can be tested without any sockets.
+@mistakes
+- **Sending a str.** `sendall("hi")` raises a TypeError. Send bytes: `"hi".encode()`.
+- **Assuming one `recv` gets the whole message.** Large messages can arrive in pieces. Loop until you have it all, or use a length prefix or a terminating newline.
+- **Using a port below 1024.** These need administrator rights on most systems. Pick a higher number.
+- **Leaving sockets open.** Use `with` or `close()`, otherwise the port can stay busy.
+@keys
+- A server binds to a host and port, listens and accepts; a client connects.
+- Sockets carry bytes: encode before sending and decode after receiving.
+- `localhost` / `127.0.0.1` is your own computer, ideal for testing.
+- Both sides must agree on a protocol: what a message looks like and how it ends.
+
+=== 14.2
+@idea
+Most network work today is **HTTP**: the protocol of the web. A client sends a **request** (a method like GET, a URL and some headers) and the server sends back a **response** with a **status code**, headers and a body. `200` means OK, `404` not found, `500` a server error. Python's built-in `urllib.request` can make these requests with no extra installs.
+
+`urlopen(url)` sends a GET request and returns a response object you use in a `with` block. `response.status` is the code, `response.headers` the headers, and `response.read()` the body as bytes, which you decode to text. For downloads, read the bytes and write them to a file opened in binary mode.
+
+The network fails in many ways, so handle errors. `urllib.error.HTTPError` means the server answered with an error status (it has a `.code`); `URLError` means it could not be reached at all (no connection, wrong host name). Always pass a `timeout` so a dead server cannot freeze your program forever.
+@how
+- `from urllib.request import urlopen`; `with urlopen(url, timeout=10) as response:`.
+- `response.status`, `response.headers["Content-Type"]`, `response.read().decode("utf-8")`.
+- `HTTPError` (server replied with an error code; check `.code`) and `URLError` (could not connect).
+- Catch `HTTPError` before `URLError`, because it is a subclass of it.
+- `urllib.parse.urlencode({"q": "tea"})` builds query strings safely.
+- For anything beyond simple GETs, the `requests` library (lesson 15.3) is friendlier.
+@example python: Fetching from a small local web server
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+
+Path("index.html").write_text("<html><head><title>Tea Shop</title></head><body>Open daily</body></html>")
+
+class QuietHandler(SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+server = HTTPServer(("127.0.0.1", 0), QuietHandler)
+port = server.server_address[1]
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+with urlopen(f"http://127.0.0.1:{port}/index.html", timeout=5) as response:
+    html = response.read().decode("utf-8")
+    print(response.status, response.headers["Content-Type"])
+start = html.find("<title>") + len("<title>")
+print("title:", html[start:html.find("</title>")])
+
+for path in ["/missing.html"]:
+    try:
+        urlopen(f"http://127.0.0.1:{port}{path}", timeout=5)
+    except HTTPError as error:
+        print("HTTPError", error.code, "for", path)
+server.shutdown()
+@note
+The example starts Python's built-in web server in a thread so it can fetch a real page without the internet. The response has a status, headers and a body; the title is cut out with `find` and slicing. A missing page raises an HTTPError with code 404.
+@example python: Downloading with error handling
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+
+Path("logo.bin").write_bytes(bytes(range(256)) * 40)
+
+class QuietHandler(SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+server = HTTPServer(("127.0.0.1", 0), QuietHandler)
+port = server.server_address[1]
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+def download(url, target):
+    try:
+        with urlopen(url, timeout=5) as response, open(target, "wb") as out:
+            out.write(response.read())
+    except HTTPError as error:
+        return f"server said {error.code}"
+    except URLError as error:
+        return f"could not connect ({error.reason.__class__.__name__})"
+    return f"saved {Path(target).stat().st_size:,} bytes"
+
+print(download(f"http://127.0.0.1:{port}/logo.bin", "copy.bin"))
+print(download(f"http://127.0.0.1:{port}/nope.bin", "nope.bin"))
+server.shutdown()
+server.server_close()                  # stop listening on the port
+print(download(f"http://127.0.0.1:{port}/logo.bin", "late.bin"))
+@note
+The bytes are written to a file opened with `"wb"`. A missing file gives an HTTPError; after the server shuts down, the connection itself fails with a URLError. HTTPError is caught first because it is a kind of URLError.
+@mistakes
+- **No timeout.** A server that never answers freezes the program. Always pass `timeout=`.
+- **Catching URLError before HTTPError.** The HTTPError branch never runs. Put the more specific one first.
+- **Treating the body as text without decoding.** `read()` returns bytes. Decode with the right encoding (usually UTF-8).
+- **Writing downloads in text mode.** Images and archives get corrupted. Open the file with `"wb"`.
+@keys
+- HTTP: a request (method, URL, headers) and a response (status, headers, body).
+- `urlopen(url, timeout=...)` fetches a URL; `read()` gives bytes to decode or save.
+- Handle `HTTPError` (error status) and `URLError` (no connection).
+- Download by writing the response bytes to a file opened in `"wb"` mode.
+
+=== 14.3
+@idea
+The echo server in 14.1 handles one client at a time: while it talks to one, everyone else waits. Real servers must serve many clients at once. There are two main approaches. **Threads** give each connection its own thread of execution, so a slow client does not block the others. The `socketserver` module packages this up: write a handler class with a `handle` method, and `ThreadingTCPServer` creates a thread per connection.
+
+The second approach is **asynchronous I/O** with `asyncio`. Instead of many threads, one thread runs many **coroutines** (functions defined with `async def`). Whenever a coroutine has to wait for the network, it says `await`, and the event loop switches to another coroutine that is ready. Because most network time is spent waiting, a single thread can juggle thousands of connections this way.
+
+Threads are simpler to start with and work with ordinary blocking code. asyncio scales further and is what modern web frameworks and chat servers use, but every function in the chain must be written with `async`/`await`. Either way, keep the per-client logic in small functions and remember that shared data touched by several threads needs care (a `Lock`).
+@how
+- `socketserver.StreamRequestHandler`: override `handle`; read with `self.rfile.readline()`, write with `self.wfile.write()`.
+- `socketserver.ThreadingTCPServer((host, port), Handler)` runs each client in its own thread.
+- `async def` defines a coroutine; `await` pauses it until a result is ready.
+- `asyncio.start_server(handler, host, port)` serves clients; the handler receives a reader and a writer.
+- `asyncio.run(main())` starts the event loop; `asyncio.gather(...)` runs coroutines together.
+- Protect data shared between threads with `threading.Lock()`.
+@example python: A threaded server with socketserver
+import socket
+import socketserver
+import threading
+import time
+
+class SlowShout(socketserver.StreamRequestHandler):
+    def handle(self):
+        line = self.rfile.readline().decode().strip()
+        time.sleep(0.3)                                  # pretend this is slow work
+        self.wfile.write(f"{line.upper()}!\n".encode())
+
+server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), SlowShout)
+port = server.server_address[1]
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+def client(word, results):
+    with socket.create_connection(("127.0.0.1", port)) as c:
+        c.sendall(f"{word}\n".encode())
+        results.append(c.makefile().readline().strip())
+
+results = []
+start = time.perf_counter()
+threads = [threading.Thread(target=client, args=(w, results)) for w in ["tea", "cake", "soup"]]
+for t in threads: t.start()
+for t in threads: t.join()
+elapsed = time.perf_counter() - start
+print(sorted(results))
+print("three slow clients served together:", elapsed < 0.8)
+server.shutdown()
+server.server_close()
+@note
+Each handler sleeps 0.3 seconds, yet three clients finish in well under 0.9 seconds because each one got its own thread. With a one-at-a-time server they would queue up. The results are sorted because threads can finish in any order.
+@example python: The same idea with asyncio
+import asyncio
+
+async def handle(reader, writer):
+    line = (await reader.readline()).decode().strip()
+    await asyncio.sleep(0.3)                    # waiting lets other clients run
+    writer.write(f"{line[::-1]}\n".encode())
+    await writer.drain()
+    writer.close()
+
+async def client(port, word):
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(f"{word}\n".encode())
+    reply = (await reader.readline()).decode().strip()
+    writer.close()
+    return reply
+
+async def main():
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    replies = await asyncio.gather(*(client(port, w) for w in ["stressed", "drawer", "live"]))
+    print(replies)
+    print("all served in one thread, together:", loop.time() - start < 0.8)
+    server.close()
+    await server.wait_closed()
+
+asyncio.run(main())
+@note
+Everything runs in one thread. Each `await` is a point where the event loop can switch to another coroutine, so the three 0.3-second waits overlap. `gather` runs the three clients concurrently and returns their replies in order.
+@mistakes
+- **Calling a blocking function inside a coroutine.** `time.sleep` freezes every coroutine; use `await asyncio.sleep`. The same goes for blocking network or file calls.
+- **Forgetting `await`.** Calling `reader.readline()` without it returns a coroutine object instead of the line.
+- **Changing shared data from several threads without a lock.** Updates can be lost. Use `threading.Lock` or keep data per client.
+- **Starting a thread per client with no limit.** Thousands of threads use a lot of memory; asyncio or a thread pool scales better.
+@keys
+- One-at-a-time servers make clients wait; threads or asyncio serve many at once.
+- `socketserver.ThreadingTCPServer` gives each client its own thread with little code.
+- `async def` and `await` let one thread handle many connections that spend time waiting.
+- Never block inside a coroutine, and lock data shared between threads.

@@ -26,7 +26,7 @@ Authoring format (one file per module, any number of lessons):
     @keys
     - one key point per bullet
 """
-import ast, builtins, contextlib, glob, importlib, io, json, os, re, signal, sys, tempfile, traceback, warnings
+import ast, builtins, contextlib, glob, importlib, io, json, linecache, os, re, signal, sys, tempfile, traceback, types, warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -124,11 +124,19 @@ def run_python(code, stdin):
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf), warnings.catch_warnings():
             signal.alarm(8)
+            with open("example.py", "w", encoding="utf-8") as fh:   # so tracebacks can show source lines
+                fh.write(code)
+            linecache.checkcache()
+            main_mod = types.ModuleType("__main__")
+            main_mod.__file__ = os.path.join(tmp, "example.py")
+            real_main = sys.modules["__main__"]
+            sys.modules["__main__"] = main_mod             # doctest.testmod() and unittest.main() look here
             try:
-                exec(compile(code, "example.py", "exec"), {"__name__": "__main__", "__file__": os.path.join(tmp, "example.py")})
+                exec(compile(code, "example.py", "exec"), main_mod.__dict__)
             except SystemExit:
                 pass
             finally:
+                sys.modules["__main__"] = real_main
                 signal.alarm(0)
     except Timeout:
         raise

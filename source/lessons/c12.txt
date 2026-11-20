@@ -1,0 +1,146 @@
+=== 12.1
+@idea
+A **graphical user interface** (GUI) shows windows, buttons and text boxes instead of a terminal. Python ships with **Tkinter**, a simple toolkit that works on Windows, macOS and Linux without installing anything. A Tkinter program builds its window out of **widgets**: `Label` shows text, `Button` runs a function when clicked, `Entry` is a one-line text box, `Text` a multi-line one.
+
+The structure of every Tkinter program is the same. Create the main window with `tk.Tk()`, create widgets inside it, place them with a **geometry manager**, then call `window.mainloop()`. That last call hands control to Tkinter: it waits for the user to do something and calls your functions in response. Code after `mainloop()` runs only when the window closes.
+
+Two geometry managers cover most needs. `pack()` stacks widgets top to bottom (or side by side with `side="left"`). `grid(row=, column=)` places them in a table, which suits forms. Do not mix the two in the same container. A good habit from the start: keep calculations in ordinary functions that do not touch widgets, so you can test them without a window.
+@how
+- `import tkinter as tk`; `window = tk.Tk()`; `window.title("...")`.
+- Widgets take their parent first: `tk.Label(window, text="Hi")`, `tk.Button(window, text="Go", command=func)`, `tk.Entry(window)`.
+- Place every widget: `.pack()` or `.grid(row=0, column=1)`. A widget that is never placed does not appear.
+- `command=func` (no brackets) tells a button which function to call later.
+- Read an Entry with `.get()`; change a Label with `.config(text="...")`.
+- `window.mainloop()` starts the event loop; it is the last line.
+@example python norun: A tip calculator window
+import tkinter as tk
+
+def tip_text(bill_text, percent):
+    """Pure logic, testable without a window."""
+    try:
+        bill = float(bill_text)
+    except ValueError:
+        return "Type the bill amount, like 42.50"
+    tip = bill * percent / 100
+    return f"Tip {tip:.2f}, total {bill + tip:.2f}"
+
+def on_calculate():
+    result.config(text=tip_text(bill_entry.get(), 15))
+
+window = tk.Tk()
+window.title("Tip calculator")
+
+tk.Label(window, text="Bill:").grid(row=0, column=0, padx=8, pady=8)
+bill_entry = tk.Entry(window, width=10)
+bill_entry.grid(row=0, column=1, padx=8)
+tk.Button(window, text="Calculate 15%", command=on_calculate).grid(row=1, column=0, columnspan=2)
+result = tk.Label(window, text="")
+result.grid(row=2, column=0, columnspan=2, pady=8)
+
+window.mainloop()
+@note
+This needs a screen, so run it on your own computer. `grid` lays the form out as a small table. The button calls `on_calculate`, which reads the Entry and updates the Label, while the arithmetic lives in `tip_text`, a plain function.
+@example python: Testing the logic without a window
+def tip_text(bill_text, percent):
+    try:
+        bill = float(bill_text)
+    except ValueError:
+        return "Type the bill amount, like 42.50"
+    tip = bill * percent / 100
+    return f"Tip {tip:.2f}, total {bill + tip:.2f}"
+
+for typed in ["42.50", "100", "forty"]:
+    print(f"{typed!r:>8} -> {tip_text(typed, 15)}")
+
+assert tip_text("100", 15) == "Tip 15.00, total 115.00"
+print("all checks passed")
+@note
+Because the calculation does not touch any widget, you can check it in a normal script or test, including on a computer with no screen. The GUI then only connects buttons to these functions.
+@mistakes
+- **Writing `command=func()`.** The brackets call the function immediately and pass its result. Write `command=func`.
+- **Forgetting to place a widget.** Without `.pack()` or `.grid()` it exists but is invisible.
+- **Mixing pack and grid in the same window.** Tkinter can freeze trying to satisfy both. Use one per container (frames can each use their own).
+- **Putting code after `mainloop()` and expecting it to run.** It runs only after the window closes.
+@keys
+- Tkinter builds windows from widgets: Label, Button, Entry, Text and more.
+- Place each widget with `pack` or `grid`, then start `mainloop()` last.
+- Buttons take `command=function` without brackets.
+- Keep logic in plain functions so it can be tested without a window.
+
+=== 12.2
+@idea
+GUI programs are **event-driven**. Instead of running top to bottom, they wait, and when something happens (a click, a key press, the window being resized) Tkinter calls the function you connected to that **event**. Buttons use `command=`, but any widget can react to any event with `widget.bind("<Event>", handler)`. The handler receives an **event object** describing what happened: where the mouse was, which key was pressed.
+
+Event names use angle brackets: `"<Button-1>"` is a left click, `"<Return>"` the Enter key, `"<Key>"` any key, `"<Control-s>"` Ctrl+S. `event.keysym` gives a readable key name and `event.x`, `event.y` the mouse position inside the widget.
+
+The **Text** widget is a multi-line editor. Its positions are written as `"line.column"` strings, with lines counted from 1: `"1.0"` is the very start and `"end"` the end. `text.get("1.0", "end-1c")` reads everything (minus the final newline Tkinter always adds), `text.delete("1.0", "end")` clears it, and `text.insert("1.0", content)` fills it. With a few buttons and the file functions from chapter 11, that is enough for a small editor.
+@how
+- `widget.bind("<Return>", handler)`; the handler takes one parameter, the event.
+- Common events: `<Button-1>`, `<Double-Button-1>`, `<Key>`, `<Return>`, `<Control-s>`, `<Configure>` (resize).
+- `event.keysym`, `event.char`, `event.x`, `event.y`, `event.widget`.
+- Text widget: `get("1.0", "end-1c")`, `delete("1.0", "end")`, `insert("1.0", text)`.
+- `window.bind(...)` reacts wherever the focus is in the window.
+- Keep file reading and writing in plain functions; the handlers just call them.
+@example python norun: A tiny editor with keyboard shortcuts
+import tkinter as tk
+from pathlib import Path
+
+def load_file(path):
+    return Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
+
+def save_file(path, text):
+    Path(path).write_text(text, encoding="utf-8")
+
+def on_open(event=None):
+    editor.delete("1.0", "end")
+    editor.insert("1.0", load_file(name.get()))
+    status.config(text=f"Opened {name.get()}")
+
+def on_save(event=None):
+    save_file(name.get(), editor.get("1.0", "end-1c"))
+    status.config(text=f"Saved {name.get()}")
+
+window = tk.Tk()
+window.title("Mini editor")
+top = tk.Frame(window)
+top.pack(fill="x")
+name = tk.Entry(top)
+name.insert(0, "notes.txt")
+name.pack(side="left", fill="x", expand=True)
+tk.Button(top, text="Open", command=on_open).pack(side="left")
+tk.Button(top, text="Save", command=on_save).pack(side="left")
+editor = tk.Text(window, wrap="word", height=15)
+editor.pack(fill="both", expand=True)
+status = tk.Label(window, anchor="w")
+status.pack(fill="x")
+
+window.bind("<Control-s>", on_save)
+window.bind("<Control-o>", on_open)
+window.mainloop()
+@note
+Run it on your own computer. The handlers accept an optional `event` so the same function works for a button (no event) and a key binding (with an event). The Frame groups the top row, which uses `pack(side="left")` inside it.
+@example python: The editor's file logic, tested on its own
+from pathlib import Path
+
+def load_file(path):
+    return Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
+
+def save_file(path, text):
+    Path(path).write_text(text, encoding="utf-8")
+
+print(repr(load_file("missing.txt")))
+save_file("notes.txt", "Buy tea\nCall Ada ☎")
+print(load_file("notes.txt"))
+print(load_file("notes.txt").count("\n") + 1, "lines")
+@note
+A missing file opens as an empty document instead of crashing. Saving and loading round-trip the text exactly, accents and symbols included, so the editor's buttons only need to move text between these functions and the Text widget.
+@mistakes
+- **A handler with no parameter.** `bind` always passes an event, so `def on_save():` raises a TypeError. Give it `event=None`.
+- **Reading a Text widget with `get()` and no positions.** It needs a range: `get("1.0", "end-1c")`.
+- **Counting lines from 0.** Text positions start at line 1: `"1.0"` is the first character.
+- **Long work inside a handler.** The window freezes until it returns. Keep handlers quick.
+@keys
+- GUIs wait for events and call your handlers; `bind` connects any event to a function.
+- Handlers receive an event object with details like `keysym` and mouse position.
+- Text positions are `"line.column"` strings starting at `"1.0"`; `"end-1c"` skips the final newline.
+- Plain functions for file work keep the GUI layer thin and testable.

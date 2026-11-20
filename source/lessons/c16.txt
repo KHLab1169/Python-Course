@@ -1,0 +1,238 @@
+=== 16.1
+@idea
+A **test** is a small piece of code that checks other code gives the answers you expect. Writing tests changes how you program: instead of running the program and eyeballing the output every time you change something, you run the tests and they tell you in a second whether everything still works. That safety net is what lets you improve code without fear.
+
+**Test-first** programming goes one step further: write the test before the code. Writing "`is_palindrome("Racecar")` should be True" forces you to decide what the function should do (ignore capitals? spaces? punctuation?) before you get lost in how. Then you write just enough code to make the tests pass, and stop. The tests double as a precise, always-up-to-date description of the requirements.
+
+**doctest** is the gentlest way to start. You write examples in a function's docstring exactly as they would look at the `>>>` prompt, and `doctest.testmod()` runs each one and compares the printed result with what you wrote. The examples document the function for readers and test it at the same time.
+@how
+- Write examples in the docstring: a `>>> call` line followed by the expected output line.
+- Run them with `doctest.testmod()` under `if __name__ == "__main__":`, or `python -m doctest file.py -v`.
+- No output means every example passed; failures show the expected and actual result.
+- Expected output must match exactly, including quotes for strings and the order of items.
+- Cover the normal case, edge cases (empty input, zero, one item) and tricky cases.
+- Test first: write the examples, watch them fail, then write the code until they pass.
+@example python: Examples that test themselves
+def initials(full_name):
+    """Return the capitalised initials of a name.
+
+    >>> initials("ada king lovelace")
+    'AKL'
+    >>> initials("  grace   hopper ")
+    'GH'
+    >>> initials("")
+    ''
+    """
+    return "".join(word[0].upper() for word in full_name.split())
+
+import doctest
+result = doctest.testmod(verbose=False)
+print(result)
+@note
+`testmod` found the three examples in the docstring and all passed, which is what `failed=0` reports. Choosing the examples first settled two questions in advance: extra spaces are ignored and an empty name gives an empty string.
+@example python: What a failing doctest looks like
+def average(numbers):
+    """Average of a list of numbers.
+
+    >>> average([2, 4, 6])
+    4.0
+    >>> average([1, 2])
+    1.5
+    """
+    return sum(numbers) // len(numbers)
+
+import doctest, io, contextlib
+report = io.StringIO()
+with contextlib.redirect_stdout(report):
+    result = doctest.testmod()
+# show the report without the separator lines and the file path (which differs per computer)
+print("\n".join(line for line in report.getvalue().splitlines() if line.strip() and not line.startswith(("*", "File"))))
+print(result)
+@note
+Both examples fail, and for each one doctest shows the call, what was expected and what the code returned. The bug is `//`, which gives whole numbers, where `/` was needed. Notice that even `4` versus `4.0` counts as a failure: doctest compares the printed text exactly. (A real report also names the file and line.)
+@mistakes
+- **Writing the expected output from memory.** Run the call at the prompt and copy the real result, quotes and all.
+- **Examples whose output varies.** Dictionary order is stable, but sets, memory addresses and the current time change. Sort or format the output first.
+- **Only testing the happy path.** Empty input, zero and unusual values are where bugs live.
+- **Forgetting to run the tests.** Put `doctest.testmod()` under the main guard, or run `python -m doctest -v file.py`.
+@keys
+- Tests check that code gives the answers you expect, every time you change it.
+- Writing tests first turns vague requirements into precise examples.
+- doctest runs the `>>>` examples in docstrings and compares the output exactly.
+- Include edge cases; they find most bugs.
+
+=== 16.2
+@idea
+doctest is great for small examples, but larger programs need tests that are organised, can set up data, and report clearly. **unittest** is Python's built-in testing framework. You write a class that inherits from `unittest.TestCase`, and each method whose name starts with `test` is one test. Inside, **assertion methods** check results: `assertEqual(a, b)`, `assertTrue(x)`, `assertIn(item, container)`, `assertRaises(Error)` and more. When an assertion fails, unittest tells you which test, which line and what the two values were.
+
+Tests often need the same starting point: an account with 100 in it, a temporary file, a small database. **setUp** runs before every test method and builds that fresh starting point, so tests cannot affect each other; **tearDown** runs after each one to clean up. Independent tests are vital: a test that only passes when another one ran first is a bug waiting to happen.
+
+Many Python projects use **pytest** instead, which lets you write tests as plain functions with plain `assert` statements and finds them automatically. It also runs unittest tests, so learning unittest first is never wasted.
+@how
+- `class TestThing(unittest.TestCase):` with methods named `test_...`.
+- Assertions: `assertEqual`, `assertNotEqual`, `assertTrue`, `assertFalse`, `assertIn`, `assertIsNone`, `assertAlmostEqual` (for floats).
+- `with self.assertRaises(ValueError):` checks that code raises an error.
+- `setUp(self)` runs before each test; `tearDown(self)` after each.
+- Run with `unittest.main()` in the file, or `python -m unittest` in the project folder.
+- One behaviour per test, with a name that says what it checks.
+@example python: Testing a class with setUp and assertRaises
+import unittest
+
+class Account:
+    def __init__(self, balance=0):
+        self.balance = balance
+    def deposit(self, amount):
+        if amount <= 0:
+            raise ValueError("deposit must be positive")
+        self.balance += amount
+    def withdraw(self, amount):
+        if amount > self.balance:
+            raise ValueError("insufficient funds")
+        self.balance -= amount
+
+class AccountTest(unittest.TestCase):
+    def setUp(self):
+        self.account = Account(100)          # a fresh account for every test
+
+    def test_deposit_adds(self):
+        self.account.deposit(50)
+        self.assertEqual(self.account.balance, 150)
+
+    def test_withdraw_subtracts(self):
+        self.account.withdraw(30)
+        self.assertEqual(self.account.balance, 70)
+
+    def test_cannot_overdraw(self):
+        with self.assertRaises(ValueError):
+            self.account.withdraw(500)
+        self.assertEqual(self.account.balance, 100)
+
+    def test_rejects_negative_deposit(self):
+        with self.assertRaises(ValueError):
+            self.account.deposit(-5)
+
+import io, re
+stream = io.StringIO()
+unittest.main(argv=["tests"], exit=False, verbosity=2, testRunner=unittest.TextTestRunner(stream=stream, verbosity=2))
+print(re.sub(r" in [\d.]+s", "", stream.getvalue()).strip())     # timings differ per run, so they are dropped
+@note
+Every test starts from a fresh account with 100, so the deposit in one test cannot change the numbers in another. `assertRaises` checks that the error happens, and the overdraw test also checks the balance was left alone. `argv` and `exit=False` only let the example run inside this page.
+@example python: Reading a failure, and the pytest style
+import unittest
+
+def word_count(text):
+    return len(text.split(" "))          # bug: double spaces count as extra words
+
+class WordCountTest(unittest.TestCase):
+    def test_simple(self):
+        self.assertEqual(word_count("tea for two"), 3)
+
+    def test_extra_spaces(self):
+        self.assertEqual(word_count("tea  for   two"), 3)
+
+import io, re
+stream = io.StringIO()
+unittest.main(argv=["tests"], exit=False, testRunner=unittest.TextTestRunner(stream=stream))
+print(re.sub(r" in [\d.]+s", "", stream.getvalue()).strip())
+
+# The same tests in pytest style (saved in test_words.py, run with: pytest)
+def test_simple():
+    assert word_count("tea for two") == 3
+@note
+The failure report names the test, shows the assertion and the AssertionError with the two values (6 != 3), which points straight at the bug: `split(" ")` creates empty strings for each extra space, while plain `split()` would not. The pytest version needs no class, just functions with `assert`.
+@mistakes
+- **Test methods not starting with `test`.** unittest silently skips them.
+- **Tests that depend on each other.** Each test must set up what it needs (that is what `setUp` is for).
+- **Comparing floats with `assertEqual`.** `0.1 + 0.2` fails against 0.3. Use `assertAlmostEqual`.
+- **Testing too much in one method.** When it fails you do not know which part broke. One behaviour per test.
+@keys
+- `unittest.TestCase` classes group tests; each `test_` method checks one behaviour.
+- Assertion methods report both values when they fail.
+- `setUp` gives each test a fresh starting point; `assertRaises` checks errors.
+- pytest runs the same ideas with plain functions and `assert`.
+
+=== 16.3
+@idea
+Tests check that code does the right thing. Two other tools check how it is written and how fast it runs. A **linter** reads your code without running it and points out likely bugs and style problems: unused imports, undefined names, comparisons like `== None`, mutable default arguments. Modern projects use **ruff** (very fast, `pip install ruff`); older ones use flake8 or pylint. Running a linter catches many bugs before you even run the program.
+
+When a program is slow, the worst move is to guess where the time goes. A **profiler** measures it. `cProfile` runs your program and reports, for each function, how many times it was called and how much time it took. Almost always, one small part of the code uses most of the time; optimise that and leave the rest clear and simple.
+
+For comparing two small ways of doing the same thing, **timeit** runs a snippet many times and reports the total, smoothing out noise. Use it to settle "is a set faster than a list here?" with numbers instead of opinions.
+@how
+- `ruff check file.py` (or `flake8`, `pylint`) reports problems with file, line and a rule code.
+- Many linter fixes are automatic: `ruff check --fix`.
+- `python -m cProfile -s cumulative program.py` profiles a whole program; `cProfile.run("main()")` profiles one call.
+- Read the profile from the top: `ncalls` (how often), `cumtime` (time including what it calls).
+- `timeit.timeit("code", setup="...", number=10_000)` times a snippet; compare results, not single runs.
+- Measure first, optimise the hot spot, measure again.
+@example bash: A linter reading your code
+$ cat shop.py
+import os, sys
+import json
+
+def total(prices, discount=[]):
+    sum = 0
+    for p in prices:
+        sum += p
+    if discount == None:
+        return sum
+    return sum - len(discount)
+
+print(totl([1, 2]))
+$ ruff check --select E,F,B --output-format concise shop.py
+shop.py:1:1: E401 [*] Multiple imports on one line
+shop.py:1:8: F401 [*] `os` imported but unused
+shop.py:1:12: F401 [*] `sys` imported but unused
+shop.py:2:8: F401 [*] `json` imported but unused
+shop.py:4:28: B006 Do not use mutable data structures for argument defaults
+shop.py:8:20: E711 Comparison to `None` should be `cond is None`
+shop.py:12:7: F821 Undefined name `totl`
+Found 7 errors.
+[*] 4 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+@note
+The linter found a real bug (the typo `totl`, which would crash at run time), the mutable default trap from lesson 6.2, an `== None` comparison and unused imports, all without running the file. `--fix` can repair the marked ones automatically. (Using `sum` as a variable name also hides the built-in; rule A001 of the flake8-builtins set would flag it.)
+@example python: Profiling to find the hot spot, timeit to compare
+import cProfile
+import io
+import pstats
+import timeit
+
+def slow_unique(items):
+    seen = []
+    for x in items:
+        if x not in seen:          # searching a list gets slower as it grows
+            seen.append(x)
+    return seen
+
+def load():
+    return [i % 3000 for i in range(30000)]
+
+def report(data):
+    return len(data)
+
+def main():
+    data = load()
+    unique = slow_unique(data)
+    return report(unique)
+
+profiler = cProfile.Profile()
+profiler.runcall(main)
+stats = pstats.Stats(profiler, stream=io.StringIO()).sort_stats("cumulative")
+slowest = max(((func[2], s[3]) for func, s in stats.stats.items() if func[2] in ("load", "slow_unique", "report")), key=lambda x: x[1])
+print("function using the most time:", slowest[0])
+
+as_list = timeit.timeit("2999 in data", setup="data = list(range(3000))", number=2000)
+as_set = timeit.timeit("2999 in data", setup="data = set(range(3000))", number=2000)
+print("set lookup faster than list lookup:", as_set < as_list)
+@note
+The profiler shows that `slow_unique` dominates, because `x not in seen` scans a growing list every time. timeit confirms the fix: membership in a set is much faster than in a list. The exact times differ on every computer, so the example prints only the conclusions.
+@mistakes
+- **Optimising without measuring.** The slow part is rarely where you guess. Profile first.
+- **Timing something once.** One run is noisy. timeit repeats it many times.
+- **Ignoring linter warnings.** Many are real bugs, like undefined names that only crash when that line finally runs.
+- **Making code unreadable for a tiny gain.** Clear code is worth more than a 2% speed-up outside the hot spot.
+@keys
+- Linters find likely bugs and style problems without running the code.
+- Profilers measure where time really goes; optimise only the hot spot.
+- timeit compares small snippets reliably by repeating them.
+- Measure, change, measure again.

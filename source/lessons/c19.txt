@@ -1,0 +1,193 @@
+=== 19.1
+@idea
+Python is especially good for **prototyping**: building a rough, working version of an idea quickly to see whether it is worth pursuing. There is no compile step, the standard library covers a lot, and the interactive interpreter lets you try each step as you write it. A first version that works in ten lines teaches you more about a problem than a day of planning.
+
+The trick is to accept that the first version is rough, then improve it in **small steps**, checking that it still works after each one. Change one thing, run it, commit it. Each step is easy to understand and easy to undo, and you always have something working. This is far safer than a big rewrite, where everything breaks at once and you cannot tell which change caused which problem.
+
+Good next steps usually follow a pattern: move hard-coded values into variables or settings (lesson 19.2), turn chunks of code into named functions, handle bad input, add tests for the parts you rely on, and replace `print` debugging with logging (lesson 19.3). Stop when the program is good enough for its purpose: not every script needs to become an application.
+@how
+- Start with the smallest version that does something useful, even if it is ugly.
+- Improve in small steps: one change, run it, keep it working.
+- Typical steps: name things clearly, extract functions, handle errors, add tests, move settings out of the code.
+- Keep each step small enough to describe in one sentence (a good commit message).
+- Use version control (git) so every working step can be recovered.
+- Decide when it is good enough; polish has a cost.
+@example python: Version 1, a rough prototype
+text = """The cat sat on the mat. The dog sat on the log.
+The cat saw the dog, and the dog saw the cat!"""
+
+counts = {}
+for word in text.split():
+    counts[word] = counts.get(word, 0) + 1
+print(sorted(counts.items(), key=lambda kv: -kv[1])[:5])
+@note
+Six lines answer "which words are most common?", but the answer is muddled: "The" and "the" count separately and punctuation sticks to words ("cat!" and "dog,"). That is fine for a first try: it works, and it shows exactly what to fix next.
+@example python: Version 3, after small improvements
+import string
+from collections import Counter
+
+STOP_WORDS = {"the", "on", "and", "a"}
+
+def words(text):
+    """Lower-case words with punctuation removed."""
+    cleaned = text.lower().translate(str.maketrans("", "", string.punctuation))
+    return cleaned.split()
+
+def top_words(text, n=3, skip=STOP_WORDS):
+    return Counter(w for w in words(text) if w not in skip).most_common(n)
+
+text = """The cat sat on the mat. The dog sat on the log.
+The cat saw the dog, and the dog saw the cat!"""
+
+print(top_words(text))
+print(top_words(text, n=2, skip=set()))
+assert words("Hi, there!") == ["hi", "there"]
+@note
+Each improvement was one small step: lower-casing, then removing punctuation, then `Counter`, then functions with parameters, then a quick check. The result is easier to test and reuse, and every intermediate version worked.
+@mistakes
+- **Designing everything before writing any code.** You learn what the problem really is by building a first version.
+- **Big-bang rewrites.** Changing ten things at once makes failures impossible to trace. One step at a time.
+- **Never cleaning up the prototype.** If people will rely on it, add functions, error handling and tests before it grows further.
+- **Polishing code nobody needs.** Stop when it does its job well enough.
+@keys
+- Build a rough working version first; it teaches you about the problem.
+- Improve in small, tested steps, keeping the program working after each one.
+- Typical steps: clearer names, functions, error handling, tests, settings, logging.
+- Know when good enough is enough.
+
+=== 19.2
+@idea
+Values that may change (a window title, a timeout, a file path, the number of retries) do not belong inside the code. Put them in a **configuration file**, and the program's behaviour can be adjusted without editing or even understanding the code. Users can keep their own settings, and the same program can run differently on a laptop and a server.
+
+Python's `configparser` reads the INI format: sections in square brackets and `key = value` lines below them. It is plain text that anyone can edit. `config.read("settings.ini")` loads it; `config["section"]["key"]` reads a value as text, and `getint`, `getfloat` and `getboolean` convert it (the last one understands yes/no, on/off, true/false, 1/0). A missing file is not an error: `read` simply returns an empty list, so the program must cope.
+
+A robust pattern is **defaults first, file second**: load sensible defaults in the code, then read the file on top so that any value it sets wins and anything it leaves out keeps its default. Validate the values (is the number in range? does the folder exist?) and report problems clearly instead of crashing deep inside the program. JSON and TOML (`tomllib`, built in since Python 3.11) are common alternatives for configuration files.
+@how
+- INI format: `[section]` lines, then `key = value`; `#` or `;` start comments.
+- `config = configparser.ConfigParser()`; `config.read("settings.ini")` returns the list of files it read.
+- `config["window"]["title"]` gives text; `config.getint("window", "width")`, `getfloat`, `getboolean`.
+- Fallbacks: `config.getint("timer", "minutes", fallback=4)`.
+- Defaults first: `config.read_dict({...})` then `config.read(file)`.
+- `tomllib.load(f)` reads TOML (open the file in binary mode); `json.load` reads JSON.
+@example python: Defaults first, file second
+import configparser
+from pathlib import Path
+
+Path("timer.ini").write_text("""
+[timer]
+minutes = 3
+sound = no
+
+[window]
+title = Kev's Tea Timer
+""")
+
+config = configparser.ConfigParser()
+config.read_dict({
+    "timer": {"minutes": "4", "sound": "yes", "volume": "70"},
+    "window": {"title": "Tea Timer", "width": "400"},
+})
+found = config.read(["timer.ini", "missing.ini"])
+print("files read:", found)
+
+print(config.getint("timer", "minutes"), config.getboolean("timer", "sound"))
+print(config.getint("timer", "volume"), config["window"]["title"], config.getint("window", "width"))
+print(config.getint("timer", "pause", fallback=10))
+@note
+The file overrode `minutes`, `sound` and `title`; `volume` and `width` kept their defaults. The missing file is silently skipped, which is why `read` returns the list of files it actually found. `fallback` covers a key that exists nowhere.
+@example python: Validating settings with clear messages
+import configparser
+
+def load_settings(text):
+    config = configparser.ConfigParser()
+    config.read_dict({"timer": {"minutes": "4", "volume": "70"}})
+    config.read_string(text)
+    try:
+        minutes = config.getint("timer", "minutes")
+        volume = config.getint("timer", "volume")
+    except ValueError as error:
+        return f"settings error: {error}"
+    if not 1 <= minutes <= 15:
+        return f"settings error: minutes must be 1 to 15, got {minutes}"
+    return {"minutes": minutes, "volume": volume}
+
+print(load_settings("[timer]\nminutes = 5"))
+print(load_settings("[timer]\nminutes = five"))
+print(load_settings("[timer]\nminutes = 40"))
+@note
+A typo in the file produces a clear message naming the bad value, and an out-of-range number is caught before it causes strange behaviour later. `read_string` is used here so the example needs no file; with a file it would be `config.read(path)`.
+@mistakes
+- **Assuming the file exists.** `read` does not raise for a missing file. Check its return value or rely on defaults.
+- **Treating every value as the right type.** INI values are text: `"no"` is a truthy string. Use `getboolean`, `getint` and friends.
+- **Putting passwords in a config file in your repository.** Keep secrets in environment variables or a file excluded from git.
+- **Crashing deep in the program on a bad setting.** Validate when loading and report the problem clearly.
+@keys
+- Move changeable values out of the code into a configuration file.
+- `configparser` reads INI files; `getint`, `getfloat` and `getboolean` convert values.
+- Load defaults first and the file second, so the file wins and missing keys keep defaults.
+- Validate settings when loading and report problems clearly.
+
+=== 19.3
+@idea
+`print` is fine for quick checks, but real programs need a record of what they did, especially when something goes wrong at 3 a.m. on a server. The **logging** module provides that: messages with a **level** that says how important they are, a timestamp, the part of the program they came from, and a destination you choose (the screen, a file, or both).
+
+The levels, from least to most serious, are DEBUG (details for developers), INFO (normal progress), WARNING (something unexpected, but the program carries on), ERROR (something failed) and CRITICAL (the program may not be able to continue). You set a **threshold**: at INFO, debug messages are skipped; switch to DEBUG while hunting a bug and they all appear, without touching the code that writes them.
+
+`logging.basicConfig(...)` sets everything up in one call: level, format (for example `"%(asctime)s %(levelname)s %(message)s"`) and an optional `filename`. In larger programs, each module gets its own logger with `logging.getLogger(__name__)`, so messages show where they came from. Inside an `except` block, `logger.exception("message")` logs the error together with its full traceback.
+@how
+- `logging.basicConfig(level=logging.INFO, format="...", filename="app.log")`, once, at program start.
+- `logging.debug`, `info`, `warning`, `error`, `critical`; `exception` inside `except` adds the traceback.
+- Messages below the threshold level are ignored, so leave debug messages in the code.
+- Format fields: `%(asctime)s`, `%(levelname)s`, `%(name)s`, `%(message)s`.
+- `logger = logging.getLogger(__name__)` per module.
+- Pass values as arguments: `logger.info("saved %d rows", n)`, so formatting only happens when the message is shown.
+@example python: Levels and the threshold
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(levelname)-8s %(name)s: %(message)s")
+log = logging.getLogger("teatimer")
+
+def brew(kind, minutes):
+    log.debug("brew() called with %r, %r", kind, minutes)
+    if minutes > 8:
+        log.warning("%d minutes is very long for %s tea", minutes, kind)
+    log.info("brewing %s for %d minutes", kind, minutes)
+
+brew("green", 2)
+brew("black", 12)
+
+log.setLevel(logging.DEBUG)
+brew("oolong", 3)
+@note
+At INFO the debug message is skipped; the warning stands out by level. After lowering the threshold to DEBUG, the hidden detail appears without any change to `brew` itself. The logger's name shows which part of the program spoke.
+@example python: Logging to a file, with tracebacks
+import logging
+from pathlib import Path
+
+logging.basicConfig(filename="app.log", level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger(__name__)
+
+for text in ["12", "seven"]:
+    try:
+        cups = int(text)
+        log.info("ordered %d cups", cups)
+    except ValueError:
+        log.exception("could not read %r as a number", text)
+
+logging.shutdown()
+for line in Path("app.log").read_text().splitlines():
+    print(line[9:] if line[:2].isdigit() else line)
+@note
+Every message went to `app.log` with a time. `log.exception` recorded the full traceback under the error, which is exactly what you need to investigate a failure later. The print loop cuts off the time so the output here is the same on every run.
+@mistakes
+- **Calling `basicConfig` after logging already started.** Only the first configuration takes effect. Call it once, at the start.
+- **Building messages with f-strings.** They are formatted even when the level hides them. Pass arguments: `log.debug("x=%s", x)`.
+- **Logging errors without the traceback.** Use `log.exception(...)` inside `except`.
+- **Everything at one level.** If every message is WARNING, nothing stands out. Use the levels for what they mean.
+@keys
+- Logging records messages with a level, time and source, to the screen or a file.
+- The threshold level decides what is shown; debug messages can stay in the code.
+- Configure once with `basicConfig`; use `getLogger(__name__)` per module.
+- `log.exception` inside `except` saves the traceback.

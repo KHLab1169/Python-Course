@@ -1,0 +1,135 @@
+=== 17.1
+@idea
+Python is not the fastest language at raw number crunching, and it does not need to be for most programs. Typical programs spend their time waiting for files, networks, databases or users, and there Python is as fast as anything else. Where speed does matter, the usual pattern is **Python for most of the program, something faster for the hot spot**: a small piece of code, found by profiling, that runs millions of times.
+
+Before reaching for another language, look at the algorithm and the data structure. Replacing a list search with a set lookup, or a nested loop with a dictionary, often gives a speed-up of hundreds of times, far more than rewriting the same slow algorithm in C. Built-in functions like `sum`, `sorted`, `max` and `str.join` already run in fast C code, so using them instead of hand-written loops is a free win.
+
+Only when the algorithm is already good and the profile still points at one function is it time to **extend** Python: libraries like NumPy that do the heavy loops in C, compiled extensions written in Cython or C, or C libraries called through `ctypes` (next lesson). The key word in all of this is **measure**: profile before, profile after.
+@how
+- Profile first to find the hot spot (lesson 16.3).
+- Try a better algorithm or data structure: sets and dictionaries for lookups, sorting once instead of searching repeatedly.
+- Use built-ins (`sum`, `min`, `max`, `sorted`, `join`, comprehensions); they run in C.
+- For numeric arrays, NumPy performs whole-array operations in C.
+- Only then consider C extensions, Cython, or `ctypes` for existing C libraries.
+- Keep a simple, correct version and tests, so you can check the fast version gives the same answers.
+@example python: A better algorithm beats a faster language
+import time
+
+def has_duplicates_slow(items):          # compares every pair: about n*n/2 checks
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            if items[i] == items[j]:
+                return True
+    return False
+
+def has_duplicates_fast(items):          # a set remembers what it has seen
+    return len(set(items)) != len(items)
+
+data = list(range(3000)) + [2999]
+
+start = time.perf_counter()
+slow = has_duplicates_slow(data)
+slow_time = time.perf_counter() - start
+
+start = time.perf_counter()
+fast = has_duplicates_fast(data)
+fast_time = time.perf_counter() - start
+
+print("same answer:", slow == fast == True)
+print("set version at least 100 times faster:", slow_time > 100 * fast_time)
+@note
+Both functions agree, but the pair-by-pair version does millions of comparisons while the set version touches each item once. No language rewrite could close a gap that size; the better idea did it. The exact times vary by computer, so only the comparison is printed.
+@example python: Built-ins run in C
+import timeit
+
+setup = "nums = list(range(100_000))"
+loop = """
+total = 0
+for n in nums:
+    total += n
+"""
+builtin = "total = sum(nums)"
+
+t_loop = timeit.timeit(loop, setup=setup, number=50)
+t_sum = timeit.timeit(builtin, setup=setup, number=50)
+print("sum() faster than a Python loop:", t_sum < t_loop)
+
+words = ["tea"] * 10_000
+t_plus = timeit.timeit("s = ''\nfor w in words: s += w", globals={"words": words}, number=50)
+t_join = timeit.timeit("''.join(words)", globals={"words": words}, number=50)
+print("join() faster than += in a loop:", t_join < t_plus)
+@note
+`sum` and `join` do the same work as the loops, but inside C code, so they win with no extra effort. Choosing the right built-in is the cheapest optimisation there is.
+@mistakes
+- **Rewriting in C before profiling.** You may speed up a part that was never slow.
+- **Optimising the language instead of the algorithm.** An n² algorithm stays slow in any language.
+- **Writing manual loops for things built-ins do.** `sum`, `max`, `sorted` and `join` are faster and clearer.
+- **Throwing away the simple version.** Keep it as a reference, and compare the fast version's results against it in tests.
+@keys
+- Most programs are not slowed by Python itself; measure before optimising.
+- A better algorithm or data structure is the biggest win.
+- Built-ins and libraries like NumPy run their loops in C.
+- Extend Python only for the measured hot spot, and keep tests to check the fast version.
+
+=== 17.2
+@idea
+A great deal of fast, well-tested code is written in C: the operating system's own libraries, maths libraries, compression, image processing. **ctypes**, part of the standard library, lets Python load such a compiled library and call its functions directly, without writing any C or compiling anything yourself.
+
+The steps are always the same. Find and load the library (`ctypes.CDLL(path)`, with `ctypes.util.find_library("m")` to locate the C maths library). Tell ctypes each function's **argument types** and **return type** with `argtypes` and `restype`, because a compiled library carries no type information and C needs exact types. Then call the function like any Python function; ctypes converts Python numbers and bytes into C values and back.
+
+ctypes is great for using existing C libraries. For writing new fast code, **Cython** (Python-like code compiled to C) and full **C extensions** are the next steps; most people never need them, because libraries like NumPy already provide the fast parts. Wrong types in ctypes can crash the whole program rather than raise a tidy exception, so always declare `argtypes` and `restype`.
+@how
+- `import ctypes, ctypes.util`; `lib = ctypes.CDLL(ctypes.util.find_library("c"))` for the C library (on Windows, `ctypes.cdll.msvcrt`).
+- Declare types: `lib.func.argtypes = [ctypes.c_double]`, `lib.func.restype = ctypes.c_double`.
+- Common types: `c_int`, `c_long`, `c_double`, `c_char_p` (bytes), `c_size_t`.
+- Pass text as bytes: `b"hello"` or `"hello".encode()`.
+- Your own C: compile to a shared library (`gcc -shared -fPIC -o libadd.so add.c`) and load it by path.
+- Undeclared or wrong types can give garbage or crash; always set `argtypes` and `restype`.
+@example python: Calling functions from the C library
+import ctypes
+import ctypes.util
+import sys
+
+libc_path = ctypes.util.find_library("c") if sys.platform != "win32" else "msvcrt"
+libc = ctypes.CDLL(libc_path)
+
+libc.strlen.argtypes = [ctypes.c_char_p]
+libc.strlen.restype = ctypes.c_size_t
+libc.abs.argtypes = [ctypes.c_int]
+libc.abs.restype = ctypes.c_int
+
+print(libc.strlen(b"Python"))
+print(libc.strlen("café".encode("utf-8")), "bytes for", len("café"), "characters")
+print(libc.abs(-42))
+@note
+`strlen` counts bytes, not characters, which is why "café" gives 5: that is C's view of a string. Declaring the types lets ctypes convert the Python values correctly. On Windows the same functions come from `msvcrt`.
+@example python: The maths library and why types matter
+import ctypes
+import ctypes.util
+
+libm = ctypes.CDLL(ctypes.util.find_library("m") or ctypes.util.find_library("c"))
+
+libm.pow.argtypes = [ctypes.c_double, ctypes.c_double]
+libm.pow.restype = ctypes.c_double
+libm.hypot.argtypes = [ctypes.c_double, ctypes.c_double]
+libm.hypot.restype = ctypes.c_double
+
+print(libm.pow(2, 10))
+print(libm.hypot(3.0, 4.0))
+
+try:
+    libm.pow("2", 10)
+except ctypes.ArgumentError as error:
+    print("ArgumentError:", error)
+@note
+With `argtypes` declared, ctypes converts the int 2 to a C double and refuses a string with an ArgumentError instead of passing garbage to C. `hypot` gives the long side of a right-angled triangle (here 5 for sides 3 and 4); Python's `math.hypot` calls this same C function.
+@mistakes
+- **Not declaring `restype`.** ctypes assumes an int, so a function returning a double gives nonsense.
+- **Passing a str where C expects `char *`.** Encode it to bytes first.
+- **Expecting Python exceptions from C crashes.** A wrong pointer can end the whole program. Be careful with types and sizes.
+- **Hard-coding library paths.** They differ between systems. Use `ctypes.util.find_library` and handle Windows separately.
+@keys
+- ctypes loads compiled C libraries and calls their functions from Python.
+- Always declare `argtypes` and `restype`; C has no type information to discover.
+- Text goes to C as bytes; C counts bytes, not characters.
+- For writing new fast code, consider Cython or a library like NumPy first.
