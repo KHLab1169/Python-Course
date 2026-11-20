@@ -1,0 +1,419 @@
+=== 10.1
+@idea
+A **module** is simply a `.py` file whose functions, classes and variables other files can use. If you save helper functions in `temperature.py`, any program in the same folder can write `import temperature` and call `temperature.c_to_f(30)`. Splitting a growing program into modules keeps each file short and focused, and lets you reuse code across projects.
+
+When Python runs `import temperature`, it searches a list of folders called `sys.path`: first the folder of the program being run, then the standard library, then installed packages. The first `temperature.py` it finds wins. It runs that file **once**, top to bottom, and stores the result; later imports in the same program reuse it.
+
+Because importing runs the whole file, test code at the bottom of a module would run every time someone imports it. The fix is the `if __name__ == "__main__":` test. Each module has a `__name__`: it is `"__main__"` when the file is run directly, and the module's own name when imported. Code under that test runs only when you start the file itself. A **package** goes one step further: a folder of modules, with an `__init__.py` file, imported with dots like `import shapes.circle`.
+@how
+- Any `file.py` is a module; `import file` (no `.py`) makes its names available as `file.name`.
+- Python searches `sys.path`: the script's folder first, then the standard library and installed packages.
+- A module runs once per program; later imports reuse it.
+- `if __name__ == "__main__":` guards code that should run only when the file is started directly.
+- A package is a folder of modules with an `__init__.py`; import with `import pkg.module` or `from pkg import module`.
+- Never name your file after a standard module (`random.py`, `math.py`): it hides the real one.
+@example python: Making and importing a module
+from pathlib import Path
+import sys
+
+Path("temperature.py").write_text('''
+"""Small helpers for temperatures."""
+print("  temperature.py is being loaded")
+
+def c_to_f(celsius):
+    return celsius * 9 / 5 + 32
+
+if __name__ == "__main__":
+    print("  running my own tests:", c_to_f(100) == 212)
+''')
+sys.path.insert(0, ".")
+
+import temperature
+import temperature                     # second import: not loaded again
+print(temperature.c_to_f(30))
+print(temperature.__name__, "|", temperature.__doc__)
+@note
+The example writes a module file and imports it, as you would with a file saved next to your program. The load message appears once even though the module is imported twice, and the test block does not run, because `__name__` is "temperature" rather than "__main__".
+@example python: A small package with __init__.py
+from pathlib import Path
+import sys
+
+Path("shapes").mkdir(exist_ok=True)
+Path("shapes/__init__.py").write_text('"""Shapes package."""\nfrom .circle import area as circle_area\n')
+Path("shapes/circle.py").write_text("import math\n\ndef area(r):\n    return round(math.pi * r * r, 2)\n")
+Path("shapes/square.py").write_text("def area(side):\n    return side * side\n")
+sys.path.insert(0, ".")
+
+import shapes.square
+from shapes import circle
+from shapes import circle_area
+
+print(shapes.square.area(4), circle.area(1), circle_area(2))
+@note
+The folder `shapes` with an `__init__.py` is a package. `import shapes.square` reaches one module inside it. `__init__.py` runs when the package is first imported and can re-export handy names, which is why `circle_area` is available straight from `shapes`.
+@mistakes
+- **Naming your file like a standard module.** A `random.py` in your folder makes `import random` load your file. Rename it.
+- **Writing `import temperature.py`.** Leave out the extension: `import temperature`.
+- **Test code without the main guard.** It runs on every import. Put it under `if __name__ == "__main__":`.
+- **Expecting edits to show up after re-importing.** A module loads once per program. Restart the program (or use `importlib.reload` while experimenting).
+@keys
+- A module is a `.py` file; `import name` runs it once and gives access to its names.
+- Python finds modules through `sys.path`, starting with the script's own folder.
+- `if __name__ == "__main__":` separates "run me" code from "import me" code.
+- A package is a folder of modules with an `__init__.py`.
+
+=== 10.2
+@idea
+Nobody memorises a whole module. Python lets you ask a module what it contains while you work. `dir(module)` lists every name inside it; `help(module.name)` prints the documentation for one of them; the `__doc__` attribute holds the docstring as text. A minute at the `>>>` prompt with these tools often answers a question faster than a web search.
+
+Modules also describe themselves. `__name__` is the module's name, and `__file__` is where its source file lives on disk (built-in modules written in C have none). Opening that file is a great way to learn how experienced programmers write Python: much of the standard library is plain, readable code.
+
+`__all__` is a list a module can define to say which names are its public interface. It controls what `from module import *` brings in. Names starting with an underscore are left out of a star import anyway, but `__all__` makes the public list explicit. It does not stop anyone from importing other names directly; it is documentation that Python also uses.
+@how
+- `dir(module)` lists names; filter it with a comprehension, for example names that do not start with `_`.
+- `help(thing)` shows the documentation; press `q` to leave the pager in a terminal.
+- `thing.__doc__` is the docstring as a string.
+- `module.__file__` gives the path to the source file, if there is one.
+- `__all__ = ["a", "b"]` in a module lists what `from module import *` imports.
+- The official documentation at docs.python.org/3/library lists every standard module.
+@example pycon: Exploring a module you have not used before
+>>> import statistics
+>>> [n for n in dir(statistics) if n.startswith("m")]
+>>> statistics.__doc__.strip().splitlines()[0]
+>>> print(statistics.median.__doc__.splitlines()[0])
+>>> statistics.__file__.endswith("statistics.py")
+>>> "mode" in statistics.__all__
+@note
+Filtering `dir()` finds every function whose name starts with "m": a quick way to discover `multimode` and the median variants. The first docstring line is usually a one-sentence summary. `__file__` points at the real source file you can open and read.
+@example python: __all__ controls the star import
+from pathlib import Path
+import sys
+
+Path("tools.py").write_text('''
+__all__ = ["greet"]
+
+def greet(name):
+    return f"Hello, {name}"
+
+def helper():
+    return "internal"
+
+def _secret():
+    return "hidden"
+''')
+sys.path.insert(0, ".")
+
+namespace = {}
+exec("from tools import *", namespace)
+print(sorted(k for k in namespace if not k.startswith("__")))
+
+from tools import helper              # direct imports still work
+print(helper())
+@note
+The star import brought in only `greet`, the one name in `__all__`. Importing `helper` by name still works: `__all__` describes the public part, it does not lock the rest away. (`exec` here just shows what a star import adds to a fresh namespace.)
+@mistakes
+- **Using `from module import *` in programs.** It dumps unknown names into your file and hides where they came from. Import what you need by name.
+- **Expecting `__all__` to make names private.** It only affects star imports.
+- **Giving up before checking `help()`.** Most questions about parameters and return values are answered by the docstring.
+@keys
+- `dir`, `help` and `__doc__` let you explore any module from the prompt.
+- `__file__` shows where a module's source lives, and reading it is a good way to learn.
+- `__all__` lists a module's public names for star imports.
+- Prefer explicit imports over `import *`.
+
+=== 10.3
+@idea
+Two modules connect your program to the world around it. **sys** is about the Python program itself: `sys.argv` holds the words typed after the script name on the command line, `sys.path` is the module search list, `sys.version_info` tells you which Python is running, and `sys.exit()` ends the program, optionally with a status code that other programs (and scripts) can check.
+
+**os** is about the operating system: environment variables (`os.environ`), the current folder (`os.getcwd()`), listing and creating folders, and building file paths. Paths differ between systems (`\` on Windows, `/` elsewhere), so never glue them together by hand. Use `os.path.join`, or better, the newer `pathlib` module, whose `Path` objects join with `/` and work everywhere.
+
+Command-line arguments always arrive as **strings**, even when they look like numbers, so convert them. For anything beyond one or two arguments, the `argparse` module (lesson 10.7) checks them and writes help text for you.
+@how
+- `sys.argv[0]` is the script name; `sys.argv[1:]` are the arguments, all strings.
+- `sys.exit(0)` means success; `sys.exit(1)` or `sys.exit("message")` signals an error.
+- `sys.version_info >= (3, 10)` checks the Python version.
+- `os.environ.get("NAME", default)` reads an environment variable safely.
+- `os.getcwd()` is the folder you started from, not necessarily where the script lives; `Path(__file__).parent` is the script's own folder.
+- `pathlib.Path`: `Path("data") / "file.txt"`, `.exists()`, `.mkdir()`, `.iterdir()`, `.suffix`, `.stem`.
+@example python: Reading command-line arguments
+import sys
+
+sys.argv = ["total.py", "4.50", "12", "3.25"]     # what typing `python total.py 4.50 12 3.25` gives
+
+script, *numbers = sys.argv
+print("script:", script)
+print("arguments:", numbers, "(strings)")
+total = sum(float(n) for n in numbers)
+print(f"total: {total:.2f}")
+
+if not numbers:
+    sys.exit("usage: python total.py NUMBER [NUMBER ...]")
+print("Python 3.8 or newer:", sys.version_info >= (3, 8))
+@note
+The first line fakes the command line so the example runs here; in a real script `sys.argv` is filled in for you. Each argument is text until `float()` converts it. `sys.exit` with a message would print it and stop with an error status.
+@example python: Paths and folders that work on every system
+import os
+from pathlib import Path
+
+base = Path("project")
+(base / "data").mkdir(parents=True, exist_ok=True)
+for name in ["jan.csv", "feb.csv", "notes.txt"]:
+    (base / "data" / name).write_text("x\n")
+
+csv_files = sorted(p.name for p in (base / "data").glob("*.csv"))
+print("CSV files:", csv_files)
+
+report = base / "data" / "feb.csv"
+print(report.suffix, report.stem, report.parent.name, report.exists())
+print(os.path.join("project", "data", "jan.csv") == str(base / "data" / "jan.csv"))
+print("HOME set:", "HOME" in os.environ or "USERPROFILE" in os.environ)
+print("LANGUAGE:", os.environ.get("MY_APP_LANGUAGE", "en (default)"))
+@note
+`Path` objects join with `/` and produce the right separator on each system. `glob("*.csv")` finds matching files, and `suffix`, `stem` and `parent` pick a path apart. `environ.get` with a default never fails, even when the variable is not set.
+@mistakes
+- **Treating arguments as numbers.** `sys.argv[1] + 1` raises a TypeError. Convert first: `int(sys.argv[1])`.
+- **Building paths with `+ "/" +`.** It breaks on Windows. Use `Path(a) / b` or `os.path.join`.
+- **Assuming the current folder is the script's folder.** Starting the program from elsewhere changes `os.getcwd()`. Use `Path(__file__).parent` to find files next to your script.
+- **`os.environ["NAME"]` for an optional variable.** It raises a KeyError if missing. Use `.get` with a default.
+@keys
+- `sys.argv` holds command-line arguments as strings; `sys.exit` ends the program with a status.
+- `os.environ.get` reads environment variables safely.
+- Use `pathlib.Path` (or `os.path.join`) to build paths that work on every system.
+- The current folder and the script's folder are not the same thing.
+
+=== 10.4
+@idea
+The standard library has ready-made data structures for jobs that lists handle badly. A **set** is an unordered collection with no duplicates. Testing membership in a set is fast no matter how big it is, and sets support the operations from maths: union `|` (in either), intersection `&` (in both), difference `-` (in the first but not the second) and symmetric difference `^` (in exactly one).
+
+A **heap** (the `heapq` module) keeps a list arranged so the smallest item is always at position 0, and adding or removing items stays fast. It is the tool for "always take the smallest next" (task queues by priority) and "give me the top 5 of a million" (`heapq.nlargest`). A **deque** (`collections.deque`, "deck") is a double-ended queue: adding and removing at **both** ends is fast, while a list is slow at the front. With `maxlen` it keeps only the latest items.
+
+**fileinput** reads lines from several files (or from standard input) as one continuous stream, telling you which file and line number you are on. It is handy for small command-line tools that process every file you name.
+@how
+- Sets: `{1, 2, 3}` or `set(iterable)`; `set()` for empty. `add`, `discard`, `in`, `|`, `&`, `-`, `^`.
+- Set items must be immutable (like dictionary keys); `frozenset` is a set that cannot change.
+- `heapq.heappush(h, x)`, `heapq.heappop(h)` (smallest first), `heapq.nlargest(n, items)`, `heapq.nsmallest(n, items)`.
+- Push `(priority, item)` tuples to order by priority.
+- `deque(maxlen=n)`: `append`, `appendleft`, `pop`, `popleft`, `rotate`; old items fall off when full.
+- `fileinput.input(files)` loops over lines of several files; `fileinput.filename()` and `filelineno()` say where you are.
+@example pycon: Set operations
+>>> python_club = {"Ada", "Ben", "Cy", "Dee"}
+>>> chess_club = {"Cy", "Dee", "Eve"}
+>>> sorted(python_club & chess_club)
+>>> python_club | chess_club == {"Ada", "Ben", "Cy", "Dee", "Eve"}
+>>> sorted(python_club - chess_club)
+>>> sorted(python_club ^ chess_club)
+>>> len(set("mississippi")), sorted(set("mississippi"))
+@note
+`&` finds people in both clubs, `-` those only in the Python club, `^` those in exactly one. Sets have no order, so `sorted` makes the output predictable. Turning a word into a set keeps each letter once.
+@example python: A priority queue and a recent-history deque
+import heapq
+from collections import deque
+
+tasks = []
+heapq.heappush(tasks, (3, "water plants"))
+heapq.heappush(tasks, (1, "fix the leak"))
+heapq.heappush(tasks, (2, "pay bills"))
+while tasks:
+    priority, task = heapq.heappop(tasks)
+    print(priority, task)
+
+scores = [72, 95, 61, 88, 99, 54, 91]
+print("top 3:", heapq.nlargest(3, scores))
+
+recent = deque(maxlen=3)
+for page in ["home", "news", "sport", "weather"]:
+    recent.append(page)
+print(list(recent))
+recent.appendleft("start")
+print(list(recent), recent.popleft())
+@note
+Tasks come out in priority order however they were added. `nlargest` finds the top scores without sorting everything. The deque keeps only the last three pages; adding at the left pushed "weather" out of the right end, since it is full.
+@mistakes
+- **Writing `{}` for an empty set.** That is an empty dictionary. Use `set()`.
+- **Expecting a set to keep order.** It does not. Sort it, or use a dictionary's keys if you need unique items in insertion order.
+- **Using `list.pop(0)` for a queue.** It gets slow for long lists. Use `deque.popleft()`.
+- **Thinking a heap list is sorted.** Only `h[0]` is guaranteed to be the smallest. Pop items to get them in order.
+@keys
+- Sets hold unique items with fast membership and `| & - ^` operations.
+- `heapq` always hands back the smallest item and finds top-n quickly.
+- `deque` is fast at both ends; `maxlen` keeps the most recent items.
+- `fileinput` treats several files as one stream of lines.
+
+=== 10.5
+@idea
+Four modules cover everyday needs. **time** and **datetime** handle clocks and calendars. `time.time()` gives seconds since 1970, useful for measuring durations. `datetime` gives proper objects: `date(2026, 11, 20)`, `datetime.now()`, and `timedelta(days=14)` for arithmetic, so "two weeks from today" is just `date.today() + timedelta(days=14)`. Format dates as text with `strftime` and read them from text with `strptime`.
+
+**random** makes pseudo-random choices: `randint(1, 6)` for a die, `choice(items)` to pick one, `shuffle(items)` to mix a list in place, `sample(items, k)` for k different items. Calling `random.seed(n)` first makes the sequence repeatable, which is invaluable for testing. (For passwords and security tokens use the `secrets` module instead.)
+
+**json** turns Python data (dictionaries, lists, strings, numbers, True, False, None) into text and back. JSON is the common language of web APIs and settings files, and humans can read it. **shelve** stores Python objects in a file that behaves like a dictionary, which is fine for quick personal scripts that need to remember things between runs.
+@how
+- `from datetime import date, datetime, timedelta`; subtracting dates gives a `timedelta`; `.days` reads it.
+- `d.strftime("%d %B %Y")` formats; `datetime.strptime("20/11/2026", "%d/%m/%Y")` parses.
+- `random.seed(n)` for repeatable results; `randint(a, b)` includes both ends.
+- `json.dumps(obj, indent=2)` gives text; `json.loads(text)` reads it; `json.dump` and `json.load` work with files.
+- JSON turns tuples into lists and needs string keys.
+- `shelve.open("name")` gives a dictionary-like object saved to disk; use it in a `with` block.
+@example python: Dates and time spans
+from datetime import date, datetime, timedelta
+
+start = date(2026, 11, 20)
+due = start + timedelta(days=14)
+print("due:", due, due.strftime("(%A %d %B)"))
+print("days until new year:", (date(2027, 1, 1) - start).days)
+
+birthday = datetime.strptime("10/12/1815", "%d/%m/%Y").date()
+age_days = (date(1852, 11, 27) - birthday).days
+print("Ada Lovelace lived", age_days, "days, about", age_days // 365, "years")
+
+meeting = datetime(2026, 11, 20, 14, 30)
+print((meeting + timedelta(hours=1, minutes=45)).strftime("%H:%M"))
+@note
+Adding a `timedelta` handles month lengths for you. `strptime` reads a date in a stated format and `strftime` writes one; `%A` is the weekday name and `%B` the month name. Fixed dates keep the output the same whenever you run it.
+@example python: Repeatable randomness and saving data as JSON
+import json
+import random
+from pathlib import Path
+
+random.seed(42)
+rolls = [random.randint(1, 6) for _ in range(10)]
+print("rolls:", rolls)
+deck = ["A", "K", "Q", "J", "10"]
+random.shuffle(deck)
+print("shuffled:", deck, "| pick:", random.choice(deck))
+
+progress = {"name": "Kev", "lessons_done": 27, "streak": [1, 2, 3], "finished": False}
+Path("progress.json").write_text(json.dumps(progress, indent=2))
+loaded = json.loads(Path("progress.json").read_text())
+print(loaded == progress, loaded["lessons_done"])
+print(Path("progress.json").read_text())
+@note
+With the same seed the "random" values are identical on every run, which makes programs testable. JSON writes the dictionary as readable text and reads it back to an equal dictionary; notice `False` becomes `false` in the file.
+@mistakes
+- **Comparing dates as strings.** `"9/12/2026" < "10/1/2026"` compares characters, not dates. Parse them into `date` objects first.
+- **Using `random` for passwords.** Its output can be predicted. Use `secrets.token_urlsafe()` or `secrets.choice`.
+- **Expecting tuples back from JSON.** They come back as lists. Convert if you need tuples.
+- **Forgetting that `shuffle` works in place.** `deck = random.shuffle(deck)` sets `deck` to `None`.
+@keys
+- `datetime` objects plus `timedelta` do date arithmetic; `strftime` and `strptime` convert to and from text.
+- `random.seed` makes random sequences repeatable; use `secrets` for anything security-related.
+- `json.dumps` and `json.loads` convert between Python data and readable text.
+- `shelve` is a dictionary saved to disk, fine for small personal scripts.
+
+=== 10.6
+@idea
+A **regular expression** (regex) is a pattern that describes text. Instead of searching for one exact word, you describe its shape: "one or more digits", "a capital letter followed by lower-case letters", "something@something.something". The `re` module finds, extracts, replaces and splits text using those patterns. It is one of the most useful tools for cleaning data and reading log files.
+
+Patterns are built from small pieces. `\d` means any digit, `\w` any letter, digit or underscore, `\s` any whitespace, and `.` any character. Square brackets make a **character set**: `[aeiou]` is one vowel, `[A-Z]` one capital. **Quantifiers** say how many: `+` one or more, `*` zero or more, `?` optional, `{3}` exactly three. `^` and `$` anchor the pattern to the start and end. Round brackets make a **group** that remembers what it matched.
+
+Always write patterns as raw strings, `r"\d+"`, so Python does not treat the backslashes as escapes. Then pick the right function: `search` finds the first match anywhere, `match` only at the start, `fullmatch` the whole string, `findall` every match, `sub` replaces, and `split` splits on a pattern.
+@how
+- Pieces: `\d` digit, `\w` word character, `\s` whitespace, `.` any character, `\.` a real dot.
+- Sets and ranges: `[abc]`, `[0-9]`, `[^0-9]` (not a digit).
+- Quantifiers: `+`, `*`, `?`, `{n}`, `{n,m}`. Add `?` after one to make it take as little as possible: `.*?`.
+- Groups `( )` capture parts; `m.group(1)`, `m.groups()`; named groups `(?P<name>...)`.
+- `re.search`, `re.match`, `re.fullmatch` return a match object or `None`; `re.findall` returns a list.
+- `re.sub(pattern, replacement, text)`; `\1` in the replacement refers to group 1. `re.IGNORECASE` ignores case.
+@example pycon: Finding and extracting with patterns
+>>> import re
+>>> log = "2026-11-20 14:03 ERROR disk 91% full; 2026-11-20 14:09 WARN cpu 77%"
+>>> re.findall(r"\d+%", log)
+>>> re.findall(r"(ERROR|WARN) (\w+)", log)
+>>> m = re.search(r"(?P<date>\d{4}-\d\d-\d\d) (?P<time>\d\d:\d\d)", log)
+>>> m.group("date"), m.group("time")
+>>> bool(re.fullmatch(r"[A-Z]\d[A-Z] ?\d[A-Z]\d", "H2X 1Y4"))
+>>> re.search(r"\d{5}", log) is None
+@note
+`findall` returns every match; with groups it returns tuples of the groups. Named groups make the code self-explaining. `fullmatch` checks that the whole string has a Canadian postal code shape. `search` returns `None` when nothing matches.
+@example python: Cleaning and reshaping text with sub and split
+import re
+
+messy = "Call  555-0101 or (555) 0199,  ask   for Ada"
+print(re.sub(r"\s+", " ", messy))
+print(re.findall(r"\(?(\d{3})\)?[ -]?(\d{4})", messy))
+
+dates = "Due 11/20/2026, paid 12/01/2026"
+print(re.sub(r"(\d\d)/(\d\d)/(\d{4})", r"\3-\1-\2", dates))
+
+print(re.split(r"[,;]\s*", "apples, pears;plums ,  figs"))
+print(re.sub(r"\b(\w)(\w*)", lambda m: m.group(1).upper() + m.group(2), "the quick brown fox"))
+@note
+`\s+` squeezes runs of spaces into one. The phone pattern makes the brackets and separator optional. Groups let `sub` rearrange dates into year-month-day. `split` breaks on commas or semicolons with any spacing, and a function can compute each replacement.
+@mistakes
+- **Forgetting the `r` prefix.** `"\bword"` contains a backspace character, not `\b`. Always write `r"..."`.
+- **Using `match` when you mean `search`.** `match` only looks at the very start of the string.
+- **Greedy matching.** `<.*>` on `<a><b>` matches the whole string. Use `<.*?>` to stop at the first `>`.
+- **Using `.` for a real dot.** `.` matches any character; write `\.` for a full stop.
+- **Calling `.group()` on `None`.** Check that the match succeeded first: `if m:`.
+@keys
+- Regular expressions describe the shape of text with `\d`, `\w`, `\s`, sets and quantifiers.
+- Write patterns as raw strings: `r"..."`.
+- `search`, `match`, `fullmatch`, `findall`, `sub` and `split` cover most jobs.
+- Groups capture parts of a match and can be reused in replacements.
+
+=== 10.7
+@idea
+The standard library is large, and a few modules repay learning early because they replace code you would otherwise write by hand. **collections** offers `Counter` (counts things), `defaultdict` (a dictionary that creates missing values for you) and `namedtuple` (a tuple with named fields). **itertools** has building blocks for loops: `combinations`, `permutations`, `product`, `groupby`, `chain` and more.
+
+**argparse** turns command-line arguments into a tidy object, checks types, and writes `--help` text automatically. **logging** replaces scattered `print` statements with messages that have levels (DEBUG, INFO, WARNING, ERROR), timestamps and destinations you can switch without editing code. **statistics** gives mean, median, mode and standard deviation without installing anything.
+
+Knowing these exist is half the battle. When you catch yourself writing a counting loop, a nested loop over pairs, or a pile of `print` debug lines, check whether one of these modules already does it.
+@how
+- `Counter(items).most_common(n)`; `defaultdict(list)` appends without checking for the key; `namedtuple("Point", "x y")`.
+- `itertools.combinations(items, 2)` (pairs, order ignored), `permutations`, `product`, `groupby` (on sorted data), `chain`, `islice`.
+- `argparse.ArgumentParser`; `add_argument("name")`, `add_argument("--count", type=int, default=1)`; `parse_args()`.
+- `logging.basicConfig(level=logging.INFO, format=...)`; `logging.info(...)`, `logging.warning(...)`.
+- `statistics.mean`, `median`, `mode`, `stdev`, `quantiles`.
+@example python: collections and itertools
+from collections import Counter, defaultdict, namedtuple
+from itertools import combinations, groupby
+
+words = "red blue red green blue red".split()
+print(Counter(words).most_common(2))
+
+by_letter = defaultdict(list)
+for w in ["apple", "avocado", "banana", "blueberry", "cherry"]:
+    by_letter[w[0]].append(w)
+print(dict(by_letter))
+
+Point = namedtuple("Point", "x y")
+p = Point(3, 4)
+print(p, p.x + p.y)
+
+players = ["Ada", "Ben", "Cy"]
+print([f"{a} v {b}" for a, b in combinations(players, 2)])
+
+scores = [("A", 90), ("A", 85), ("B", 70), ("B", 95)]
+for team, rows in groupby(scores, key=lambda r: r[0]):
+    print(team, [s for _, s in rows])
+@note
+`Counter` replaces a counting loop, `defaultdict(list)` removes the "is the key there yet?" check, and the namedtuple prints with field names. `combinations` lists every match-up once, and `groupby` groups neighbouring rows with the same key (so the data must be sorted by that key).
+@example python: argparse, logging and statistics
+import argparse
+import logging
+import statistics
+import sys
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s", stream=sys.stdout)
+
+parser = argparse.ArgumentParser(description="Summarise test scores.")
+parser.add_argument("scores", type=float, nargs="+", help="one or more scores")
+parser.add_argument("--pass-mark", type=float, default=60)
+args = parser.parse_args(["72", "95", "58", "81", "--pass-mark", "70"])
+
+logging.info("read %d scores", len(args.scores))
+print("mean:", statistics.mean(args.scores), "median:", statistics.median(args.scores))
+failed = [s for s in args.scores if s < args.pass_mark]
+if failed:
+    logging.warning("%d below the pass mark of %g: %s", len(failed), args.pass_mark, failed)
+@note
+`parse_args` is given a list here so the example runs; normally it reads the real command line. argparse converted every value to a float and renamed `--pass-mark` to `args.pass_mark`. Logging adds a level to each message, and the threshold can be changed in one place.
+@mistakes
+- **Using `groupby` on unsorted data.** It only groups items that are next to each other. Sort by the same key first.
+- **Leaving debug prints everywhere.** Use `logging.debug` and switch the level instead of deleting lines.
+- **Parsing `sys.argv` by hand for several options.** argparse handles types, defaults, errors and help text for you.
+- **Calling `statistics.mode` on data with no single most common value.** Since Python 3.8 it returns the first one found; use `multimode` to see all ties.
+@keys
+- `Counter`, `defaultdict` and `namedtuple` replace common hand-written patterns.
+- `itertools` builds pairs, combinations, groups and chains for loops.
+- `argparse` turns command-line arguments into a checked object with help text.
+- `logging` gives levelled, configurable messages; `statistics` gives mean, median and more.

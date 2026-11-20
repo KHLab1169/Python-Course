@@ -1,0 +1,360 @@
+=== 7.1
+@idea
+An **object** bundles some data together with the operations that make sense for that data. You have been using objects all along: a string holds characters and knows how to `upper()` itself; a list holds items and knows how to `append`. Object-oriented programming is about designing your own kinds of objects in the same spirit. Three ideas sit at its heart.
+
+**Polymorphism** ("many shapes") means different kinds of objects can respond to the same operation in their own way. `len` works on strings, lists and dictionaries; `+` adds numbers but joins strings. Code that only relies on "this thing supports `len`" works with all of them, without checking types. Python people call this **duck typing**: if it walks like a duck and quacks like a duck, treat it as a duck.
+
+**Encapsulation** means hiding the details of how an object works behind a small set of methods. You call `list.sort()` without knowing which sorting algorithm runs. **Inheritance** lets a new kind of object start from an existing one and change only what differs. Together these let large programs be built from parts that each make sense on their own.
+@how
+- An object = data (attributes) + behaviour (methods). `type(x)` tells you what kind of object `x` is.
+- Polymorphism: the same call works on different types, each doing the right thing.
+- Duck typing: rely on what an object can do (its methods), not on what type it is.
+- Encapsulation: use an object through its methods; do not depend on its insides.
+- Inheritance: a new class reuses an existing class and overrides only what differs (lesson 7.4).
+- `dir(x)` lists what an object can do; `help(x)` explains it.
+@example pycon: One operation, many types
+>>> for thing in ["abc", [1, 2], {"a": 1, "b": 2}, range(10)]:
+...     print(type(thing).__name__, len(thing))
+...
+>>> 3 + 4, "3" + "4", [3] + [4]
+>>> "hello".upper(), [3, 1, 2].copy()
+>>> def first_and_last(seq):
+...     return seq[0], seq[-1]
+...
+>>> first_and_last("python"), first_and_last([10, 20, 30]), first_and_last((True, False))
+@note
+`len` asks each object for its length and each answers in its own way. `+` means addition for numbers and joining for sequences. `first_and_last` never checks types: it works on anything that supports indexing, which is duck typing in action.
+@example python: Duck typing with your own objects
+class Duck:
+    def speak(self):
+        return "Quack"
+
+class Robot:
+    def speak(self):
+        return "Beep boop"
+
+class Person:
+    def __init__(self, name):
+        self.name = name
+    def speak(self):
+        return f"Hi, I'm {self.name}"
+
+def introduce_all(things):
+    for t in things:
+        print(f"{type(t).__name__:>6}: {t.speak()}")
+
+introduce_all([Duck(), Robot(), Person("Ada")])
+@note
+`introduce_all` only needs each object to have a `speak` method. The three classes are unrelated, yet all work, and a new class added tomorrow will work too. The next lesson explains `class`, `self` and `__init__` in detail.
+@mistakes
+- **Checking types everywhere.** `if type(x) == list:` rejects tuples and other sequences that would work fine. Rely on behaviour, and check with `isinstance` only when you must.
+- **Thinking objects are only for big programs.** Every value in Python is already an object; classes are just a way to make your own.
+- **Reaching into an object's internals.** Use its methods; internals can change, the methods are the promise.
+@keys
+- Every Python value is an object with data and methods.
+- Polymorphism: one operation, many types, each doing the right thing.
+- Duck typing: depend on what an object can do, not its exact type.
+- Encapsulation hides details behind methods; inheritance reuses and extends classes.
+
+=== 7.2
+@idea
+A **class** is a blueprint for making objects. It describes what data each object holds and what it can do. Each object made from the class is an **instance**. `class Lamp:` defines the blueprint; `kitchen = Lamp("kitchen")` builds one lamp, and `hall = Lamp("hall")` builds another. They share the same methods but each has its own data: one can be on while the other is off.
+
+Data stored on an object is called an **attribute** (`kitchen.on`). Functions defined inside the class are **methods**. Every method receives the object it was called on as its first parameter, called **self** by convention. When you write `kitchen.switch()`, Python actually calls `Lamp.switch(kitchen)`, so inside the method `self` is the kitchen lamp. That is how one method can work with whichever object it was called on.
+
+The special method `__init__` runs automatically when a new object is created. Its job is to give the object its starting attributes: `self.room = room`. The arguments you pass to the class, `Lamp("kitchen")`, are handed to `__init__`.
+@how
+- `class Name:` with a capitalised name, then indented methods.
+- `obj = Name(args)` creates an instance and calls `__init__(self, args)`.
+- In methods, `self.attr = value` stores data on that object; `self.attr` reads it.
+- Call methods on an object: `obj.method(args)`; Python passes `obj` as `self`.
+- Each instance has its own attributes; all instances share the class's methods.
+- `__repr__` (chapter 9) controls how the object looks when printed or echoed.
+@example python: A bank account that remembers its balance
+class Account:
+    """A simple bank account."""
+
+    def __init__(self, owner, balance=0):
+        self.owner = owner
+        self.balance = balance
+
+    def deposit(self, amount):
+        self.balance += amount
+        return self.balance
+
+    def withdraw(self, amount):
+        if amount > self.balance:
+            return f"Refused: {self.owner} has only {self.balance}"
+        self.balance -= amount
+        return self.balance
+
+ada = Account("Ada", 100)
+ben = Account("Ben")
+ada.deposit(50)
+ben.deposit(20)
+print(ada.owner, ada.balance)
+print(ben.owner, ben.balance)
+print(ada.withdraw(500))
+print(Account.deposit(ben, 5))
+@note
+Each account keeps its own balance between calls, which is the whole point of an object. The last line shows what `ben.deposit(5)` really does: the class's function is called with `ben` as `self`.
+@example python: Methods that use other methods
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+    def is_square(self):
+        return self.width == self.height
+
+    def scaled(self, factor):
+        return Rectangle(self.width * factor, self.height * factor)
+
+    def describe(self):
+        kind = "square" if self.is_square() else "rectangle"
+        return f"{self.width}x{self.height} {kind}, area {self.area()}"
+
+r = Rectangle(3, 4)
+print(r.describe())
+print(r.scaled(2).describe())
+print(Rectangle(5, 5).describe())
+@note
+Methods call each other through `self` (`self.area()`). `scaled` returns a brand new Rectangle instead of changing this one, so `r` keeps its size, and the call can be chained with `.describe()`.
+@mistakes
+- **Forgetting `self` in the parameter list.** `def area():` makes `r.area()` raise a TypeError ("takes 0 positional arguments but 1 was given").
+- **Forgetting `self.` when using an attribute.** Inside a method, plain `width` is an unknown local name; write `self.width`.
+- **Misspelling `__init__`.** `__int__` or `_init_` is just another method, so attributes are never set. It needs two underscores on each side.
+- **Calling the method on the class without an object.** `Account.deposit(50)` treats 50 as `self`. Call it on an instance: `ada.deposit(50)`.
+@keys
+- A class is a blueprint; each instance has its own attributes and shares the methods.
+- `__init__` sets up a new object's attributes.
+- `self` is the object a method was called on; use `self.attr` for its data.
+- `obj.method(x)` is shorthand for `Class.method(obj, x)`.
+
+=== 7.3
+@idea
+Python takes a relaxed view of privacy: nothing is truly hidden, and programmers agree on conventions instead. A name starting with **one underscore**, like `_balance`, means "internal: please don't use this from outside". Python does not stop you, but it signals that the name may change without warning.
+
+A name starting with **two underscores** inside a class, like `__secret`, triggers **name mangling**: Python renames it to `_ClassName__secret`. The purpose is not security (you can still reach it by its mangled name) but to stop a subclass from accidentally overwriting an attribute it did not know existed. Most code only ever needs the single underscore.
+
+Attributes can live in two places. Assigned with `self.x = ...` inside a method, they belong to **one instance**. Assigned directly in the class body, they belong to **the class** and are shared by every instance. Class attributes suit values that are the same for all instances (a counter of how many were made, a default setting). When you read `obj.x`, Python looks on the instance first and then on the class.
+@how
+- `_name`: internal by convention. Still accessible, but treat it as private.
+- `__name` inside a class becomes `_ClassName__name` (name mangling). It avoids clashes in subclasses.
+- Names like `__init__` with underscores on **both** sides are special methods, not private ones.
+- Class attribute: assigned in the class body, shared by all instances. Instance attribute: `self.x = ...`, one per object.
+- Reading `obj.x` checks the instance, then the class. Assigning `obj.x = ...` always creates or changes an instance attribute.
+- Change a class attribute through the class: `ClassName.x = ...`.
+@example python: Shared counters and per-object data
+class Member:
+    count = 0                     # class attribute: one value for everyone
+    club = "Chess"
+
+    def __init__(self, name):
+        self.name = name          # instance attribute: one per member
+        Member.count += 1
+
+a = Member("Ada")
+b = Member("Ben")
+print(Member.count, a.count, b.count)
+
+b.club = "Go"                     # creates an instance attribute on b only
+print(a.club, b.club, Member.club)
+print(vars(a), vars(b))
+@note
+`count` is stored once on the class, so every member sees 2. Assigning `b.club` did not change the class: it gave `b` its own attribute that hides the shared one. `vars()` shows exactly which attributes live on each instance.
+@example pycon: One underscore, two underscores
+>>> class Thermostat:
+...     def __init__(self):
+...         self._target = 20
+...         self.__calibration = 0.5
+...     def reading(self):
+...         return self._target + self.__calibration
+...
+>>> t = Thermostat()
+>>> t.reading()
+>>> t._target
+>>> t.__calibration
+>>> t._Thermostat__calibration
+@note
+The single underscore is only a convention, so `t._target` works (but you are on your own if it changes). The double underscore name raises an AttributeError under its own name because it was mangled; it is still there under `_Thermostat__calibration`.
+@mistakes
+- **Using a mutable class attribute for per-object data.** `items = []` in the class body is shared by all instances, so one object's append shows up in all. Create it in `__init__`: `self.items = []`.
+- **Expecting double underscores to be secure.** Mangling only renames. Do not keep secrets in attributes and assume they are hidden.
+- **Changing a class attribute through an instance.** `a.count += 1` creates an instance attribute on `a` and leaves the class's value alone. Use `Member.count += 1`.
+@keys
+- `_name` means "internal" by agreement; Python does not enforce it.
+- `__name` is mangled to `_Class__name` to avoid clashes with subclasses, not to keep secrets.
+- Class attributes are shared; instance attributes belong to one object.
+- Put per-object lists and dictionaries in `__init__`, never in the class body.
+
+=== 7.4
+@idea
+**Inheritance** lets you define a new class as a specialised version of an existing one. `class Car(Vehicle):` makes `Car` a **subclass** of `Vehicle` (its **superclass**). A Car automatically has everything a Vehicle has, and you only write what is different. That avoids copying code and keeps related classes consistent.
+
+A subclass can **override** a method by defining one with the same name; Car's version then replaces Vehicle's for Car objects. Often you want to extend rather than replace, and `super()` lets the subclass call the superclass's version: `super().__init__(name)` runs the parent's setup before adding the child's own attributes.
+
+**Introspection** means asking objects about themselves while the program runs. `isinstance(obj, Vehicle)` is true for Vehicles and for instances of any subclass, which makes it the right check (unlike comparing `type()`). `issubclass(Car, Vehicle)` asks about classes. `hasattr(obj, "name")` and `getattr(obj, "name", default)` check for and read an attribute whose name you only know as a string.
+@how
+- `class Child(Parent):` inherits every attribute and method of `Parent`.
+- Define a method with the same name to override it; call `super().method(...)` to reuse the parent's version.
+- In `__init__`, call `super().__init__(...)` so the parent's attributes are set up too.
+- `isinstance(obj, Class)` includes subclasses; it accepts a tuple of classes.
+- `issubclass(A, B)`, `hasattr(obj, "attr")`, `getattr(obj, "attr", default)`, `type(obj).__name__`.
+- A class can inherit from several classes (`class C(A, B):`); Python searches them in a fixed order shown by `C.__mro__`.
+@example python: Extending with super()
+class Employee:
+    def __init__(self, name, salary):
+        self.name = name
+        self.salary = salary
+
+    def yearly_cost(self):
+        return self.salary
+
+    def describe(self):
+        return f"{self.name} costs {self.yearly_cost():,} a year"
+
+class Manager(Employee):
+    def __init__(self, name, salary, bonus):
+        super().__init__(name, salary)     # let Employee set name and salary
+        self.bonus = bonus
+
+    def yearly_cost(self):                 # override, building on the parent
+        return super().yearly_cost() + self.bonus
+
+staff = [Employee("Ada", 60000), Manager("Grace", 80000, 15000)]
+for person in staff:
+    print(person.describe())
+print(isinstance(staff[1], Employee), issubclass(Manager, Employee))
+@note
+`Manager` reuses Employee's setup and its `describe` method, changing only the cost. Because `describe` calls `self.yearly_cost()`, a Manager automatically uses its own version. A Manager is also an Employee, as `isinstance` confirms.
+@example python: Asking objects about themselves
+class Shape:
+    def area(self):
+        raise NotImplementedError
+
+class Square(Shape):
+    def __init__(self, side):
+        self.side = side
+    def area(self):
+        return self.side ** 2
+
+class Circle(Shape):
+    def __init__(self, r):
+        self.r = r
+    def area(self):
+        return round(3.14159 * self.r ** 2, 2)
+
+for obj in [Square(3), Circle(1), "not a shape"]:
+    if isinstance(obj, Shape):
+        print(type(obj).__name__, obj.area())
+    else:
+        print(repr(obj), "is skipped")
+
+settings_name = "side"
+sq = Square(5)
+print(hasattr(sq, settings_name), getattr(sq, settings_name), getattr(sq, "colour", "no colour set"))
+@note
+`isinstance` accepts every kind of Shape, including ones written later. `getattr` reads an attribute named by a string, which is useful when the name comes from data, and its third argument is a default for missing attributes.
+@mistakes
+- **Forgetting `super().__init__()`.** The parent's attributes are never set, and its methods fail with an AttributeError.
+- **Using `type(x) == Parent`.** It is false for subclasses. Use `isinstance(x, Parent)`.
+- **Inheriting just to reuse one method.** If a Car is not really a kind of Engine, do not inherit. Give the Car an engine attribute instead (composition).
+- **Deep inheritance chains.** Five levels of subclasses are hard to follow. Keep hierarchies shallow.
+@keys
+- `class Child(Parent):` inherits everything; override only what differs.
+- `super()` calls the parent's version, especially in `__init__`.
+- Use `isinstance` (it includes subclasses), `hasattr` and `getattr` to inspect objects.
+- Prefer a shallow hierarchy, and composition when "is a kind of" does not fit.
+
+=== 7.5
+@idea
+Sometimes a class exists only to define what its subclasses must be able to do. A `Shape` base class says "every shape has an area", but there is no sensible area for a plain Shape. An **abstract base class** (from the `abc` module) makes that explicit: methods marked `@abstractmethod` have no real implementation, and Python refuses to create an object of any class that has not filled them all in. Mistakes show up when an object is created, not later when a missing method is finally called.
+
+The other half of this lesson is design: deciding which classes a program needs at all. A simple, reliable method is to write a short description of the problem and look at the words. **Nouns** suggest classes (Library, Book, Member, Loan); **verbs** suggest methods (borrow, return, reserve); **adjectives** often suggest attributes (overdue, available). Then check the result: each class should have one clear job, and each method should belong to the class whose data it uses most.
+
+Do not force classes where a function will do. A program that converts a file from one format to another may be one function. Classes earn their place when data and behaviour belong together and there are several of something.
+@how
+- `from abc import ABC, abstractmethod`; subclass `ABC` and decorate required methods with `@abstractmethod`.
+- Creating an instance of a class with unfilled abstract methods raises a TypeError.
+- Subclasses must override every abstract method before they can be instantiated.
+- Design: nouns become classes, verbs become methods, adjectives often become attributes.
+- Give each class one responsibility; put each method where its data lives.
+- Prefer plain functions when there is no state to keep.
+@example python: An abstract base class that enforces a contract
+from abc import ABC, abstractmethod
+
+class Notifier(ABC):
+    @abstractmethod
+    def send(self, to, message):
+        """Deliver a message."""
+
+    def broadcast(self, people, message):        # shared, concrete behaviour
+        return [self.send(p, message) for p in people]
+
+class EmailNotifier(Notifier):
+    def send(self, to, message):
+        return f"email to {to}: {message}"
+
+class SmsNotifier(Notifier):
+    def send(self, to, message):
+        return f"sms to {to}: {message[:20]}"
+
+for n in [EmailNotifier(), SmsNotifier()]:
+    print(n.broadcast(["Ada", "Ben"], "Your book is ready to collect"))
+
+class Forgetful(Notifier):
+    pass
+
+try:
+    Forgetful()
+except TypeError as error:
+    print("TypeError:", error)
+@note
+Both subclasses get `broadcast` for free and only supply `send`. A subclass that forgets `send` cannot even be created, and the TypeError names the missing method.
+@example python: From a description to classes
+# "A member borrows a book from the library. A loan lasts 14 days.
+#  The library lists overdue loans."
+#  Nouns: member, book, library, loan   Verbs: borrow, list overdue
+from datetime import date, timedelta
+
+class Book:
+    def __init__(self, title):
+        self.title = title
+
+class Loan:
+    def __init__(self, book, member, start):
+        self.book, self.member, self.due = book, member, start + timedelta(days=14)
+
+    def is_overdue(self, today):
+        return today > self.due
+
+class Library:
+    def __init__(self):
+        self.loans = []
+
+    def borrow(self, book, member, today):
+        self.loans.append(Loan(book, member, today))
+
+    def overdue(self, today):
+        return [f"{l.member}: {l.book.title}" for l in self.loans if l.is_overdue(today)]
+
+lib = Library()
+lib.borrow(Book("Dune"), "Ada", date(2026, 11, 1))
+lib.borrow(Book("Emma"), "Ben", date(2026, 11, 15))
+print(lib.overdue(date(2026, 11, 20)))
+@note
+The nouns became classes and the verbs became methods. `is_overdue` lives on Loan because it uses the loan's due date. A member is just a name here: not every noun needs its own class until it has behaviour of its own.
+@mistakes
+- **Making a class for every noun.** If something has no behaviour and one value, a string or number is enough.
+- **Putting methods in the wrong class.** If a method mostly uses another object's attributes, it probably belongs to that object.
+- **Forgetting to inherit from `ABC`.** `@abstractmethod` alone has no effect on a normal class; the class must subclass `ABC`.
+- **Using classes where a function will do.** A class with one method and no data is usually just a function.
+@keys
+- Abstract base classes define methods that subclasses must provide; unfinished subclasses cannot be created.
+- Shared behaviour can live in the base class alongside the abstract methods.
+- Nouns suggest classes, verbs methods, adjectives attributes.
+- One job per class; methods go where their data lives; functions are fine when there is no state.

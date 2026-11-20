@@ -26,7 +26,7 @@ Authoring format (one file per module, any number of lessons):
     @keys
     - one key point per bullet
 """
-import ast, builtins, contextlib, glob, io, json, os, re, signal, sys, tempfile, traceback
+import ast, builtins, contextlib, glob, importlib, io, json, os, re, signal, sys, tempfile, traceback, warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -115,10 +115,14 @@ def run_python(code, stdin):
     os.chdir(tmp)
     builtins.input = fake_input
     saved_argv = sys.argv
+    saved_path = list(sys.path)
     sys.argv = ["example.py"]
     mods = set(sys.modules)
+    sys.path_importer_cache.clear()          # each example has its own folder
+    importlib.invalidate_caches()
+    saved_show = warnings.showwarning
     try:
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf), warnings.catch_warnings():
             signal.alarm(8)
             try:
                 exec(compile(code, "example.py", "exec"), {"__name__": "__main__", "__file__": os.path.join(tmp, "example.py")})
@@ -132,7 +136,9 @@ def run_python(code, stdin):
         buf.write(("\n" if buf.getvalue() and not buf.getvalue().endswith("\n") else "") + short_exc(e))
     finally:
         builtins.input = real_input
+        warnings.showwarning = saved_show
         sys.argv = saved_argv
+        sys.path[:] = saved_path
         os.chdir(old)
         for m in set(sys.modules) - mods:          # forget modules the example created in its folder
             f = getattr(sys.modules.get(m), "__file__", "") or ""
@@ -212,7 +218,8 @@ def build(paths, out_path, known_ids=None):
                 problems.append(f"{lid}: needs @idea, @keys and two examples")
             les["_words"] = words
             allles[lid] = les
-    json.dump(allles, open(out_path, "w"), ensure_ascii=False)
+    with open(out_path, "w") as fh:
+        json.dump(allles, fh, ensure_ascii=False)
     return allles, problems
 
 

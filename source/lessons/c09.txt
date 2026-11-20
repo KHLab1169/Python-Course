@@ -1,0 +1,437 @@
+=== 9.1
+@idea
+A **constructor** is the code that runs when a new object is made. In Python that is `__init__`: `Timer("tea", 180)` creates an empty object and immediately calls `__init__` on it with those arguments. Its job is to put the object in a valid starting state, so every method can rely on the attributes being there.
+
+When a subclass defines its own `__init__`, it **replaces** the parent's. Python does not run both automatically. If the parent sets up attributes the subclass still needs, the subclass must call the parent's constructor itself, and **super()** is how: `super().__init__(label, seconds)` runs the parent's version on the same object. Forgetting it is the most common inheritance bug, and it shows up later as an AttributeError far from the real cause.
+
+`super()` works for any method, not just constructors. It means "the next class up in the inheritance chain", which keeps working even if you later insert a class in between or use multiple inheritance. Always prefer it over naming the parent class directly (`Timer.__init__(self, ...)`).
+@how
+- `__init__(self, ...)` runs automatically on every new instance; it should set every attribute the methods use.
+- A subclass's `__init__` replaces the parent's; call `super().__init__(...)` to run the parent's setup too.
+- Usually call `super().__init__` first, then add the subclass's own attributes.
+- `super().method(...)` calls the parent's version of any method, so you extend rather than copy.
+- `__init__` must return `None`; it sets up an object, it does not produce one.
+- `__repr__` (a friendly description) is often written alongside `__init__`.
+@example python: Building on the parent's setup
+class Timer:
+    def __init__(self, label, seconds=60):
+        self.label = label
+        self.seconds = seconds
+
+    def describe(self):
+        return f"{self.label}: {self.seconds} s"
+
+class LoudTimer(Timer):
+    def __init__(self, label, seconds=60, volume=5):
+        super().__init__(label, seconds)   # Timer sets label and seconds
+        self.volume = volume               # then add our own attribute
+
+    def describe(self):
+        return super().describe() + f" (volume {self.volume})"
+
+class BrokenTimer(Timer):
+    def __init__(self, label, volume):
+        self.volume = volume               # forgot super().__init__
+
+print(LoudTimer("eggs", 300, volume=9).describe())
+try:
+    print(BrokenTimer("tea", 3).describe())
+except AttributeError as error:
+    print("AttributeError:", error)
+@note
+`LoudTimer` reuses Timer's setup and its description, adding one detail to each. `BrokenTimer` replaced the constructor without calling the parent's, so `label` and `seconds` were never set and `describe` fails later with an AttributeError.
+@example python: A useful __repr__ next to __init__
+class Book:
+    def __init__(self, title, author, year):
+        self.title = title
+        self.author = author
+        self.year = year
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.title!r}, {self.author!r}, {self.year})"
+
+class Ebook(Book):
+    def __init__(self, title, author, year, size_mb):
+        super().__init__(title, author, year)
+        self.size_mb = size_mb
+
+    def __repr__(self):
+        return super().__repr__()[:-1] + f", size_mb={self.size_mb})"
+
+shelf = [Book("Dune", "Frank Herbert", 1965), Ebook("Emma", "Jane Austen", 1815, 1.2)]
+print(shelf)
+@note
+Without `__repr__`, printing the list would show unreadable text like `<__main__.Book object at 0x...>`. `type(self).__name__` gives the real class name, so the Ebook builds on the parent's text through `super()` and still shows its own name.
+@mistakes
+- **Forgetting `super().__init__()` in a subclass.** Parent attributes are missing and methods fail with an AttributeError.
+- **Calling the parent by name.** `Book.__init__(self, ...)` works until the hierarchy changes. Use `super().__init__(...)`.
+- **Doing heavy work in `__init__`.** Reading files or connecting to servers there makes objects slow and hard to test. Keep it to setting attributes; add a separate method or a classmethod for loading.
+@keys
+- `__init__` puts each new object into a valid starting state.
+- A subclass's `__init__` replaces the parent's; call `super().__init__(...)` to keep the parent's setup.
+- `super().method()` extends a parent's method instead of copying it.
+- Add a `__repr__` so objects print readably.
+
+=== 9.2
+@idea
+Python's built-in operations are powered by **special methods** (also called magic or dunder methods, for the double underscores). When you write `len(x)`, Python calls `x.__len__()`. When you write `x[3]`, it calls `x.__getitem__(3)`. That means your own classes can work with the same syntax as lists and dictionaries just by defining those methods.
+
+For item access the four methods are `__len__` (for `len`), `__getitem__` (reading `obj[key]`), `__setitem__` (assigning `obj[key] = value`) and `__delitem__` (`del obj[key]`). The key can be an index, a dictionary-style key, or even a slice object, depending on what makes sense for your class. Defining `__getitem__` with integer indices also makes the object loopable and lets `in` work.
+
+Sometimes you want a list or dictionary with one extra behaviour. Rather than writing every method yourself, you can **subclass** `list` or `dict` and override just what changes. For dictionaries with a twist, the `collections` module also offers ready-made classes such as `defaultdict` and `Counter`.
+@how
+- `__len__(self)` returns an int for `len(obj)`; it also decides truthiness when there is no `__bool__`.
+- `__getitem__(self, key)` returns the item for `obj[key]`; raise IndexError or KeyError when it is missing.
+- `__setitem__(self, key, value)` and `__delitem__(self, key)` support assignment and `del`.
+- A `__getitem__` that accepts 0, 1, 2... makes `for` loops and `in` work.
+- `class MyList(list):` inherits every list method; override only what should differ.
+- `isinstance(key, slice)` lets `__getitem__` handle `obj[1:3]`.
+@example python: A playlist that works with len, [], del and for
+class Playlist:
+    def __init__(self, *songs):
+        self._songs = list(songs)
+
+    def __len__(self):
+        return len(self._songs)
+
+    def __getitem__(self, index):
+        return self._songs[index]          # lists already handle ints and slices
+
+    def __setitem__(self, index, song):
+        self._songs[index] = song.title()  # store titles neatly
+
+    def __delitem__(self, index):
+        del self._songs[index]
+
+mix = Playlist("Blue Monday", "Heroes", "Halo")
+mix[1] = "wonderwall"
+del mix[0]
+print(len(mix), mix[0], mix[-1], mix[0:2])
+print("Halo" in mix)
+for song in mix:
+    print("-", song)
+@note
+Each piece of familiar syntax calls one special method. Passing the index straight to the inner list gives negative indices and slices for free. Because `__getitem__` accepts 0, 1, 2..., `in` and the `for` loop work without any extra code.
+@example python: A list subclass and a computed sequence
+class History(list):
+    """A list that keeps only the most recent `limit` items."""
+    def __init__(self, limit):
+        super().__init__()
+        self.limit = limit
+
+    def append(self, item):
+        super().append(item)
+        if len(self) > self.limit:
+            del self[0]
+
+h = History(3)
+for page in ["home", "news", "sport", "weather", "home"]:
+    h.append(page)
+print(h, len(h), h.count("home"))
+
+class Squares:
+    """Squares 0, 1, 4, 9 ... worked out on demand, never stored."""
+    def __getitem__(self, i):
+        if i < 0:
+            raise IndexError("no negative squares")
+        return i * i
+
+sq = Squares()
+print(sq[12], 49 in sq)
+@note
+`History` changes only `append`; sorting, counting and printing all come from `list`. `Squares` stores nothing at all: each item is computed when asked for. (`49 in sq` works because Python tries 0, 1, 2... until it finds 49; asking for a number that is not a square would loop forever.)
+@mistakes
+- **Returning the wrong type from `__len__`.** It must return a non-negative int, or `len()` raises a TypeError.
+- **Not raising IndexError at the end.** A `__getitem__` that never raises makes `for` loops run forever.
+- **Overriding `append` but not `extend` or `insert`.** A list subclass has many ways to add items. Override all the ones that matter, or use a class that wraps a list instead.
+@keys
+- Special methods connect your classes to Python syntax: `len()`, `[]`, `del`, `in`, `for`.
+- `__len__`, `__getitem__`, `__setitem__` and `__delitem__` make an object behave like a container.
+- Delegating to an inner list gives negative indices and slices for free.
+- Subclass `list` or `dict` to change one behaviour and keep the rest.
+
+=== 9.3
+@idea
+Sometimes an attribute should be checked when it is set, or computed from other attributes when it is read. A **property** lets you do that while keeping the plain `obj.attr` syntax. You write a method decorated with `@property` for reading, and optionally a `@name.setter` method for assigning. To the outside world it still looks like an ordinary attribute.
+
+That matters because it lets you start simple. Give a class a plain attribute today; if you later need validation or a computed value, turn it into a property and no code that uses the class has to change. That is why Python code rarely has `get_x()` and `set_x()` methods.
+
+Two other decorators change what a method receives. A **staticmethod** gets no `self` at all: it is a plain function that lives in the class because it belongs with it logically. A **classmethod** receives the class itself (by convention `cls`) instead of an instance, which makes it ideal for **alternative constructors** such as `Date.from_string("2026-11-20")`. Because it uses `cls`, it also builds the right type when called on a subclass.
+@how
+- `@property` on a method `def x(self)` makes `obj.x` call it, with no brackets.
+- `@x.setter` on `def x(self, value)` runs on `obj.x = value`; without a setter the property is read-only.
+- Store the real value under another name, usually with an underscore: `self._x`.
+- `@staticmethod`: no `self` or `cls`; call as `Class.helper(...)` or `obj.helper(...)`.
+- `@classmethod`: first parameter is the class (`cls`); typical use is `return cls(...)` as an alternative constructor.
+- `__getattr__(self, name)` runs only when normal lookup fails, which is handy for forwarding attributes.
+@example python: Computed and checked attributes
+class Rectangle:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    @property
+    def area(self):                    # computed every time it is read
+        return self.width * self.height
+
+    @property
+    def width(self):
+        return self._width
+
+    @width.setter
+    def width(self, value):            # checked every time it is set
+        if value <= 0:
+            raise ValueError(f"width must be positive, got {value}")
+        self._width = value
+
+r = Rectangle(3, 4)
+print(r.area)
+r.width = 10
+print(r.area)
+try:
+    r.width = -2
+except ValueError as error:
+    print("ValueError:", error)
+try:
+    r.area = 99
+except AttributeError as error:
+    print("AttributeError:", error)
+@note
+`area` has no storage of its own, so it is always up to date. The width setter even runs from `__init__`, so a bad width is refused at creation too. `area` has no setter, so assigning to it raises an AttributeError.
+@example python: Alternative constructors and helpers
+class Temperature:
+    def __init__(self, celsius):
+        self.celsius = celsius
+
+    @classmethod
+    def from_fahrenheit(cls, f):
+        return cls(round((f - 32) * 5 / 9, 1))
+
+    @classmethod
+    def from_text(cls, text):              # "21.5C" or "70F"
+        value, unit = float(text[:-1]), text[-1].upper()
+        return cls(value) if unit == "C" else cls.from_fahrenheit(value)
+
+    @staticmethod
+    def is_freezing(celsius):
+        return celsius <= 0
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.celsius})"
+
+class LabTemperature(Temperature):
+    pass
+
+print(Temperature.from_fahrenheit(212), Temperature.from_text("21.5c"))
+print(LabTemperature.from_text("32F"))
+print(Temperature.is_freezing(-3), Temperature.is_freezing(4))
+@note
+Each classmethod builds a new object through `cls`, so calling it on `LabTemperature` produces a LabTemperature. `is_freezing` needs no object at all, so it is a staticmethod.
+@mistakes
+- **Storing the value under the property's own name.** `self.width = value` inside the width setter calls the setter again, forever (RecursionError). Store it as `self._width`.
+- **Calling a property with brackets.** `r.area()` fails because `r.area` is already the number. Write `r.area`.
+- **Writing getters and setters by habit.** Start with a plain attribute; switch to a property only when you need checking or computing.
+- **Using `@staticmethod` where you need the class.** If the method builds an object, use `@classmethod` so subclasses get the right type.
+@keys
+- Properties look like attributes but run code when read or set.
+- A setter validates values; a property without a setter is read-only.
+- `@classmethod` receives the class and is ideal for alternative constructors.
+- `@staticmethod` is a plain function grouped inside a class.
+
+=== 9.4
+@idea
+Every `for` loop in Python uses the **iterator protocol**. First it calls `iter(thing)` to get an **iterator**, an object that remembers a position. Then it calls `next(iterator)` again and again; each call returns the next value. When there are no more values, the iterator raises **StopIteration**, and the loop ends quietly. Lists, strings, dictionaries, files and ranges all follow this protocol.
+
+You can make your own iterators by writing a class with two methods: `__iter__`, which returns the iterator (an iterator simply returns `self`), and `__next__`, which returns the next value or raises StopIteration. The object keeps whatever state it needs between calls.
+
+Iterators are **lazy**: they produce one value at a time, only when asked. That means they can represent sequences that are huge or even endless (all the Fibonacci numbers, every line of a 10 GB log file) using almost no memory. The price is that an iterator is **used up** after one pass: once it has raised StopIteration, it stays empty. To keep the values, turn it into a list with `list(...)`, but only when you know it is finite.
+@how
+- `iter(obj)` gets an iterator; `next(it)` gets the next value; StopIteration means "no more".
+- A `for` loop calls `iter` once and `next` until StopIteration.
+- Your own iterator: `__iter__` returns `self`; `__next__` returns a value or raises StopIteration.
+- Iterators are used up after one pass; an iterable like a list can give out fresh iterators again and again.
+- `next(it, default)` returns `default` instead of raising at the end.
+- `list(it)`, `sum(it)`, `max(it)` consume an iterator; never call them on an endless one.
+@example pycon: What a for loop does behind the scenes
+>>> colours = ["red", "green"]
+>>> it = iter(colours)
+>>> next(it)
+>>> next(it)
+>>> next(it, "no more")
+>>> next(it)
+>>> squares = (n * n for n in range(4))
+>>> list(squares)
+>>> list(squares)
+@note
+Each `next` moves the position along. With a default, the end is reported without an error; without one, StopIteration is raised. The generator expression in the last lines is an iterator too: the second `list` is empty because the first one used it up.
+@example python: An endless iterator, used safely
+class Fibonacci:
+    """Fibonacci numbers, as many as you ask for."""
+    def __init__(self):
+        self.a, self.b = 0, 1
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        value = self.a
+        self.a, self.b = self.b, self.a + self.b
+        return value
+
+fib = Fibonacci()
+for n in fib:
+    if n > 100:
+        break
+    print(n, end=" ")
+print()
+print("next after the loop:", next(fib))
+
+from itertools import islice
+print(list(islice(Fibonacci(), 10)))
+@note
+`__next__` never raises StopIteration, so the sequence is endless; the loop's `break` decides when to stop. The iterator keeps its state: the loop already took 144 (the value that triggered `break`), so `next(fib)` gives 233. `islice` takes just the first 10 values from a fresh iterator.
+@mistakes
+- **Looping over the same iterator twice.** The second loop gets nothing. Use a list if you need several passes, or make a new iterator.
+- **Calling `list()` on an endless iterator.** It never finishes. Use `islice` or a loop with `break`.
+- **Forgetting to raise StopIteration in a finite iterator.** A `for` loop over it never ends.
+- **Making a class its own iterator when it should be reusable.** A collection's `__iter__` should return a new iterator each time (a generator, next lesson, makes that easy).
+@keys
+- `for` loops use `iter()` and `next()`; StopIteration ends them.
+- Write an iterator with `__iter__` (return `self`) and `__next__`.
+- Iterators are lazy, so they can be huge or endless.
+- An iterator is used up after one pass; `list()` keeps the values.
+
+=== 9.5
+@idea
+Writing an iterator class takes boilerplate: `__iter__`, `__next__`, saved state, StopIteration. A **generator** does the same job with an ordinary-looking function. Any function that contains `yield` becomes a generator function: calling it does not run the body, but returns a generator object. Each `next()` runs the body until the next `yield`, hands that value out, and **pauses** right there with all local variables intact. When the function ends, StopIteration is raised for you.
+
+Because a generator pauses, `while True:` inside it is perfectly safe: it only runs when someone asks for the next value. Generators are perfect for pipelines: one reads lines, the next filters them, the next transforms them, and only one line is in memory at a time.
+
+**Generator expressions** are the comprehension form: `(x * x for x in nums)` with round brackets instead of square ones. They produce values lazily, so `sum(x * x for x in range(10_000_000))` needs no big list. A generator can also call itself recursively with `yield from`, which neatly flattens nested structures.
+@how
+- A function with `yield` is a generator function; calling it returns a generator, without running the body yet.
+- Each `next()` runs to the next `yield` and pauses; local variables are kept.
+- Returning (or falling off the end) raises StopIteration automatically.
+- `(expr for x in items)` is a generator expression; inside a function call the extra brackets can be dropped: `sum(x for x in nums)`.
+- `yield from other` yields every value of another iterable, which suits recursion.
+- Generators are used up after one pass, like any iterator.
+@example python: A paused function and a lazy pipeline
+def countdown(n):
+    print("  (starting)")
+    while n > 0:
+        yield n
+        n -= 1
+    print("  (finished)")
+
+gen = countdown(3)
+print("created, nothing has run yet")
+print(next(gen))
+print(list(gen))
+
+log = ["INFO start", "ERROR disk full", "INFO ok", "ERROR timeout", "WARN slow"]
+
+def errors(lines):
+    for line in lines:
+        if line.startswith("ERROR"):
+            yield line
+
+def messages(lines):
+    for line in lines:
+        yield line.split(" ", 1)[1]
+
+print(list(messages(errors(log))))
+print(sum(n * n for n in range(1, 101)))
+@note
+"(starting)" only appears at the first `next`, proving the body waits until asked. The pipeline passes one line at a time through `errors` and then `messages`. The last line adds up 100 squares without building a list.
+@example python: Recursive generators and endless ones
+def flatten(nested):
+    for item in nested:
+        if isinstance(item, list):
+            yield from flatten(item)     # hand on everything the inner call yields
+        else:
+            yield item
+
+print(list(flatten([1, [2, [3, 4]], [], [[5]], 6])))
+
+def ids(prefix):
+    number = 1
+    while True:                          # safe: runs only when asked
+        yield f"{prefix}-{number:04}"
+        number += 1
+
+order_ids = ids("ORD")
+print([next(order_ids) for _ in range(3)])
+print(next(order_ids))
+@note
+`yield from` passes along every value from the recursive call, so any depth of nesting comes out flat. The ID generator never ends, but each `next` produces just one ID and remembers where it was.
+@mistakes
+- **Expecting a generator function to run when called.** Calling it only creates the generator; nothing happens until you loop over it or call `next`.
+- **Using `return value` to send out results.** In a generator, `return` just ends it. Use `yield` for each value.
+- **Reusing a used-up generator.** Call the generator function again to get a fresh one.
+- **Writing a list comprehension where a generator expression would do.** `sum([x for x in huge])` builds the whole list first; `sum(x for x in huge)` does not.
+@keys
+- `yield` turns a function into a generator that pauses between values.
+- Generators are lazy, so endless loops inside them are safe.
+- `(x for x in items)` is a lazy generator expression.
+- `yield from` hands on another iterable's values and suits recursion.
+
+=== 9.6
+@idea
+The **eight queens puzzle** asks you to place eight queens on a chessboard so that no two attack each other: no two in the same row, column or diagonal. It is a classic exercise because it shows how to explore a huge number of possibilities without trying them all, a technique called **backtracking**.
+
+The key is choosing a good representation. Because each row can hold only one queen, the board can be a tuple where position `i` holds the **column** of the queen in row `i`: `(1, 3, 0, 2)` means row 0 has its queen in column 1, and so on. Rows can then never clash, so only columns and diagonals need checking. Two queens are on the same diagonal when the distance between their columns equals the distance between their rows.
+
+The solver places queens one row at a time. For each column in the next row, it checks whether a queen there would conflict with the ones already placed. If not, it places it and moves to the next row; if no column works, it gives up on that branch and **backtracks** to try the next option in the row above. Written as a recursive generator, it yields every complete solution it finds.
+@how
+- Represent the board as a tuple: `state[row] = column`.
+- A new queen in column `col` (next row) conflicts if any placed queen has the same column or `abs(col - placed_col) == row_distance`.
+- Recursive step: for each safe column, extend the state and recurse into the next row.
+- Base case: when the state has as many queens as rows, yield the solution.
+- Generators produce solutions one at a time, so you can stop after the first or count them all.
+@example python: Checking conflicts on a small board
+def conflict(state, col):
+    """Would a queen in the next row at column `col` be attacked?"""
+    next_row = len(state)
+    for row, placed in enumerate(state):
+        if placed == col or abs(placed - col) == next_row - row:
+            return True
+    return False
+
+state = (1, 3)              # row 0: column 1, row 1: column 3
+for col in range(4):
+    print(f"row 2, column {col}:", "attacked" if conflict(state, col) else "safe")
+@note
+Column 0 is the only safe square in row 2: column 1 shares a column with row 0, column 2 is diagonal to row 1's queen, and column 3 shares a column with row 1.
+@example python: The full solver with a recursive generator
+def conflict(state, col):
+    next_row = len(state)
+    return any(placed == col or abs(placed - col) == next_row - row
+               for row, placed in enumerate(state))
+
+def queens(size, state=()):
+    if len(state) == size:            # every row has a queen: a solution
+        yield state
+        return
+    for col in range(size):
+        if not conflict(state, col):
+            yield from queens(size, state + (col,))
+
+def show(solution):
+    for col in solution:
+        print(". " * col + "Q " + ". " * (len(solution) - col - 1))
+
+first = next(queens(8))
+print("first solution:", first)
+show(first)
+print("solutions for 4, 6 and 8 queens:", [sum(1 for _ in queens(n)) for n in (4, 6, 8)])
+@note
+`queens` tries only safe columns, so most of the 16 million ways to put one queen in each row are never explored. `next` stops after the first solution; `sum(1 for _ in ...)` counts all of them (92 for the full board).
+@mistakes
+- **Representing the board as an 8x8 grid of booleans.** It works, but needs far more checking. One column per row makes rows clash-free automatically.
+- **Forgetting the diagonal rule.** Same column is easy to see; diagonals need `abs(col_a - col_b) == abs(row_a - row_b)`.
+- **Building all solutions in a list when you need one.** A generator lets you take just the first with `next`.
+@keys
+- Backtracking explores choices step by step and abandons branches as soon as they fail.
+- A good representation (one column per row) removes whole classes of checks.
+- A recursive generator yields each complete solution as it is found.
+- `next(gen)` takes one solution; looping or `sum(1 for _ in gen)` handles all of them.

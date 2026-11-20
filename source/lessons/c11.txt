@@ -1,0 +1,192 @@
+=== 11.1
+@idea
+Variables vanish when a program ends; **files** keep data between runs. `open(name, mode)` connects your program to a file and returns a **file object** you read from or write to. The **mode** says what you intend to do: `"r"` reads (the default), `"w"` writes and **empties the file first**, `"a"` appends to the end, and `"x"` creates a new file but refuses if one already exists. Adding `"+"` allows reading and writing together.
+
+Files come in two flavours. **Text mode** (the default) gives and takes strings, translating bytes into characters with an **encoding**. Use `encoding="utf-8"` so accents and emoji work the same on every computer; without it, Windows may use a different default. **Binary mode** (add `"b"`, as in `"rb"`) gives raw `bytes`, which is what images, audio, ZIP files and anything that is not text need.
+
+`read()` returns the whole file, `read(n)` the next n characters, and `write(text)` adds text and returns how many characters were written. `write` does not add a newline for you. When you are done, the file must be closed so everything is written to disk; the next lesson shows how `with` does that automatically.
+@how
+- `open(path, "r", encoding="utf-8")` to read text; `"w"` to overwrite; `"a"` to add; `"x"` to create only if new.
+- `"rb"` and `"wb"` for binary data; you then read and write `bytes`, not `str`.
+- `f.read()`, `f.read(n)`, `f.write(text)`; add `"\n"` yourself when you want line breaks.
+- Opening a missing file for reading raises FileNotFoundError.
+- `"w"` destroys the old contents the moment the file is opened.
+- `pathlib.Path(p).read_text()` and `.write_text()` are one-line shortcuts for small files.
+@example python: The basic modes in action
+with open("diary.txt", "w", encoding="utf-8") as f:
+    f.write("Mon: started the Python course\n")
+
+with open("diary.txt", "a", encoding="utf-8") as f:
+    f.write("Tue: finished chapter 2 ✔\n")
+
+with open("diary.txt", encoding="utf-8") as f:
+    print(f.read())
+
+try:
+    open("diary.txt", "x")
+except FileExistsError:
+    print("'x' mode refused: the file already exists")
+
+with open("diary.txt", "w", encoding="utf-8") as f:
+    pass
+print("after reopening with 'w':", repr(open("diary.txt", encoding="utf-8").read()))
+@note
+`"a"` kept Monday's line and added Tuesday's, and UTF-8 handles the tick mark. `"x"` protects an existing file. Simply opening with `"w"` emptied the diary even though nothing was written, which is why `"w"` deserves care.
+@example python: Text versus binary
+from pathlib import Path
+
+Path("hello.txt").write_text("café\n", encoding="utf-8")
+
+with open("hello.txt", encoding="utf-8") as f:
+    text = f.read()
+with open("hello.txt", "rb") as f:
+    raw = f.read()
+
+print(repr(text), len(text))
+print(raw, len(raw))
+print(raw.decode("utf-8") == text)
+
+with open("copy.bin", "wb") as f:
+    f.write(raw)
+print(Path("copy.bin").read_bytes() == raw)
+@note
+In text mode the file holds 5 characters; in binary mode it is 6 bytes, because é takes two bytes in UTF-8. Decoding the bytes gives the text back. Copying in binary mode reproduces the file exactly, which is how you should copy images or other non-text files.
+@mistakes
+- **Opening with `"w"` when you meant `"a"`.** All earlier content is lost immediately. Use `"a"` to add.
+- **Leaving out the encoding.** A file written on one computer may show garbled accents on another. Pass `encoding="utf-8"`.
+- **Writing numbers directly.** `f.write(42)` raises a TypeError. Convert: `f.write(f"{42}\n")`.
+- **Opening binary files in text mode.** Images and ZIP files get corrupted or raise decode errors. Use `"rb"` and `"wb"`.
+@keys
+- `open(path, mode, encoding="utf-8")` returns a file object; the mode says read, write, append or create.
+- `"w"` empties the file as soon as it opens; `"a"` adds to the end.
+- Text mode works with `str`; binary mode (`"b"`) works with `bytes`.
+- `write` adds exactly what you give it, newlines included only if you add them.
+
+=== 11.2
+@idea
+Most text files are read **line by line**. `readline()` returns the next line, including its `\n`, and an empty string at the end of the file. `readlines()` returns all lines as a list. `writelines(list)` writes each string exactly as given, without adding newlines. In practice the cleanest way to go through lines is to loop over the file itself (next lesson).
+
+A file must be **closed** when you are finished. Closing writes any remaining buffered data to disk and frees the file for other programs. If a program crashes between `open` and `close`, the file may be left incomplete or locked. Calling `close()` yourself in a `finally` block works, but there is a better way.
+
+The **with statement** closes the file automatically when the block ends, whether it ends normally, with `return`, or with an exception. `with open(path) as f:` is the standard way to work with files in Python, and you should use it every time. It is an example of a **context manager**, an object that sets something up at the start of a block and cleans up at the end; locks, database connections and temporary settings use the same idea.
+@how
+- `f.readline()` returns one line with its `\n`, or `""` at the end.
+- `f.readlines()` returns a list of all lines (each with `\n`).
+- `f.writelines(lines)` writes the strings as they are; include `"\n"` in each one.
+- `with open(path) as f:` closes the file when the block ends, even after an error.
+- Several files in one statement: `with open(a) as src, open(b, "w") as dst:`.
+- `f.closed` tells you whether a file is closed; reading a closed file raises ValueError.
+@example python: Reading lines and writing them back
+lines = ["milk\n", "eggs\n", "bread\n"]
+with open("shopping.txt", "w", encoding="utf-8") as f:
+    f.writelines(lines)
+
+with open("shopping.txt", encoding="utf-8") as f:
+    first = f.readline()
+    rest = f.readlines()
+    end = f.readline()
+
+print(repr(first))
+print(rest)
+print(repr(end), "means the end of the file")
+print([line.strip() for line in rest])
+@note
+`readline` takes one line and `readlines` the remaining ones, both keeping the `\n`. After the last line `readline` returns an empty string. `strip()` removes the newline characters when you only want the words.
+@example python: with closes the file even when something goes wrong
+with open("source.txt", "w", encoding="utf-8") as f:
+    f.write("alpha\nbeta\ngamma\n")
+
+with open("source.txt", encoding="utf-8") as src, open("upper.txt", "w", encoding="utf-8") as dst:
+    for line in src:
+        dst.write(line.upper())
+print(open("upper.txt", encoding="utf-8").read().split())
+
+try:
+    with open("source.txt", encoding="utf-8") as f:
+        print("inside the block, closed?", f.closed)
+        raise ValueError("something broke halfway")
+except ValueError as error:
+    print("ValueError caught:", error)
+print("after the block, closed?", f.closed)
+@note
+One `with` statement manages two files and closes both. Even though an error interrupted the block, the file was closed on the way out: that guarantee is the reason to use `with`.
+@mistakes
+- **Forgetting to close a file you wrote.** The last part may never reach the disk. Use `with`.
+- **Expecting `writelines` to add newlines.** It does not: `writelines(["a", "b"])` writes `ab`.
+- **Comparing lines without stripping.** `line == "done"` is false for `"done\n"`. Compare `line.strip()`.
+- **Using the file after the with block.** It is closed; reading raises a ValueError. Do the work inside the block or save the data to a variable.
+@keys
+- `readline` and `readlines` keep the `\n`; `writelines` adds nothing.
+- Closing a file finishes writing it and frees it.
+- `with open(...) as f:` closes the file automatically, even after an error.
+- Strip lines before comparing or converting them.
+
+=== 11.3
+@idea
+There are several ways to walk through a file, and the right one depends on its size. For small files, reading everything at once with `read()` or `readlines()` is simple. For any file that might be large (logs, data exports), loop over the file object directly: `for line in f:`. A file object is an **iterator** that hands out one line at a time, so only the current line is held in memory. A 10 GB log file can be processed on a laptop this way.
+
+When you need finer control, `read(n)` reads a fixed number of characters or bytes, which is how binary formats and very long single-line files are processed in **chunks**. A `while True:` loop that breaks when `read` returns an empty string handles that.
+
+Line-by-line processing combines naturally with everything you have learned: `strip()` to clean, `split()` to separate fields, `Counter` to count, generators to build pipelines. A program that reads a file, transforms each line and writes another file is one of the most common real-world Python scripts.
+@how
+- `for line in f:` reads lazily, one line at a time; this is the default choice.
+- `f.read()` and `f.readlines()` load everything: fine for small files only.
+- `f.read(n)` in a `while True:` loop reads chunks; stop when it returns `""` (or `b""` in binary mode).
+- `enumerate(f, start=1)` gives line numbers.
+- Strip each line before using it; skip blank lines with `if not line.strip(): continue`.
+- A generator function that yields cleaned lines makes file processing reusable.
+@example python: Counting words in a file, one line at a time
+from collections import Counter
+import string
+
+with open("poem.txt", "w", encoding="utf-8") as f:
+    f.write("The rain in Spain\nfalls mainly on the plain.\n\nThe rain, the rain!\n")
+
+counts = Counter()
+with open("poem.txt", encoding="utf-8") as f:
+    for number, line in enumerate(f, start=1):
+        if not line.strip():
+            print(f"line {number} is blank")
+            continue
+        words = line.lower().translate(str.maketrans("", "", string.punctuation)).split()
+        counts.update(words)
+
+print(counts.most_common(3))
+@note
+The loop never holds more than one line. Lower-casing and removing punctuation make "The", "the" and "rain," count as the same words. `enumerate` supplies line numbers for messages.
+@example python: Reading in chunks and a reusable line generator
+from pathlib import Path
+
+Path("big.log").write_text("".join(f"{'ERROR' if n % 7 == 0 else 'INFO'} event {n}\n" for n in range(1, 50)))
+
+def matching_lines(path, word):
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if word in line:
+                yield line.rstrip("\n")
+
+errors = list(matching_lines("big.log", "ERROR"))
+print(len(errors), errors[:3])
+
+chunks = 0
+total = 0
+with open("big.log", "rb") as f:
+    while True:
+        block = f.read(256)
+        if not block:
+            break
+        chunks += 1
+        total += len(block)
+print(f"read {total} bytes in {chunks} chunks of up to 256")
+@note
+`matching_lines` is a generator, so it can scan a file of any size and hand out matches one by one, and it closes the file when done. The chunk loop reads at most 256 bytes at a time and stops when `read` returns empty bytes.
+@mistakes
+- **Calling `read()` on a huge file.** It loads everything into memory. Loop over the file instead.
+- **Looping over the same file object twice.** The second loop gets nothing, because the position is at the end. Reopen the file, or call `f.seek(0)`.
+- **Forgetting the end condition in a chunk loop.** Without `if not block: break` the loop never ends.
+- **Mixing `readline()` and `for line in f` carelessly.** Both move the same position; use one style per pass.
+@keys
+- `for line in f:` reads lazily and works for files of any size.
+- `read()` and `readlines()` are only for small files.
+- `read(n)` in a loop processes data in chunks; an empty result means the end.
+- Combine line loops with strip, split, Counter and generators for real processing jobs.

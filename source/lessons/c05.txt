@@ -343,9 +343,9 @@ This lesson also covers a few small statements. `pass` does nothing and fills a 
 >>> [round(p * 1.15, 2) for p in prices]
 >>> [p for p in prices if p < 10]
 >>> {p: p >= 10 for p in prices}
->>> {w[0] for w in ["apple", "avocado", "banana"]}
+>>> sorted({w[0] for w in ["apple", "avocado", "banana"]})
 @note
-The comprehension gives the same list as the four-line loop. The filtered version keeps cheap items only. The dictionary maps each price to whether it is at least 10, and the set of first letters drops the duplicate "a".
+The comprehension gives the same list as the four-line loop. The filtered version keeps cheap items only. The dictionary maps each price to whether it is at least 10, and the set of first letters drops the duplicate "a" (sets have no fixed order, so `sorted` shows it predictably).
 @example pycon: pass, del and safe evaluation
 >>> def todo():
 ...     pass

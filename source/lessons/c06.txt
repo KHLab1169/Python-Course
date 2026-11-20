@@ -1,0 +1,370 @@
+=== 6.1
+@idea
+A **function** packages a piece of work under a name so you can use it again without rewriting it. You define it once with `def`, then **call** it as often as you like. Functions are how programs stay short and readable: instead of twenty lines that work out a discount, you write `discounted(price)` and the reader knows what happens.
+
+A function can take inputs (its **parameters**) and give back a result with `return`. `return` does two things: it hands a value back to the caller and it ends the function immediately. A function that reaches its end without `return` (or with a bare `return`) gives back `None`. That is the difference between **returning** a value, which the caller can store, print or compute with, and **printing** it, which only shows text on the screen.
+
+The first line inside a function can be a **docstring**: a string that says what the function does. `help(function)` shows it, editors display it as a tooltip, and it reminds future readers (including you) what the function promises.
+@how
+- `def name(param1, param2):` then an indented body. Calling it: `name(value1, value2)`.
+- `return value` sends a result back and stops the function. Without `return`, the result is `None`.
+- A function must be defined (its `def` must have run) before it is called.
+- Put a docstring in triple quotes as the first line of the body; `help(name)` shows it.
+- Name functions with verbs or clear descriptions: `area_of_circle`, `is_valid_email`.
+- Prefer returning values over printing inside the function: the caller can always print the result.
+@example python: Returning instead of printing
+def fahrenheit(celsius):
+    """Convert a temperature from Celsius to Fahrenheit."""
+    return celsius * 9 / 5 + 32
+
+def show_fahrenheit(celsius):
+    print(celsius * 9 / 5 + 32)
+
+hot = fahrenheit(30)
+print("30 °C is", hot, "°F")
+print("Above 80 °F?", fahrenheit(30) > 80)
+
+result = show_fahrenheit(30)
+print("show_fahrenheit returned", result)
+print(fahrenheit.__doc__)
+@note
+Because `fahrenheit` returns its answer, the caller can store it, compare it and print it however it likes. `show_fahrenheit` only prints, so its result is `None` and cannot be used in a calculation. The docstring is stored on the function itself.
+@example python: return ends the function early
+def first_negative(numbers):
+    """Return the first negative number, or None if there is none."""
+    for n in numbers:
+        if n < 0:
+            return n          # leaves the function, and the loop, right here
+    return None
+
+print(first_negative([4, 7, -2, 9, -5]))
+print(first_negative([1, 2, 3]))
+
+def is_leap(year):
+    """Gregorian rule: every 4 years, except centuries, except every 400 years."""
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+print([y for y in (1900, 2000, 2024, 2026) if is_leap(y)])
+@note
+`return` inside the loop stops searching as soon as the answer is found. A function can return the result of a whole condition, which is `True` or `False`. The comprehension then keeps only the leap years.
+@mistakes
+- **Printing instead of returning.** If a function prints its result, `total = add(2, 3)` gives `None`. Return the value and let the caller print it.
+- **Forgetting the brackets when calling.** `fahrenheit` without `(30)` is the function itself, not a temperature.
+- **Code after `return` in the same block.** It never runs. Move it before the `return`.
+- **Calling a function above its `def`.** Python runs top to bottom, so the call raises a NameError. Define first, call later (or call from inside another function that runs later).
+@keys
+- `def` creates a function; calling it runs its body with the given arguments.
+- `return` gives a value back and ends the function; no `return` means `None`.
+- Return results rather than printing them, so callers can reuse them.
+- A docstring explains what the function does and is shown by `help()`.
+
+=== 6.2
+@idea
+**Parameters** are the names in the `def` line; **arguments** are the values you pass when calling. When a function is called, each parameter becomes a new **local name** that refers to the matching argument. The names exist only while the function runs, and they are separate from the caller's names, even if they happen to be spelled the same.
+
+So what happens if a function changes a parameter? It depends on what "change" means. **Reassigning** a parameter (`number = number + 10`) only moves the local name to a new value; the caller's variable is untouched. **Mutating** the object the parameter refers to (`items.append(x)`) changes that one shared object, and the caller sees the change, because both names point at the same list.
+
+This is not a special rule for functions: it is exactly how `b = a` behaves with lists (lesson 2.4). Numbers, strings and tuples cannot be mutated, so a function can never change them for the caller. Lists, dictionaries and sets can. When a function should not touch the caller's list, it should build and return a new one instead.
+@how
+- Each call creates fresh local names for the parameters, pointing at the arguments.
+- Reassigning a parameter (`x = ...`) never affects the caller.
+- Mutating a mutable argument (`lst.append`, `d[key] = ...`, `lst.sort()`) does affect the caller.
+- To avoid surprises, copy first (`items = list(items)`) or return a new object.
+- Never use a mutable default like `def f(items=[])`: the same list is reused on every call. Use `items=None` and create the list inside.
+@example python: Reassigning versus mutating
+def reassign(number, items):
+    number = number + 10      # the local name now refers to a new number
+    items = items + ["new"]   # + builds a new list; only the local name moves
+
+def mutate(items):
+    items.append("added")     # changes the one list both names refer to
+
+n = 5
+shopping = ["milk"]
+reassign(n, shopping)
+print(n, shopping)
+
+mutate(shopping)
+print(shopping)
+@note
+`reassign` only moved its own names, so `n` and `shopping` are unchanged. `mutate` called `append` on the shared list, so the caller's list grew.
+@example python: Returning a new list, and the mutable default trap
+def with_tax(prices, rate=0.15):
+    """Return a new list; the caller's list is left alone."""
+    return [round(p * (1 + rate), 2) for p in prices]
+
+original = [10, 20]
+print(with_tax(original), original)
+
+def add_bad(item, basket=[]):
+    basket.append(item)
+    return basket
+
+def add_good(item, basket=None):
+    if basket is None:
+        basket = []
+    basket.append(item)
+    return basket
+
+print(add_bad("a"), add_bad("b"))
+print(add_good("a"), add_good("b"))
+@note
+`with_tax` leaves `original` alone. `add_bad` keeps reusing the single default list created when the `def` ran, so the second call still contains "a" (both prints show the same list). `add_good` makes a new list on each call.
+@mistakes
+- **Expecting a function to change the caller's number.** `def inc(x): x += 1` does nothing outside. Return the new value: `count = inc(count)`.
+- **Changing a list the caller still needs.** Sorting or appending to a parameter changes the caller's list too. Work on a copy if that is not intended.
+- **Using `[]` or `{}` as a default value.** The default is created once and shared by every call. Use `None` and create it inside.
+@keys
+- Parameters are new local names for the arguments, created on every call.
+- Reassigning a parameter never affects the caller; mutating a list or dictionary does.
+- Return new objects when you do not want to change the caller's data.
+- Use `None` as the default for optional lists and dictionaries.
+
+=== 6.3
+@idea
+Arguments can be passed in two ways. **Positional** arguments are matched by order: the first value goes to the first parameter. **Keyword** arguments are matched by name: `describe(name="Rex", age=3)`. Names make calls self-explaining, especially when a function takes several numbers or flags: `resize(img, 800, 600, True)` is a puzzle, `resize(img, width=800, height=600, keep_ratio=True)` is not.
+
+A parameter can have a **default value** in the `def` line: `def greet(name, greeting="Hello")`. Callers can leave it out to get the default, or pass a value to override it. Defaults let one function cover the common case with a short call and the special cases with a longer one.
+
+The rules for mixing are simple. In a call, positional arguments come first, then keyword ones. In a definition, parameters without defaults come first, then those with defaults. A parameter can only get one value, so passing it both by position and by name is an error.
+@how
+- Positional: matched by order. Keyword: `name=value`, matched by name, in any order.
+- Defaults: `def f(a, b=2, c=3)`. Leave out `b` and `c` to use the defaults.
+- In calls, positional arguments go before keyword arguments.
+- In definitions, parameters with defaults go after those without.
+- A bare `*` in the parameter list makes the following parameters keyword-only: `def f(a, *, verbose=False)`.
+- Defaults are evaluated once, when `def` runs (see the mutable default trap in 6.2).
+@example python: Defaults for the common case
+def price_label(amount, currency="$", decimals=2, suffix=""):
+    return f"{currency}{amount:,.{decimals}f}{suffix}"
+
+print(price_label(1234.5))
+print(price_label(1234.5, "€"))
+print(price_label(99, decimals=0))
+print(price_label(15, suffix=" per month", currency="£"))
+@note
+The first call uses every default. Keyword arguments let the third call change only `decimals` and the fourth set two options in any order. Notice the nested `{decimals}` inside the format spec: f-strings allow that.
+@example pycon: Keyword-only parameters and calling mistakes
+>>> def connect(host, port=80, *, timeout=5, secure=False):
+...     return f"{host}:{port} timeout={timeout} secure={secure}"
+...
+>>> connect("example.com")
+>>> connect("example.com", 443, secure=True)
+>>> connect("example.com", 443, 10)
+>>> connect(port=8080, "example.com")
+@note
+Everything after `*` must be named, so a stray `10` cannot silently become the timeout: Python raises a TypeError instead. The last call puts a positional argument after a keyword one, which is a SyntaxError before the function even runs.
+@mistakes
+- **Positional after keyword in a call.** `f(x=1, 2)` is a SyntaxError. Put positional values first.
+- **Giving one parameter two values.** `f(1, a=1)` for `def f(a)` raises a TypeError ("got multiple values").
+- **Defaults before required parameters.** `def f(a=1, b):` is a SyntaxError. Required parameters come first.
+- **Long lists of positional flags.** `f(True, False, True)` is unreadable. Make them keyword-only with `*`.
+@keys
+- Positional arguments match by order; keyword arguments match by name.
+- Defaults make parameters optional; callers override only what they need.
+- Calls: positional first, then keyword. Definitions: required first, then defaults.
+- A bare `*` makes later parameters keyword-only, which keeps calls clear.
+
+=== 6.4
+@idea
+Some functions do not know how many arguments they will get. `print` takes any number of values; `max` takes two or two hundred. You can write functions like that with a star: a parameter written `*args` **collects** all extra positional arguments into a tuple, and `**kwargs` collects all extra keyword arguments into a dictionary. The names `args` and `kwargs` are only a convention; the stars do the work.
+
+The stars also work the other way round, in a **call**. `f(*numbers)` **spreads** a list or tuple into separate positional arguments, and `f(**options)` spreads a dictionary into keyword arguments. That lets you keep arguments in a data structure and pass them all at once.
+
+Together they are how flexible APIs and **wrapper** functions are built: a function can accept whatever it is given and pass it straight on to another function with `inner(*args, **kwargs)`, without knowing what the arguments are. You will see this again with decorators.
+@how
+- `def f(*args)`: extra positional arguments arrive as a tuple (empty if none).
+- `def f(**kwargs)`: extra keyword arguments arrive as a dictionary.
+- Order in a definition: normal parameters, `*args`, keyword-only parameters, `**kwargs`.
+- `f(*seq)` spreads a sequence into positional arguments; `f(**d)` spreads a dictionary into keyword arguments.
+- `inner(*args, **kwargs)` passes everything along unchanged.
+@example python: Accepting any number of values
+def average(*values):
+    """Average of any number of values; None when there are none."""
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+print(average(4, 8, 6))
+print(average(10))
+print(average())
+
+def tag(name, *children, **attributes):
+    attrs = "".join(f' {k}="{v}"' for k, v in attributes.items())
+    return f"<{name}{attrs}>{''.join(children)}</{name}>"
+
+print(tag("p", "Hello, ", "world", id="intro", lang="en"))
+@note
+`values` is a tuple of however many numbers were passed, and the empty tuple is handled. `tag` takes one required name, any number of text pieces and any number of attributes, which become a dictionary.
+@example python: Spreading arguments into a call
+def volume(length, width, height):
+    return length * width * height
+
+box = [2, 3, 4]
+print(volume(*box))
+
+dims = {"height": 10, "length": 1, "width": 5}
+print(volume(**dims))
+
+def logged(func, *args, **kwargs):
+    print(f"calling {func.__name__} with {args} {kwargs}")
+    return func(*args, **kwargs)
+
+print(logged(volume, 2, 2, height=5))
+print(logged(round, 3.14159, ndigits=2))
+@note
+`*box` passes three separate numbers. `**dims` matches by name, so the order of the dictionary does not matter. `logged` accepts anything and passes it straight on to whichever function it was given: the basic idea behind decorators.
+@mistakes
+- **Forgetting the star in the call.** `volume(box)` passes one list and raises a TypeError. Write `volume(*box)`.
+- **Treating `args` as a list.** It is a tuple, so `args.append` fails. Convert with `list(args)` if you need to change it.
+- **Spreading a dictionary with keys that do not match.** `f(**{"size": 3})` raises a TypeError if `f` has no `size` parameter (and no `**kwargs`).
+- **Using `*args` when the count is fixed.** If a function always needs two values, name them. Stars are for genuinely variable inputs.
+@keys
+- `*args` collects extra positional arguments into a tuple; `**kwargs` collects keyword ones into a dictionary.
+- In a call, `*seq` and `**d` spread values out into separate arguments.
+- `func(*args, **kwargs)` forwards any arguments unchanged.
+- Name fixed parameters explicitly; use stars only for variable inputs.
+
+=== 6.5
+@idea
+Every name lives in a **scope**, the region of the program where it can be seen. Names assigned inside a function are **local**: they are created when the function runs and disappear when it returns. Names assigned at the top level of a file are **global**: every function in the file can read them. When Python looks up a name, it searches the local scope first, then any enclosing functions, then the global scope, then the built-ins (the **LEGB** rule).
+
+Reading a global from inside a function is fine. **Assigning** to it is different: any name assigned anywhere in a function is treated as local for the whole function. So `count = count + 1` inside a function raises an UnboundLocalError, because Python has already decided `count` is local and it has no value yet. The `global` statement overrides that, but functions that change globals are hard to test and reason about. Pass values in and return results out instead.
+
+A function defined inside another can read the outer function's names, even after the outer function has returned. Such an inner function is a **closure**: it carries its surrounding names with it. Closures are a neat way to make small configurable functions, and `nonlocal` lets the inner function change an outer name.
+@how
+- Local names: assigned inside the function, gone when it returns.
+- Global names: assigned at the top level of the file; readable from any function.
+- Lookup order: Local, Enclosing function, Global, Built-in.
+- Assigning to a name inside a function makes it local everywhere in that function.
+- `global name` lets a function assign a global (avoid it); `nonlocal name` lets a nested function assign an enclosing function's name.
+- A closure is an inner function that remembers the names of the function that created it.
+@example python: Local, global and the UnboundLocalError
+rate = 0.15                      # global: readable everywhere
+
+def with_tax(price):
+    total = price * (1 + rate)   # total is local; rate is read from the global scope
+    return round(total, 2)
+
+print(with_tax(100))
+
+counter = 0
+def broken_increment():
+    counter = counter + 1        # counter is local here, so reading it fails
+    return counter
+
+try:
+    broken_increment()
+except UnboundLocalError as error:
+    print("UnboundLocalError:", error)
+
+def increment(value):
+    return value + 1             # the clean fix: pass in, return out
+
+counter = increment(counter)
+print(counter)
+@note
+Reading `rate` works. Assigning `counter` inside the function makes it local, so the read on the right side fails with an UnboundLocalError. Passing the value in and returning the new one avoids `global` entirely.
+@example python: Closures remember their surroundings
+def make_multiplier(factor):
+    def multiply(n):
+        return n * factor        # factor comes from the enclosing call
+    return multiply
+
+double = make_multiplier(2)
+triple = make_multiplier(3)
+print(double(10), triple(10))
+
+def make_counter():
+    count = 0
+    def step():
+        nonlocal count           # change the enclosing function's name
+        count += 1
+        return count
+    return step
+
+a = make_counter()
+b = make_counter()
+print(a(), a(), a(), b())
+@note
+Each call to `make_multiplier` creates a new `multiply` that remembers its own `factor`. Each counter keeps its own `count`, which `nonlocal` lets `step` update, so `a` reaches 3 while `b` is still at 1.
+@mistakes
+- **Assigning to a global inside a function.** It raises an UnboundLocalError (or silently creates a local). Return the new value instead of using `global`.
+- **Expecting a local name to exist after the function returns.** Locals vanish; return what the caller needs.
+- **Shadowing built-ins.** Naming a variable `list`, `sum` or `max` hides the built-in in that scope, and later calls to it fail.
+- **Closures in a loop.** `[lambda: i for i in range(3)]` all see the last `i`. Pass it as a default: `lambda i=i: i`.
+@keys
+- Names assigned in a function are local; top-level names are global.
+- Python looks names up in Local, Enclosing, Global, then Built-in scope.
+- Assigning a name anywhere in a function makes it local there; prefer return values over `global`.
+- Closures remember their enclosing names; `nonlocal` lets them change those names.
+
+=== 6.6
+@idea
+A **recursive** function is one that calls itself. It solves a problem by reducing it to a smaller version of the same problem, until it reaches a case so small the answer is obvious: the **base case**. Factorial is the classic example: `5!` is `5 * 4!`, and `1!` (or `0!`) is simply 1. Every recursive function needs a base case and a step that moves towards it, or it calls itself until Python stops it with a RecursionError.
+
+Recursion fits problems that are naturally nested: folders inside folders, menus inside menus, splitting a search in half again and again. **Binary search** finds an item in a sorted list by looking at the middle and throwing away the half that cannot contain it, so even a million items take only about twenty steps. For simple counting loops, an ordinary loop is clearer and faster.
+
+Python also lets you treat functions as values. **map** applies a function to every item, **filter** keeps the items for which a function returns true, and **lambda** writes a tiny unnamed function in place: `lambda x: x * 2`. They are worth recognising, but list comprehensions usually say the same thing more readably.
+@how
+- A recursive function needs a **base case** that returns without recursing, and a **recursive case** that calls itself on a smaller input.
+- Each call has its own local names, waiting on the call stack until the inner calls return.
+- Python stops runaway recursion with a RecursionError (around 1000 levels deep by default).
+- `map(func, items)` and `filter(func, items)` return lazy iterators; wrap them in `list()` to see the values.
+- `lambda params: expression` is a one-line function, handy as a `key=` for `sorted`.
+- Comprehensions are usually clearer than `map` and `filter`.
+@example python: Recursion with a clear base case
+def factorial(n):
+    if n <= 1:                  # base case
+        return 1
+    return n * factorial(n - 1)  # smaller problem
+
+def total_size(item):
+    """Add up sizes in a nested structure of folders (lists) and files (numbers)."""
+    if isinstance(item, int):   # a file: the base case
+        return item
+    return sum(total_size(child) for child in item)
+
+print(factorial(5))
+print(total_size([10, [20, 5, [1, 1]], 3]))
+
+def search(items, target, low=0, high=None):
+    """Binary search in a sorted list; returns the index or -1."""
+    if high is None:
+        high = len(items) - 1
+    if low > high:
+        return -1
+    mid = (low + high) // 2
+    if items[mid] == target:
+        return mid
+    if items[mid] < target:
+        return search(items, target, mid + 1, high)
+    return search(items, target, low, mid - 1)
+
+primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+print(search(primes, 19), search(primes, 4))
+@note
+`total_size` handles folders nested to any depth, which would be awkward with plain loops. Binary search halves the range on each call; when `low` passes `high`, the item is not there.
+@example pycon: map, filter and lambda next to comprehensions
+>>> words = ["kiwi", "Banana", "fig", "apple"]
+>>> list(map(len, words))
+>>> [len(w) for w in words]
+>>> list(filter(lambda w: len(w) > 3, words))
+>>> [w for w in words if len(w) > 3]
+>>> sorted(words, key=lambda w: w.lower())
+>>> def countdown(n):
+...     return countdown(n - 1)
+...
+>>> countdown(3)
+@note
+Each pair gives the same result; the comprehension usually reads more naturally. `lambda` is most useful as a quick `key=`. The last function has no base case, so it recurses until Python raises a RecursionError.
+@mistakes
+- **No base case, or a step that does not shrink the problem.** The function recurses forever and ends in a RecursionError.
+- **Forgetting to return the recursive result.** `factorial(n - 1)` without `return n * ...` throws the answer away and the function returns `None`.
+- **Recursing where a loop is simpler.** Summing a flat list is clearer with `sum()` or a loop. Save recursion for nested problems.
+- **Expecting `map` to give a list.** It gives an iterator that is used up after one pass. Wrap it in `list()` if you need to keep the values.
+@keys
+- Recursion = a base case plus a call on a smaller problem.
+- It suits nested structures and divide-in-half searches; loops suit simple repetition.
+- Binary search on sorted data needs only about log2(n) steps.
+- `map`, `filter` and `lambda` exist, but comprehensions are usually clearer.

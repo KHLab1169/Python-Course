@@ -1,0 +1,246 @@
+=== 8.1
+@idea
+An **exception** is Python's way of saying "something went wrong and I cannot carry on normally". When it happens, Python stops what it is doing and **raises** the exception, which travels up through the program until something handles it. If nothing does, the program stops and prints a traceback ending with the exception's type and message, like `ValueError: invalid literal for int() with base 10: 'abc'`.
+
+The type tells you the kind of problem. **ValueError**: right type, unsuitable value (`int("abc")`). **TypeError**: wrong type altogether (`"3" + 4`). **KeyError**: missing dictionary key. **IndexError**: position outside a sequence. **ZeroDivisionError**, **FileNotFoundError**, **AttributeError** and **NameError** are just as descriptive. Learning to read these names is a big part of debugging.
+
+You can raise exceptions yourself with `raise`. A function that receives impossible input should raise an exception with a clear message rather than return a strange value, because a strange value causes confusing problems later while an exception points straight at the cause. For problems specific to your program, define your own exception class by subclassing `Exception`; its name then documents exactly what went wrong.
+@how
+- `raise ValueError("message")` stops the function and starts the exception travelling up.
+- Pick the closest built-in type: ValueError for bad values, TypeError for wrong types, KeyError and IndexError for lookups.
+- Custom exceptions: `class OutOfStock(Exception): pass`. Subclass a built-in type if it fits (`class BadAge(ValueError)`).
+- The message should say what was wrong and, if possible, what was expected.
+- Unhandled exceptions stop the program with a traceback; read it from the bottom up.
+@example python: Raising errors for impossible input
+def set_volume(level):
+    if not isinstance(level, int):
+        raise TypeError(f"level must be a whole number, not {type(level).__name__}")
+    if not 0 <= level <= 100:
+        raise ValueError(f"level must be between 0 and 100, got {level}")
+    return f"volume set to {level}"
+
+print(set_volume(40))
+for bad in [150, "loud"]:
+    try:
+        set_volume(bad)
+    except (TypeError, ValueError) as error:
+        print(f"{type(error).__name__}: {error}")
+@note
+Each problem gets the most fitting exception type and a message that says what was expected. The `try`/`except` here only shows the messages; the next lesson covers catching properly.
+@example python: Your own exception class
+class OutOfStock(Exception):
+    """Raised when an order asks for more than is in stock."""
+
+stock = {"tea": 3, "cake": 0}
+
+def order(item, quantity):
+    available = stock.get(item, 0)
+    if quantity > available:
+        raise OutOfStock(f"wanted {quantity} {item}, only {available} left")
+    stock[item] = available - quantity
+    return f"ordered {quantity} {item}"
+
+print(order("tea", 2))
+try:
+    order("cake", 1)
+except OutOfStock as error:
+    print("OutOfStock error:", error)
+print(OutOfStock.__mro__[1].__name__)
+@note
+The name `OutOfStock` tells callers exactly what happened, and they can catch it without also catching unrelated errors. It inherits from Exception, as the last line shows, so it behaves like any built-in exception.
+@mistakes
+- **Returning a special value instead of raising.** Returning `-1` or `None` for bad input lets the problem travel on silently. Raise an exception with a message.
+- **Raising `Exception("...")` for everything.** Callers then cannot catch just your problem. Use a specific built-in type or your own class.
+- **Vague messages.** `raise ValueError("bad")` helps nobody. Include the value and what was expected.
+- **Subclassing `BaseException`.** Custom exceptions should subclass `Exception`; BaseException is for things like KeyboardInterrupt.
+@keys
+- An exception stops normal flow and travels up until handled; unhandled, it ends the program with a traceback.
+- The exception type names the kind of problem; the message gives details.
+- `raise SomeError("clear message")` when input is impossible.
+- Define `class MyError(Exception)` for problems specific to your program.
+
+=== 8.2
+@idea
+A **try statement** lets your program handle an exception instead of crashing. Put the risky code in the `try` block and the recovery code in an `except` block. If the try block runs without trouble, the except block is skipped. If an exception of the named type happens, Python jumps straight to the matching except block, and the program carries on after it.
+
+Be specific about what you catch. `except ValueError:` handles only bad values, so other bugs still show up loudly. You can have several except blocks for different problems, or group types in a tuple: `except (ValueError, ZeroDivisionError):`. Writing `except ValueError as error:` gives you the exception object, so you can show or log its message.
+
+A bare `except:` (or `except Exception:`) catches almost everything, including bugs like a misspelled variable name. That hides problems instead of handling them, so use it only at the very top of a program to log unexpected errors, never to make an error message "go away". Also keep the try block small: only the lines that can fail in the way you are handling.
+@how
+- `try:` risky code, then `except SomeError:` what to do if that error happens.
+- Several except blocks are checked in order; the first matching one runs.
+- `except (TypeError, ValueError):` handles several types the same way.
+- `except ValueError as error:` names the exception; `str(error)` is its message.
+- Catching a type also catches its subclasses (`except LookupError` covers KeyError and IndexError).
+- Avoid bare `except:`; catch the specific errors you expect.
+@example python: Keep asking until the input is valid
+answers = iter(["twelve", "-3", "", "7"])     # stands in for what a user types
+
+def ask_positive_int(prompt):
+    while True:
+        text = next(answers)
+        print(prompt + text)
+        try:
+            number = int(text)
+        except ValueError:
+            print("  Please type digits, like 7.")
+            continue
+        if number <= 0:
+            print("  It must be greater than zero.")
+            continue
+        return number
+
+print("You chose", ask_positive_int("How many tickets? "))
+@note
+`int(text)` raises a ValueError for "twelve" and for the empty answer, and the except block asks again. The try block holds only the conversion, so other mistakes would still show up. `iter([...])` simulates typed answers so the example runs here; in a real program use `input()`.
+@example python: Different failures, different handling
+data = {"apples": "12", "pears": "lots", "plums": "0"}
+
+def per_box(item, boxes):
+    try:
+        count = int(data[item])
+        return count / boxes
+    except KeyError:
+        return f"no data for {item}"
+    except ValueError as error:
+        return f"bad number for {item} ({error})"
+    except ZeroDivisionError:
+        return "cannot split into zero boxes"
+
+print(per_box("apples", 4))
+print(per_box("kiwis", 4))
+print(per_box("pears", 4))
+print(per_box("plums", 0))
+@note
+Each kind of failure gets its own message. "plums" converts fine to 0, so the division `0 / 0` raises a ZeroDivisionError. The ValueError message from `int()` is included to show exactly what could not be read.
+@mistakes
+- **A bare `except:` that hides bugs.** A typo inside the try block becomes "something went wrong". Catch the specific types you expect.
+- **A try block that is too big.** Wrapping fifty lines makes it unclear which line failed. Wrap only the risky call.
+- **Catching and doing nothing.** `except ValueError: pass` throws the problem away. At least log or report it.
+- **Catching before checking whether it can happen.** Use `try` for things you cannot easily check in advance, such as parsing text or opening files.
+@keys
+- `try` / `except` turns a crash into handled recovery.
+- Catch specific exception types; several except blocks or a tuple handle different cases.
+- `except Error as e:` gives access to the message.
+- Keep try blocks small and avoid bare `except:`.
+
+=== 8.3
+@idea
+A try statement has two more optional parts. An **else** block runs only if the try block finished **without** an exception. It is the place for code that should run on success but whose own errors you do not want to catch: keeping it out of the try block means a bug there is not mistaken for the error you were handling.
+
+A **finally** block runs **no matter what**: after success, after a handled exception, after an unhandled one, even after a `return` inside the try block. It is for cleanup that must always happen: closing a file or connection, releasing a lock, putting a setting back. (The `with` statement in chapter 11 does this automatically for files.)
+
+Exceptions also travel through function calls. If a function does not handle an exception, it passes up to whoever called it, then to their caller, and so on: the **call stack** unwinds until a matching except is found. That is why the traceback lists several lines: it shows the path the exception took. It also means the best place to handle an error is often not where it happens, but higher up where you know what to do about it.
+@how
+- Full form: `try:` / `except ...:` / `else:` / `finally:` (except and finally can each be used alone with try).
+- `else` runs only when no exception was raised in the try block.
+- `finally` always runs, even if the try or except block returns or raises.
+- An unhandled exception moves up to the caller; each level can catch it or let it pass.
+- `raise` on its own inside an except block re-raises the current exception after, for example, logging it.
+- `raise NewError(...) from error` replaces an exception while keeping the original as its cause.
+@example python: else for success, finally for cleanup
+def read_setting(text):
+    print(f"reading {text!r}")
+    try:
+        value = int(text)
+    except ValueError:
+        print("  not a number, using 10")
+        return 10
+    else:
+        print("  ok")                  # only on success
+        return value
+    finally:
+        print("  done with", repr(text))  # always, even after return
+
+print(read_setting("25"))
+print(read_setting("abc"))
+@note
+Both calls print "done with" even though each `return` happens before it: `finally` runs on the way out. The `else` block runs only for "25", the call where `int()` succeeded.
+@example python: Exceptions travel up the call stack
+def parse_price(text):
+    return float(text.strip("$"))          # may raise ValueError
+
+def order_total(lines):
+    return sum(parse_price(p) for p in lines)
+
+def checkout(lines):
+    try:
+        return f"total ${order_total(lines):.2f}"
+    except ValueError as error:
+        return f"could not check out: {error}"
+
+print(checkout(["$4.50", "$2.25"]))
+print(checkout(["$4.50", "free"]))
+@note
+The ValueError happens deep inside `parse_price`, passes up through `order_total` without being caught, and is handled in `checkout`, which is the level that knows what to tell the user. The lower functions stay simple.
+@mistakes
+- **Putting success-only code inside the try block.** Errors from it get caught by the wrong except. Move it to `else`.
+- **Doing cleanup only on success.** If an exception happens, the cleanup is skipped. Put it in `finally` (or use `with`).
+- **Returning from `finally`.** A `return` there swallows any exception in flight. Use `finally` for cleanup only.
+- **Catching an error too low down.** If a helper cannot sensibly recover, let the exception travel up to code that can.
+@keys
+- `else` runs when the try block succeeded; `finally` always runs.
+- Use `finally` (or `with`) for cleanup that must happen.
+- Unhandled exceptions travel up through callers until something catches them.
+- Handle errors at the level that knows what to do; re-raise with plain `raise` after logging.
+
+=== 8.4
+@idea
+There are two styles of dealing with things that might fail. **Look before you leap** (LBYL) checks first: `if key in d: value = d[key]`. **Easier to ask forgiveness than permission** (EAFP) just tries and handles the failure: `try: value = d[key] except KeyError: ...`. Python code leans towards EAFP, for good reasons.
+
+EAFP does the work once instead of twice (checking and then doing), it avoids race conditions (a file can be deleted between checking that it exists and opening it), and it handles cases your check forgot (a string can fail to convert to a number in more ways than `isdigit` knows about). LBYL is still the right choice when failure is common and cheap to test, or when the check makes the code clearer.
+
+**Warnings** sit between silence and an exception. `warnings.warn("message")` prints a notice but lets the program continue. They are used to tell people about things that still work but should change, like a function that will be removed in the next version (`DeprecationWarning`). The warnings module can also filter them: ignore some, or turn others into errors while testing.
+@how
+- LBYL: `if condition: do_it()`. EAFP: `try: do_it() except SpecificError: recover()`.
+- Prefer EAFP for conversions, file access and dictionary lookups where failure is unusual.
+- Prefer LBYL when failure is common or the check is clearer (`if not items:`).
+- `warnings.warn("text", DeprecationWarning)` issues a warning without stopping.
+- `warnings.simplefilter("error")` turns warnings into exceptions (useful in tests); `"ignore"` hides them.
+@example python: Checking first versus trying first
+texts = ["42", "-7", "3.5", "٣", " 8 ", "abc"]
+
+print("isdigit check (look first):")
+for t in texts:
+    print(f"  {t!r:>6} ->", int(t) if t.isdigit() else "rejected")
+
+print("try int() (ask forgiveness):")
+for t in texts:
+    try:
+        print(f"  {t!r:>6} ->", int(t))
+    except ValueError:
+        print(f"  {t!r:>6} -> rejected")
+@note
+The `isdigit` check wrongly rejects "-7" and " 8 ", which `int()` accepts. Trying the conversion lets `int()` itself decide, so every case is judged by the same rules that will be used. (The Arabic-Indic digit ٣ counts as a digit and converts to 3.)
+@example python: Warning about an old function
+import warnings
+import sys
+warnings.simplefilter("always")
+warnings.showwarning = lambda msg, cat, *a, **k: print(f"{cat.__name__}: {msg}", file=sys.stdout)
+
+def area_old(w, h):
+    warnings.warn("area_old() is deprecated, use area() instead", DeprecationWarning)
+    return area(w, h)
+
+def area(w, h):
+    return w * h
+
+print(area_old(3, 4))
+print(area(3, 4))
+
+warnings.simplefilter("error")
+try:
+    area_old(1, 1)
+except DeprecationWarning as w:
+    print("now an error:", w)
+@note
+The warning is shown but the result still comes back, so old code keeps working while its author is told to update. With the "error" filter the same warning becomes an exception, which is how test suites catch uses of deprecated code. The first lines only make warnings print in a simple format for this example.
+@mistakes
+- **Checking for every possible problem in advance.** You will miss some. Try the operation and catch the specific error.
+- **Using exceptions for normal control flow everywhere.** If a missing key is the usual case, `d.get(key, default)` is clearer than try/except.
+- **Ignoring warnings.** A DeprecationWarning today is an error after the next upgrade. Fix them when they appear.
+@keys
+- EAFP (try, then handle) is the usual Python style; LBYL (check first) fits common, cheap checks.
+- EAFP avoids double work, race conditions and checks that miss cases.
+- `warnings.warn` reports a problem without stopping the program.
+- Warning filters can hide warnings or turn them into errors.
