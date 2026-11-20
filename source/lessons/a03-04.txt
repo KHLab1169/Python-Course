@@ -672,7 +672,7 @@ print()
 
 An **abstract base class** (from `abc`) defines methods that subclasses **must** implement: decorating a method with `@abstractmethod` makes the base class impossible to instantiate and gives a clear error if a subclass forgets one. It documents and enforces an interface.
 
-Inheritance is powerful but couples classes tightly: a change in the parent ripples into every child, and deep hierarchies become hard to follow. **Composition**, where an object holds other objects and delegates work to them, is often more flexible: a `Report` that *has* an exporter can switch from PDF to CSV at runtime, while a `PdfReport` subclass is stuck. A good test: inheritance for genuine "is a" relationships with shared behaviour, composition for "has a" or "uses a".
+Inheritance is powerful but couples classes tightly: a change in the parent ripples into every child, and deep hierarchies become hard to follow. **Composition**, where an object holds other objects and delegates work to them, is often more flexible: a `Report` that has an exporter can switch from PDF to CSV at runtime, while a `PdfReport` subclass is stuck. A good test: inheritance for genuine "is a" relationships with shared behaviour, composition for "has a" or "uses a".
 @how
 - `class Child(Parent):`; override methods; call `super().__init__(...)` in the child's `__init__`.
 - `Class.__mro__` shows the lookup order; `isinstance(obj, Parent)` respects inheritance.
@@ -740,7 +740,7 @@ print(report.render())
 report.exporter = JsonExporter()
 print(report.render())
 @note
-The report *has* an exporter and delegates to it. Switching formats was one assignment, and adding a new format is a new small class with an `export` method; with inheritance it would be a new Report subclass for every format, multiplied by every kind of report.
+The report has an exporter and delegates to it. Switching formats was one assignment, and adding a new format is a new small class with an `export` method; with inheritance it would be a new Report subclass for every format, multiplied by every kind of report.
 @mistakes
 - **Forgetting `super().__init__()`.** The parent's attributes are never set. Call it in the child's `__init__`.
 - **Deep inheritance trees for code reuse.** They become fragile. Prefer composition.

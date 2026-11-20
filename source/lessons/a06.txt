@@ -334,7 +334,7 @@ Each `@contextmanager` function does setup, yields, and cleans up in `finally`, 
 
 **Extended unpacking** generalises assignment: `first, *rest = items`, `*_, last = items`, nested patterns, and `*`/`**` in calls and literals (`[*a, *b]`, `{**defaults, **overrides}`). The **walrus operator** `:=` assigns inside an expression, which removes duplicated work in loops and comprehensions: `while (line := f.readline()):` or `[y for x in data if (y := f(x)) > 0]`.
 
-`match` gets most useful with richer patterns: mapping patterns pick keys out of dictionaries (`{"type": "order", "items": [first, *_]}`), class patterns match objects by attributes (`Point(x=0, y=y)`), and **guards** (`case ... if condition`) add conditions the pattern alone cannot express. Together these let code describe the *shape* of data instead of digging through it with indexes.
+`match` gets most useful with richer patterns: mapping patterns pick keys out of dictionaries (`{"type": "order", "items": [first, *_]}`), class patterns match objects by attributes (`Point(x=0, y=y)`), and **guards** (`case ... if condition`) add conditions the pattern alone cannot express. Together these let code describe the shape of data instead of digging through it with indexes.
 @how
 - `chain`, `islice`, `accumulate`, `pairwise`, `batched`, `product`, `combinations`, `permutations`.
 - `groupby(sorted(data, key=k), key=k)` groups by a key; it only joins neighbours.

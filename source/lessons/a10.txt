@@ -487,7 +487,7 @@ The project is a **notes API**: users register and log in, then create, read, up
 
 **Authentication** is the new piece. Passwords are stored only as slow, salted **hashes** (with `bcrypt`, `argon2` or at least `hashlib.scrypt`). Logging in exchanges a correct password for a **token**: a random opaque string stored server-side, or a signed JWT. Each later request sends it in the `Authorization: Bearer <token>` header, and a dependency (`get_current_user`) turns the header into a user or a 401.
 
-**Authorization** is the second check: is *this* user allowed to touch *this* note? Every query for notes filters by the owner, and asking for someone else's note returns 404 (not 403, which would confirm the note exists). Tests must cover these rules explicitly: no token, a wrong token, another user's note. Those are the bugs that matter most in a real service.
+**Authorization** is the second check: is this user allowed to touch this note? Every query for notes filters by the owner, and asking for someone else's note returns 404 (not 403, which would confirm the note exists). Tests must cover these rules explicitly: no token, a wrong token, another user's note. Those are the bugs that matter most in a real service.
 @how
 - Models: User (email, password hash) and Note (title, body, owner_id).
 - `POST /register`, `POST /login` → token; `GET/POST /notes`, `GET/PUT/DELETE /notes/{id}`.

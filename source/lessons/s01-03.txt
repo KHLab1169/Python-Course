@@ -4,7 +4,7 @@ This portfolio project is a **log-based intrusion detector** for your own server
 
 Planning starts with **what to flag**. Pick a few patterns you can describe precisely and that matter on a real machine: many failed SSH logins from one IP in a short window (brute force), logins attempted for many different usernames from one IP (user enumeration), a successful login right after a burst of failures (a guess that worked), and in web logs, requests for paths like `/wp-admin` or `/.env` on a site that has neither (scanners). For each, write the rule in one sentence with its threshold: "5 failures from one IP within 60 seconds".
 
-Then collect **sample logs**: lines from your own `/var/log/auth.log` (anonymise addresses), plus hand-written lines that trigger each rule and lines that should *not* trigger anything. These become your test fixtures. Finally, set up a clean repository from day one: src layout, `pyproject.toml`, a README skeleton stating the rules, and a first passing test, so CI can run from the first commit.
+Then collect **sample logs**: lines from your own `/var/log/auth.log` (anonymise addresses), plus hand-written lines that trigger each rule and lines that should not trigger anything. These become your test fixtures. Finally, set up a clean repository from day one: src layout, `pyproject.toml`, a README skeleton stating the rules, and a first passing test, so CI can run from the first commit.
 @how
 - Write each rule as one sentence with a threshold and a time window.
 - Collect real and synthetic sample lines; include negatives that must not alert.
@@ -783,7 +783,7 @@ The third security project is a **secrets and dependency auditor**: it scans cod
 
 There are two complementary detection techniques. **Pattern matching** finds credentials with a known format: AWS access keys start with `AKIA` followed by 16 uppercase letters or digits, GitHub tokens with `ghp_`, Slack tokens with `xox`, private keys with `-----BEGIN ... PRIVATE KEY-----`. Patterns are precise but only find what you anticipated. **Entropy** finds unknown formats: a randomly generated secret looks random, so its characters are spread evenly and its **Shannon entropy** (bits of information per character) is high, around 4–6 for base64-like strings versus 2–3.5 for English words and code.
 
-The hard part is keeping **false positives** low, because a tool that cries wolf gets switched off. Combine signals: require high entropy *and* a suspicious context (a variable named like `key`, `token`, `secret` or `password`), skip test fixtures and lock files, ignore obvious placeholders (`changeme`, `xxxx`, `<your-key>`), and always **mask** secrets in reports.
+The hard part is keeping **false positives** low, because a tool that cries wolf gets switched off. Combine signals: require high entropy and a suspicious context (a variable named like `key`, `token`, `secret` or `password`), skip test fixtures and lock files, ignore obvious placeholders (`changeme`, `xxxx`, `<your-key>`), and always **mask** secrets in reports.
 @how
 - Known formats: compiled regexes per provider (AWS, GitHub, Slack, Stripe, private key headers).
 - Entropy: `-sum(p * log2(p))` over character frequencies; flag tokens ≥ 20 characters with entropy above ~4.0.

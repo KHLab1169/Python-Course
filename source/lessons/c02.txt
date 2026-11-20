@@ -45,7 +45,7 @@ The last valid index is 6, one less than the length. `week[-1]` and `week[len(we
 @idea
 A **slice** takes a part of a sequence and gives it back as a new sequence of the same kind. You write it as `seq[start:end]`. The result includes the item at `start` and stops **just before** `end`. So `"abcdefg"[2:5]` is `'cde'`: positions 2, 3 and 4.
 
-The "up to but not including" rule seems odd at first, but it pays off. The length of a slice is simply `end - start`. And two slices that share a boundary fit together with nothing lost or repeated: `s[:3] + s[3:]` is always the whole of `s`. Picture the indices as marks *between* the items, and the slice as the part between two marks.
+The "up to but not including" rule seems odd at first, but it pays off. The length of a slice is simply `end - start`. And two slices that share a boundary fit together with nothing lost or repeated: `s[:3] + s[3:]` is always the whole of `s`. Picture the indices as marks between the items, and the slice as the part between two marks.
 
 Either end can be left out: `s[:3]` means "from the start", `s[3:]` means "to the end", and `s[:]` is a copy of the whole thing. A third number adds a **step**: `s[::2]` takes every second item, and a negative step walks backwards, so `s[::-1]` reverses the sequence.
 @how
