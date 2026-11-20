@@ -27,6 +27,7 @@ Authoring format (one file per module, any number of lessons):
     - one key point per bullet
 """
 import ast, builtins, contextlib, glob, importlib, io, json, linecache, os, re, signal, sys, tempfile, traceback, types, warnings
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -163,7 +164,7 @@ def parse_file(path):
     for block in re.split(r"^=== ", text, flags=re.M)[1:]:
         head, _, body = block.partition("\n")
         lid = head.strip()
-        secs = re.split(r"^@(\w+)(?:[ \t]+(.*))?$", body, flags=re.M)
+        secs = re.split(r"^@(idea|how|example|stdin|output|note|mistakes|keys)(?:[ \t]+(.*))?$", body, flags=re.M)
         les = {"idea": [], "how": [], "examples": [], "mistakes": [], "keys": []}
         k = 1
         while k < len(secs):

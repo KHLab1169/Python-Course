@@ -1,0 +1,1115 @@
+=== P6.1
+@idea
+The sixth project lets you edit text files on a server through a web browser. Planning starts with how browsers talk to servers. When you submit a **form**, the browser sends the values of its fields to an address on the server. A **GET** request puts them in the address after a `?` (`/edit?file=notes.txt`) and is meant for reading; a **POST** request sends them in the body of the request and is meant for changes, like saving a file.
+
+The book builds this with **CGI**, an old approach where the web server starts a new Python process for every request. Modern Python web code uses a small framework instead, and **Flask** is the friendliest: you write ordinary functions and attach each one to an address with `@app.route`. Flask reads the request for you (`request.args` for GET values, `request.form` for POST values) and sends back whatever your function returns.
+
+Because this editor can change files, security is part of the plan from the start: it must only touch files in one chosen folder, and it must ask for a password before saving. A web page is reachable by anyone who knows its address.
+@how
+- GET (`request.args`) to read and show; POST (`request.form`) to change.
+- `@app.route("/edit")` connects an address to a function; `methods=["POST"]` allows POST.
+- A form: `<form action="/save" method="post">` with named `<input>` and `<textarea>` fields.
+- `render_template_string` (or template files) fills values into HTML and escapes them.
+- Plan the safety rules: one folder only, and a password for saving.
+- Test without a browser using `app.test_client()`.
+@example python: GET values and POST values
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route("/greet")
+def greet():
+    return f"Hello, {request.args.get('name', 'stranger')}!"
+
+@app.route("/order", methods=["POST"])
+def order():
+    return f"{request.form['cups']} cups of {request.form['tea']} coming up"
+
+client = app.test_client()
+print(client.get("/greet?name=Ada").text)
+print(client.get("/greet").text)
+print(client.post("/order", data={"tea": "oolong", "cups": "2"}).text)
+print(client.get("/order").status_code, "- GET is not allowed on /order")
+@note
+`test_client` sends requests straight to the app, so you can test pages without starting a server or a browser. The GET values arrive in `request.args`, the POST values in `request.form`, and asking for `/order` with GET is refused with status 405 (Method Not Allowed).
+@example python: A form and the page that receives it
+from flask import Flask, request, render_template_string
+
+app = Flask(__name__)
+
+FORM = """<form action="/preview" method="post">
+  <textarea name="text">{{ text }}</textarea>
+  <button>Preview</button>
+</form>"""
+
+@app.route("/")
+def edit():
+    return render_template_string(FORM, text="Fish & chips <today>")
+
+@app.route("/preview", methods=["POST"])
+def preview():
+    text = request.form["text"]
+    return render_template_string("<p>You wrote {{ n }} characters:</p><pre>{{ text }}</pre>", n=len(text), text=text)
+
+client = app.test_client()
+print(client.get("/").text)
+print(client.post("/preview", data={"text": "<b>bold?</b>"}).text)
+@note
+The template escaped `&`, `<` and `>` both when filling the textarea and when showing the submitted text, so whatever someone types is shown as text and never runs as HTML. The form's `action` and `method` say where and how the browser sends it.
+@mistakes
+- **Changing data with GET.** Links and browser prefetching can trigger GET requests. Use POST for saving.
+- **Building HTML with f-strings from user input.** Nothing gets escaped. Use templates.
+- **Leaving security for later.** An editor on the web needs folder limits and a password from the first version.
+@keys
+- Forms send values to the server: GET for reading, POST for changes.
+- Flask connects addresses to functions; `request.args` and `request.form` hold the values.
+- Templates fill values into HTML and escape them.
+- `app.test_client()` tests pages without a browser.
+
+=== P6.2
+@idea
+The first implementation has three pages. The **index** asks which file to edit. The **edit** page reads that file and shows its contents in a `<textarea>` inside a form, with the file name in a **hidden field** so it travels along when the form is submitted. The **save** page receives the new text and writes it back to the file.
+
+The dangerous part is the file name, because it comes from the browser and anyone can change it. A request for `../../etc/passwd` would escape your folder. The fix is to work out where the path **really** points with `Path.resolve()` and check that it is still inside the allowed folder (`is_relative_to`) before reading or writing anything. Never trust a value just because your own form sent it: the person on the other end can send anything they like.
+
+After saving, the usual pattern is to **redirect** back to the edit page instead of showing a page directly. That way, refreshing the browser does not submit the form again.
+@how
+- Index → edit (GET, `?file=name`) → save (POST, hidden `file` field plus `text`).
+- `<input type="hidden" name="file" value="{{ name }}">` carries the name through the form.
+- Check every path: `(BASE / name).resolve().is_relative_to(BASE.resolve())`.
+- Refuse bad names with `abort(403)` (Forbidden) and missing files with `abort(404)`.
+- After a successful POST, `return redirect(url_for("edit", file=name))`.
+@example python: The whole first editor, tested without a browser
+from pathlib import Path
+from flask import Flask, request, render_template_string, redirect, url_for, abort
+
+BASE = Path("files")
+BASE.mkdir(exist_ok=True)
+(BASE / "notes.txt").write_text("buy tea\n")
+
+app = Flask(__name__)
+
+def safe_path(name):
+    path = (BASE / name).resolve()
+    if not path.is_relative_to(BASE.resolve()):
+        abort(403)
+    return path
+
+@app.route("/edit")
+def edit():
+    name = request.args["file"]
+    path = safe_path(name)
+    text = path.read_text() if path.exists() else ""
+    return render_template_string("""<form action="/save" method="post">
+<input type="hidden" name="file" value="{{ name }}"><textarea name="text">{{ text }}</textarea>
+<button>Save</button></form>""", name=name, text=text)
+
+@app.route("/save", methods=["POST"])
+def save():
+    name = request.form["file"]
+    safe_path(name).write_text(request.form["text"])
+    return redirect(url_for("edit", file=name))
+
+c = app.test_client()
+print(c.get("/edit?file=notes.txt").text)
+r = c.post("/save", data={"file": "notes.txt", "text": "buy tea\nbuy scones\n"})
+print(r.status_code, "redirect to", r.headers["Location"])
+print(repr((BASE / "notes.txt").read_text()))
+print(c.get("/edit?file=../../etc/passwd").status_code, "for a path outside the folder")
+@note
+Saving answered with 302, a redirect back to the edit page, and the file really changed. The attempt to escape the folder was refused with 403 before anything was read. Both pages use the same `safe_path` check, so it cannot be forgotten in one of them.
+@example pycon: Where does a path really point?
+>>> from pathlib import Path
+>>> base = Path("/srv/files")
+>>> (base / "notes.txt").resolve()
+>>> (base / "../secret.txt").resolve()
+>>> (base / "../secret.txt").resolve().is_relative_to(base)
+>>> (base / "/etc/passwd").resolve()
+@note
+`..` climbs out of the folder, and joining an absolute path replaces the base completely. Only after `resolve()` can you see where a path truly leads, which is why the check uses the resolved path.
+@mistakes
+- **Trusting the file name because your form sent it.** Anyone can send any value. Check every path.
+- **Checking the name with string tests like `".." in name`.** There are many tricks around that. Resolve and compare.
+- **Showing a page directly after POST.** A refresh resubmits the form. Redirect instead.
+@keys
+- Three pages: choose a file, edit it in a form, save it.
+- A hidden field carries the file name through the form.
+- Resolve every path and check it stays inside the allowed folder.
+- Redirect after a successful POST.
+
+=== P6.3
+@idea
+The second implementation protects the editor and makes it safer to use. First, a **password**. The server must never store the password itself: it stores a **hash**, a one-way scramble made with `generate_password_hash`. When someone types a password, `check_password_hash` scrambles it the same way and compares. Even if someone reads the server's files, they do not learn the password.
+
+Asking for the password on every save is clumsy, so real sites log you in once and remember it in a **session**: a small signed cookie that the browser sends back with every request. Flask's `session` works like a dictionary; it needs a `secret_key` so nobody can forge the cookie. A decorator can then guard any page that needs a logged-in user.
+
+Second, **backups**: before each save, copy the old version to a backups folder with a timestamp in its name. Mistakes become easy to undo, and you get a simple history of every change.
+@how
+- Store `generate_password_hash(password)`; check with `check_password_hash(stored, typed)`.
+- Set `app.secret_key` (from an environment variable, not in the code) to use `session`.
+- On login, `session["user"] = name`; on logout, `session.pop("user")`.
+- A decorator checks `"user" in session` and refuses or redirects otherwise.
+- Before saving, `shutil.copy2(path, backups / f"{path.stem}-{stamp}{path.suffix}")`.
+@example pycon: Storing a password safely
+>>> from werkzeug.security import generate_password_hash, check_password_hash
+>>> stored = generate_password_hash("open sesame")
+>>> "open sesame" in stored
+>>> check_password_hash(stored, "open sesame")
+>>> check_password_hash(stored, "Open Sesame")
+>>> generate_password_hash("open sesame") == stored
+@note
+The stored text contains no trace of the password, yet it can still check one. Hashing the same password twice gives different results, because each hash includes a random **salt**; that stops attackers from using precomputed tables.
+@example python: Logging in once, with a guard and backups
+import shutil
+from datetime import datetime
+from functools import wraps
+from pathlib import Path
+from flask import Flask, request, session, abort
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__)
+app.secret_key = "change-me"                       # in real use: os.environ["EDITOR_SECRET"]
+PASSWORD_HASH = generate_password_hash("open sesame")
+NOTE, BACKUPS = Path("note.txt"), Path("backups")
+NOTE.write_text("version 1\n")
+
+def login_required(view):
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if "user" not in session:
+            abort(401)
+        return view(*args, **kwargs)
+    return wrapper
+
+@app.route("/login", methods=["POST"])
+def login():
+    if not check_password_hash(PASSWORD_HASH, request.form["password"]):
+        abort(401)
+    session["user"] = "editor"
+    return "logged in"
+
+@app.route("/save", methods=["POST"])
+@login_required
+def save():
+    BACKUPS.mkdir(exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    shutil.copy2(NOTE, BACKUPS / f"note-{stamp}.txt")
+    NOTE.write_text(request.form["text"])
+    return "saved"
+
+c = app.test_client()
+print(c.post("/save", data={"text": "hacked"}).status_code, "before logging in")
+print(c.post("/login", data={"password": "wrong"}).status_code, "with the wrong password")
+print(c.post("/login", data={"password": "open sesame"}).text)
+print(c.post("/save", data={"text": "version 2\n"}).text)
+print(c.post("/save", data={"text": "version 3\n"}).text)
+print(repr(NOTE.read_text()), "| backups:", sorted(p.read_text().strip() for p in BACKUPS.iterdir()))
+@note
+Saving was refused with 401 (Unauthorized) until the right password was given; after that the session cookie, which the test client keeps like a browser, let each save through. Every save first copied the previous version, so versions 1 and 2 are both recoverable.
+@mistakes
+- **Storing passwords as plain text.** Anyone who reads the file has them. Store hashes.
+- **Putting the secret key in your code repository.** Anyone could then forge sessions. Read it from the environment.
+- **Overwriting without a backup.** One wrong save loses work. Copy first.
+@keys
+- Store password hashes, never passwords; `check_password_hash` verifies.
+- A signed session remembers a login; it needs a secret key.
+- A decorator guards every page that needs a logged-in user.
+- Back up the old version before each save.
+
+=== P7.1
+@idea
+The seventh project is a **bulletin board**: people post messages and reply to each other, and the replies form **threads**. The data lives in a database, and planning the table is the heart of the design. Each message gets an `id`, a `subject`, a `sender`, the `text` and the time it was posted. Threads come from one extra column, `reply_to`, which holds the id of the message being answered, or nothing (`NULL`) for a message that starts a new thread.
+
+That single column turns a flat table into a **tree**: every message knows its parent, and the children of a message are the rows whose `reply_to` is its id. This is called an **adjacency list**, and it is the usual way to store trees in a relational database.
+
+Then plan the pages: a **main page** listing all threads as an indented tree, a **view** page showing one message with a Reply link, and an **edit** page with a form for new messages and replies. SQLite, built into Python as `sqlite3`, is perfect for this: the whole database is one file.
+@how
+- Table: `id INTEGER PRIMARY KEY`, `subject`, `sender`, `text`, `posted`, `reply_to INTEGER` (NULL for new threads).
+- Children of message `m`: `SELECT ... WHERE reply_to = ?` with `m`.
+- Top-level messages: `WHERE reply_to IS NULL` (not `= NULL`).
+- Three pages: main (tree), view (one message), edit (new post or reply).
+- Always pass values with `?` placeholders.
+@example python: A table where rows point at their parent
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.row_factory = sqlite3.Row
+db.execute("""CREATE TABLE messages (
+    id INTEGER PRIMARY KEY, subject TEXT, sender TEXT, reply_to INTEGER)""")
+rows = [("Best tea?", "Ada", None), ("Green, obviously", "Ben", 1), ("No, black!", "Cy", 2),
+        ("Lost umbrella", "Dee", None), ("Rooibos", "Eve", 1)]
+db.executemany("INSERT INTO messages (subject, sender, reply_to) VALUES (?, ?, ?)", rows)
+
+for row in db.execute("SELECT * FROM messages WHERE reply_to IS NULL"):
+    print("thread:", row["id"], row["subject"])
+print("replies to 1:", [r["subject"] for r in db.execute("SELECT subject FROM messages WHERE reply_to = ?", (1,))])
+print("= NULL finds", len(db.execute("SELECT * FROM messages WHERE reply_to = NULL").fetchall()), "rows")
+@note
+Each reply stores the id of its parent, so threads need no extra table. Note the last line: in SQL, `= NULL` is never true, so you must write `IS NULL` to find the top-level messages.
+@example python: From rows to a printed tree
+messages = [
+    {"id": 1, "subject": "Best tea?", "reply_to": None},
+    {"id": 2, "subject": "Green, obviously", "reply_to": 1},
+    {"id": 3, "subject": "No, black!", "reply_to": 2},
+    {"id": 4, "subject": "Lost umbrella", "reply_to": None},
+    {"id": 5, "subject": "Rooibos", "reply_to": 1},
+]
+
+children = {}
+for m in messages:
+    children.setdefault(m["reply_to"], []).append(m)
+
+def show(parent=None, depth=0):
+    for m in children.get(parent, []):
+        print("    " * depth + m["subject"])
+        show(m["id"], depth + 1)
+
+show()
+@note
+Grouping by `reply_to` gives a lookup from each message to its replies; `None` collects the thread starters. A recursive function then prints each message and, one level deeper, its replies.
+@mistakes
+- **Writing `reply_to = NULL`.** It matches nothing. Use `IS NULL`.
+- **A separate table per thread.** One table with a parent column handles any depth.
+- **Querying the database once per message to find its replies.** Load the rows once and group them in Python.
+@keys
+- A `reply_to` column pointing at the parent turns a table into threads.
+- Thread starters have `reply_to` NULL; find them with `IS NULL`.
+- Group rows by parent, then walk the tree recursively.
+- Plan the pages: list, view and post.
+
+=== P7.2
+@idea
+The first implementation builds the three pages with Flask and SQLite. The main page loads all messages in one query, groups them into a tree as in the previous lesson, and passes it to a template. Templates can loop, and Jinja's `loop(...)` inside a `recursive` for-loop lets a template draw a tree of any depth.
+
+The edit page is a form with subject, sender and text, plus a hidden `reply_to` field when you are answering a message. Its subject can start as "Re: " plus the original subject. When the form is posted, the save route inserts a row with `?` placeholders and redirects to the main page.
+
+Two habits keep the board correct. Open a fresh database connection per request (or use Flask's `g` object to share one during a request), because connections should not be shared between the threads a web server uses. And commit after inserting, or the new message is never saved: the `with conn:` block does this automatically.
+@how
+- Load all rows once, build a tree, render it with a recursive template loop.
+- Edit page: `?reply_to=ID` prefills the hidden field and "Re: subject".
+- Save: `INSERT ... VALUES (?, ?, ?, ?)`, then `redirect(url_for("main"))`.
+- `with conn:` commits on success and rolls back on error.
+- Show each message with a link: `url_for("view", id=m["id"])`.
+@example python: Drawing threads with a recursive template
+from jinja2 import Template
+
+threads = [
+    {"id": 1, "subject": "Best tea?", "replies": [
+        {"id": 2, "subject": "Green, obviously", "replies": [
+            {"id": 3, "subject": "No, black!", "replies": []}]},
+        {"id": 5, "subject": "Rooibos", "replies": []}]},
+    {"id": 4, "subject": "Lost umbrella", "replies": []},
+]
+
+template = Template("""<ul>
+{%- for m in threads recursive %}
+<li><a href="/view/{{ m.id }}">{{ m.subject }}</a>
+{%- if m.replies %}<ul>{{ loop(m.replies) }}</ul>{% endif %}</li>
+{%- endfor %}
+</ul>""")
+print(template.render(threads=threads))
+@note
+`recursive` lets the loop call itself with `loop(m.replies)`, so the same few lines draw replies to replies at any depth. Flask uses this same template engine, Jinja.
+@example python: Posting a reply end to end
+import sqlite3
+from flask import Flask, request, redirect, url_for
+
+app = Flask(__name__)
+DB = "board.db"
+
+def connect():
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+with connect() as conn:
+    conn.execute("DROP TABLE IF EXISTS messages")
+    conn.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, subject TEXT, sender TEXT, text TEXT, reply_to INTEGER)")
+    conn.execute("INSERT INTO messages (subject, sender, text) VALUES ('Best tea?', 'Ada', 'Which one?')")
+
+@app.route("/save", methods=["POST"])
+def save():
+    f = request.form
+    with connect() as conn:
+        conn.execute("INSERT INTO messages (subject, sender, text, reply_to) VALUES (?, ?, ?, ?)",
+                     (f["subject"], f["sender"], f["text"], f.get("reply_to") or None))
+    return redirect(url_for("main"))
+
+@app.route("/")
+def main():
+    with connect() as conn:
+        rows = conn.execute("SELECT id, subject, reply_to FROM messages ORDER BY id").fetchall()
+    return "\n".join(f"{r['id']} {r['subject']} (reply to {r['reply_to']})" for r in rows)
+
+c = app.test_client()
+c.post("/save", data={"subject": "Re: Best tea?", "sender": "Ben", "text": "Green", "reply_to": "1"})
+c.post("/save", data={"subject": "Robert'); DROP TABLE messages;--", "sender": "Mallory", "text": "hi"})
+print(c.get("/").text)
+@note
+The reply was stored with `reply_to` 1, and the new thread with nothing (NULL). The second subject is a classic SQL injection attempt, but the `?` placeholders store it as plain text, and the table survives.
+@mistakes
+- **Building SQL with f-strings.** Users could run their own SQL. Always use placeholders.
+- **Forgetting to commit.** Without `with conn:` or `conn.commit()`, new messages vanish.
+- **Storing an empty string for "no parent".** Convert it to `None` so `IS NULL` finds the thread starters.
+@keys
+- Load all messages once and render the tree with a recursive template loop.
+- A hidden `reply_to` field links a reply to its parent.
+- Insert with placeholders, commit, then redirect.
+- Use a fresh connection per request.
+
+=== P7.3
+@idea
+The second implementation makes the board nicer and safer. **Escaping** comes first: if the board showed raw HTML from its users, anyone could post a script that runs in every visitor's browser (an attack called cross-site scripting). Jinja templates escape values automatically, and `markupsafe.escape` does it by hand. Never mark user text as safe.
+
+**Validation** catches bad posts before they reach the database: an empty subject, a missing name, a message thousands of characters long, or a `reply_to` that points at a message that does not exist. Show the form again with a clear message instead of failing.
+
+As the board grows, the main page needs **pagination**: show twenty threads per page with Next and Previous links. SQL does the work with `LIMIT` (how many rows) and `OFFSET` (how many to skip), so the database only returns one page. Other ideas: a search box with `LIKE`, newest threads first, and counting replies per thread with `COUNT` and `GROUP BY`.
+@how
+- Templates escape automatically; `markupsafe.escape(text)` escapes by hand.
+- Validate each field and return the form with error messages when something is wrong.
+- Pagination: `LIMIT ? OFFSET ?` with `(page - 1) * per_page` as the offset.
+- Count pages with `math.ceil(total / per_page)`.
+- Search: `WHERE subject LIKE ?` with `f"%{term}%"` as the value.
+@example pycon: Escaping and page arithmetic
+>>> from markupsafe import escape
+>>> escape("<script>alert('hi')</script>")
+>>> str(escape("Fish & chips"))
+>>> import math
+>>> total, per_page = 47, 20
+>>> math.ceil(total / per_page)
+>>> [(page, (page - 1) * per_page) for page in (1, 2, 3)]
+@note
+After escaping, the script is just visible text. Forty-seven threads at twenty per page make three pages, skipping 0, 20 and 40 rows.
+@example python: Validation and one page of threads
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, subject TEXT, reply_to INTEGER)")
+db.executemany("INSERT INTO messages (subject) VALUES (?)", [(f"Thread {n}",) for n in range(1, 48)])
+
+def validate(form):
+    errors = []
+    if not form.get("subject", "").strip():
+        errors.append("Please give your message a subject.")
+    if len(form.get("text", "")) > 2000:
+        errors.append("Messages are limited to 2000 characters.")
+    parent = form.get("reply_to")
+    if parent and not db.execute("SELECT 1 FROM messages WHERE id = ?", (parent,)).fetchone():
+        errors.append(f"There is no message {parent} to reply to.")
+    return errors
+
+def page_of_threads(page, per_page=20):
+    rows = db.execute("SELECT id, subject FROM messages WHERE reply_to IS NULL ORDER BY id DESC LIMIT ? OFFSET ?",
+                      (per_page, (page - 1) * per_page)).fetchall()
+    return [subject for _, subject in rows]
+
+print(validate({"subject": " ", "text": "x" * 3000, "reply_to": "99"}))
+print(validate({"subject": "Hello", "text": "hi", "reply_to": "5"}))
+third = page_of_threads(3)
+print(len(third), "threads on page 3:", third)
+@note
+All problems are reported at once, so the person can fix everything in one go; a good post gives an empty list. With newest first, page 3 holds the oldest seven threads; the database returned only those rows.
+@mistakes
+- **Marking user text as safe to allow formatting.** That opens the door to scripts. Escape everything users write.
+- **Loading every row and slicing in Python.** Let SQL do it with `LIMIT` and `OFFSET`.
+- **Reporting one error at a time.** Collect them all and show them together.
+@keys
+- Escape all user text; templates do this automatically.
+- Validate posts and show the form again with clear messages.
+- `LIMIT` and `OFFSET` return one page of rows.
+- Search with `LIKE`, sort newest first, count replies with `GROUP BY`.
+
+=== P8.1
+@idea
+The eighth project is a **peer-to-peer** file-sharing program. Instead of one central server, every computer runs the same program, called a **peer**, which both serves its own files and asks other peers for theirs. When you look for a file, your peer asks the peers it knows, and they may ask the peers they know, until someone has it.
+
+The peers talk using **remote procedure calls** (RPC): calling a function that runs on another computer as if it were local. Python's **XML-RPC** modules make this almost invisible. A server registers ordinary functions with `SimpleXMLRPCServer`; a client creates a `ServerProxy` for the server's address and calls `proxy.function(args)`. Behind the scenes the call and its result travel as small XML messages over HTTP.
+
+Plan what each peer must offer: `query(name)` to look for a file (in its own folder, then among its friends), `fetch(name)` to copy a found file into its own folder, and `hello(other_url)` to learn about another peer. A query also needs a limit on how far it spreads, or it could bounce around the network forever.
+@how
+- Server: `SimpleXMLRPCServer((host, port))`, `register_function(f)` or `register_instance(obj)`, then `serve_forever()`.
+- Client: `ServerProxy("http://host:port")`, then call methods directly.
+- Values that travel: numbers, strings, booleans, lists, dictionaries, dates, and bytes wrapped in `Binary`.
+- Each peer offers `hello`, `query` and `fetch`, and keeps a set of known peer URLs.
+- Limit how far a query spreads with a history of visited peers or a hop count.
+@example python: A function call that crosses the network
+import threading
+from xmlrpc.client import ServerProxy
+from xmlrpc.server import SimpleXMLRPCServer
+
+def add(a, b):
+    return a + b
+
+def describe(order):
+    return {"items": len(order["items"]), "total": sum(order["items"]), "for": order["name"].upper()}
+
+server = SimpleXMLRPCServer(("127.0.0.1", 0), logRequests=False)
+server.register_function(add)
+server.register_function(describe)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+proxy = ServerProxy(f"http://127.0.0.1:{server.server_address[1]}")
+print(proxy.add(2, 3))
+print(proxy.add("tea", " time"))
+print(proxy.describe({"name": "ada", "items": [3, 4, 5]}))
+server.shutdown()
+@note
+The client calls `add` and `describe` as if they were local, but they run in the server (here a thread with its own port). Dictionaries and lists travel both ways. Port 0 asks the system for any free port, which suits tests.
+@example python: Looking for a file among friends, without looping forever
+peers = {
+    "A": {"files": [], "friends": ["B", "C"]},
+    "B": {"files": ["recipes.txt"], "friends": ["A", "C"]},
+    "C": {"files": ["song.mp3"], "friends": ["A", "B", "D"]},
+    "D": {"files": ["map.png"], "friends": ["C"]},
+}
+
+def query(peer, name, history=()):
+    history = history + (peer,)
+    if name in peers[peer]["files"]:
+        return peer, history
+    for friend in peers[peer]["friends"]:
+        if friend not in history and len(history) < 4:
+            found = query(friend, name, history)
+            if found:
+                return found
+    return None
+
+print(query("A", "map.png"))
+print(query("A", "recipes.txt"))
+print(query("A", "missing.doc"))
+@note
+Each query carries the list of peers already asked, so nobody is asked twice and the search cannot go round in circles between friends. The length check limits how far it spreads. In the real program, each step would be an XML-RPC call to the friend's peer.
+@mistakes
+- **No limit on spreading queries.** Peers that know each other would ask each other forever. Track history or count hops.
+- **Expecting every Python object to travel.** XML-RPC carries basic types only; send dictionaries, not custom objects.
+- **Leaving `logRequests` on in tests.** Every call prints a log line. Pass `logRequests=False`.
+@keys
+- Peer-to-peer: every node serves and asks; there is no central server.
+- XML-RPC makes remote calls look like local function calls.
+- Each peer offers hello, query and fetch, and knows a few other peers.
+- Carry a history so queries never loop.
+
+=== P8.2
+@idea
+The first implementation is a `Node` class: it knows its own URL, its folder and the set of peers it has met, and it is served with `register_instance`, so its public methods become remote calls. `query(name, history)` first looks in its own folder; if the file is not there, it asks each known peer it has not asked yet. `fetch(name)` queries for the file and, when someone has it, copies the data into its own folder.
+
+Results must say clearly what happened, and errors need care because they cross the network. A function that raises an exception on the server reaches the client as an `xmlrpc.client.Fault`, with the error message inside. A peer that is switched off gives a `ConnectionRefusedError` or another `OSError`. Both are normal in a peer-to-peer network, and the node should treat them as "that peer could not help" rather than crashing.
+
+File contents are bytes, which XML-RPC sends wrapped in `xmlrpc.client.Binary`. The receiving side reads them back from `.data`.
+@how
+- `server.register_instance(node)` publishes the node's methods; names starting with `_` stay private.
+- `query(name, history)`: check own folder, then each unvisited peer; return the data or a "not found" code.
+- `fetch(name)`: query, then write the returned bytes into the own folder.
+- Wrap file bytes in `Binary(data)`; read with `.data`.
+- Catch `Fault` and `OSError` around every remote call.
+@example python: Two peers, one fetch
+import tempfile
+import threading
+from pathlib import Path
+from xmlrpc.client import Binary, ServerProxy
+from xmlrpc.server import SimpleXMLRPCServer
+
+class Node:
+    def __init__(self, folder):
+        self.folder, self.known = Path(folder), set()
+
+    def hello(self, other):
+        self.known.add(other)
+        return True
+
+    def query(self, name, history):
+        path = self.folder / name
+        if path.is_file():
+            return Binary(path.read_bytes())
+        for other in self.known - set(history):
+            try:
+                result = ServerProxy(other).query(name, history + [other])
+            except OSError:
+                continue
+            if result:
+                return result
+        return False
+
+def start(node):
+    server = SimpleXMLRPCServer(("127.0.0.1", 0), logRequests=False, allow_none=True)
+    server.register_instance(node)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}"
+
+folder_a, folder_b = tempfile.mkdtemp(), tempfile.mkdtemp()
+Path(folder_b, "recipe.txt").write_text("Scones: flour, butter, milk\n")
+url_a, url_b = start(Node(folder_a)), start(Node(folder_b))
+
+alice = ServerProxy(url_a)
+alice.hello(url_b)
+alice.hello("http://127.0.0.1:9")              # a peer that is switched off
+found = alice.query("recipe.txt", [url_a])
+print("found:", found.data.decode().strip())
+print("missing:", alice.query("pie.txt", [url_a]))
+@note
+Alice did not have the recipe, so her node asked the peers it knew. The switched-off peer raised a connection error, which was treated as "could not help", and Bob's node returned the bytes wrapped in Binary. A missing file comes back as False after every peer was asked.
+@example python: Errors that cross the network
+import threading
+from xmlrpc.client import Fault, ServerProxy
+from xmlrpc.server import SimpleXMLRPCServer
+
+def divide(a, b):
+    return a / b
+
+server = SimpleXMLRPCServer(("127.0.0.1", 0), logRequests=False)
+server.register_function(divide)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+proxy = ServerProxy(f"http://127.0.0.1:{server.server_address[1]}")
+
+print(proxy.divide(10, 4))
+try:
+    proxy.divide(1, 0)
+except Fault as fault:
+    print("Fault:", fault.faultString)
+try:
+    ServerProxy("http://127.0.0.1:9").divide(1, 2)
+except OSError as error:
+    print("peer unreachable:", type(error).__name__)
+server.shutdown()
+@note
+The ZeroDivisionError happened on the server and arrived as a Fault whose message names it. A peer that is not running raises an OSError (here ConnectionRefusedError) on the client side instead. A peer-to-peer program must expect both.
+@mistakes
+- **Sending bytes without `Binary`.** XML-RPC cannot carry raw bytes. Wrap them.
+- **Letting one dead peer crash a query.** Catch `OSError` and move on to the next peer.
+- **Making helper methods public by accident.** Methods registered with `register_instance` are callable remotely unless their names start with `_`.
+@keys
+- A Node class served with `register_instance` exposes its methods as remote calls.
+- Queries check the own folder, then ask unvisited peers.
+- File bytes travel wrapped in `Binary`.
+- Server errors arrive as `Fault`; unreachable peers raise `OSError`.
+
+=== P8.3
+@idea
+The second implementation makes the peer robust and pleasant to use. **Security** first: a peer must only ever share files from its own folder, so the same "resolve and check" rule from project 6 applies to every name it receives. Without it, anyone on the network could ask for `../../.ssh/id_rsa`. A peer should also accept `fetch` requests only from its own user, which a **secret** passed by the local client can enforce.
+
+**Error codes** make results clearer than True and False: constants such as `OK`, `NOT_FOUND` and `ACCESS_DENIED`, returned with the data, let the caller tell "nobody has it" from "you may not have it".
+
+For daily use, the program needs a friendly **command-line client**. The standard `cmd` module builds an interactive shell in a few lines: each `do_fetch` method becomes a `fetch` command, docstrings become help text, and typing `help` lists them all. The client starts the peer in a background thread and passes commands to it.
+@how
+- Check every requested name with `resolve()` and `is_relative_to(folder)`.
+- Return `(code, data)` with named constants instead of bare True/False.
+- Require a secret for `fetch` so only the local user can trigger downloads.
+- Subclass `cmd.Cmd`: `do_name(self, arg)` methods, `prompt`, docstrings for help.
+- Run the peer server in a daemon thread and the shell in the main thread.
+@example python: A command shell with cmd.Cmd
+from cmd import Cmd
+
+class Client(Cmd):
+    prompt = "peer> "
+
+    def __init__(self):
+        super().__init__()
+        self.files = ["recipe.txt", "map.png"]
+
+    def do_list(self, arg):
+        """list: show the files you have"""
+        print(", ".join(self.files))
+
+    def do_fetch(self, arg):
+        """fetch NAME: get a file from the network"""
+        if not arg:
+            print("Usage: fetch NAME")
+        else:
+            self.files.append(arg)
+            print(f"fetched {arg}")
+
+    def do_exit(self, arg):
+        """exit: leave the program"""
+        return True
+
+shell = Client()
+for line in ["list", "fetch", "fetch song.mp3", "list", "dance", "help fetch", "exit"]:
+    print(shell.prompt + line)
+    if shell.onecmd(line):
+        break
+@note
+Each `do_` method became a command, unknown commands get a standard reply, and `help fetch` prints the method's docstring. Normally you call `shell.cmdloop()` to read commands from the keyboard; `onecmd` feeds them in here so the example runs by itself.
+@example python: Error codes and the folder check
+from pathlib import Path
+import tempfile
+
+OK, NOT_FOUND, ACCESS_DENIED = 1, 2, 3
+folder = Path(tempfile.mkdtemp()).resolve()
+(folder / "recipe.txt").write_text("scones")
+
+def handle(name):
+    path = (folder / name).resolve()
+    if not path.is_relative_to(folder):
+        return ACCESS_DENIED, ""
+    if not path.is_file():
+        return NOT_FOUND, ""
+    return OK, path.read_text()
+
+names = {OK: "OK", NOT_FOUND: "NOT_FOUND", ACCESS_DENIED: "ACCESS_DENIED"}
+for request in ["recipe.txt", "pie.txt", "../../etc/passwd", "/etc/hostname"]:
+    code, data = handle(request)
+    print(f"{request:18} {names[code]:14} {data!r}")
+@note
+Only the file inside the shared folder is served. Climbing out with `..` and asking for an absolute path are both refused with ACCESS_DENIED, which is a different answer from a file that simply does not exist.
+@mistakes
+- **Serving any path a peer asks for.** That shares your whole computer. Resolve and check every name.
+- **Only True/False results.** The caller cannot tell why something failed. Return codes.
+- **Running the server in the main thread.** It blocks forever, so the shell never starts. Use a daemon thread.
+@keys
+- Check every requested name stays inside the shared folder.
+- Named result codes make failures understandable.
+- `cmd.Cmd` builds an interactive shell from `do_` methods and docstrings.
+- Run the peer server in a background thread beside the shell.
+
+=== P9.1
+@idea
+The ninth project puts a **graphical interface** on the file-sharing peer from project 8. Plan the window first: a text box for the file name, a **Fetch** button, a list of the files you already have, and a status line. Sketching it on paper takes a minute and settles what the code needs.
+
+The key design decision is to **separate the interface from the logic**. The peer code already knows how to fetch files; the window should only collect input, call that code, and show the result. Keeping them apart means the logic can be tested without a window, and the window could be swapped for a web page without touching the peer.
+
+The GUI uses **tkinter**, which comes with Python. Every tkinter program follows the same shape: create the main window (`tk.Tk()`), create **widgets** (labels, entries, buttons, lists) and place them with a layout manager (`pack` or `grid`), connect buttons to functions with `command=`, and start the **event loop** with `mainloop()`. From then on, your functions run only when the user does something.
+@how
+- Sketch the window: entry, button, file list, status line.
+- Keep peer logic in its own class; the GUI only calls it.
+- `root = tk.Tk()`; widgets: `tk.Label`, `tk.Entry`, `tk.Button`, `tk.Listbox`.
+- Place widgets with `.pack(...)` or `.grid(row=..., column=...)`.
+- `tk.Button(root, text="Fetch", command=on_fetch)` connects a click to a function.
+- `root.mainloop()` starts the event loop.
+@example python norun: The planned window, without the networking
+import tkinter as tk
+
+root = tk.Tk()
+root.title("File sharing")
+
+tk.Label(root, text="File name:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+query = tk.Entry(root, width=30)
+query.grid(row=0, column=1, padx=5)
+
+files = tk.Listbox(root, width=45, height=8)
+files.grid(row=1, column=0, columnspan=3, padx=5, pady=5)
+status = tk.Label(root, text="Ready", anchor="w")
+status.grid(row=2, column=0, columnspan=3, sticky="we", padx=5)
+
+def on_fetch():
+    name = query.get().strip()
+    if name:
+        files.insert("end", name)          # later: ask the peer for the file
+        status.config(text=f"Fetched {name}")
+
+tk.Button(root, text="Fetch", command=on_fetch).grid(row=0, column=2, padx=5)
+root.mainloop()
+@output
+(a window with a "File name:" box, a Fetch button, an empty list and the status "Ready";
+ typing recipe.txt and clicking Fetch adds it to the list and shows "Fetched recipe.txt")
+@note
+`grid` places widgets in rows and columns, which suits form-like layouts. Clicking the button calls `on_fetch`, which reads the entry and updates the list and status. The networking will be plugged into that one function. Run this on your own computer; this page cannot open windows.
+@example python: Logic that the window will call, tested on its own
+class FakePeer:
+    """Stands in for the XML-RPC peer while the window is being built."""
+    def __init__(self):
+        self.network = {"recipe.txt": b"scones", "map.png": b"\x89PNG"}
+        self.mine = []
+
+    def fetch(self, name):
+        if name in self.mine:
+            return f"You already have {name}"
+        if name not in self.network:
+            return f"Nobody has {name}"
+        self.mine.append(name)
+        return f"Fetched {name} ({len(self.network[name])} bytes)"
+
+peer = FakePeer()
+for name in ["recipe.txt", "recipe.txt", "song.mp3"]:
+    print(peer.fetch(name))
+print("my files:", peer.mine)
+@note
+The window only needs to call `peer.fetch(name)` and show the returned message. Building against a stand-in like this lets you test every case (success, already have it, not found) before the GUI exists; later the real peer class replaces it.
+@mistakes
+- **Putting network code inside button handlers.** The logic becomes untestable. Call a separate class.
+- **Forgetting `mainloop()`.** The window appears and vanishes at once, or never appears.
+- **Mixing `pack` and `grid` in the same container.** tkinter can hang. Pick one per container.
+@keys
+- Sketch the window before writing it.
+- Keep the interface separate from the logic it calls.
+- tkinter: create widgets, place them, connect commands, run `mainloop()`.
+- Test the logic without the window, using a stand-in if needed.
+
+=== P9.2
+@idea
+The first implementation connects the window to the real peer. When the program starts, it launches the peer's XML-RPC server in a background thread (exactly as the command-line client did) and builds the window. Clicking **Fetch** calls the peer's `fetch` method with the typed name, then refreshes the file list by reading the shared folder again.
+
+Errors must be shown in the window, not in a terminal the user may not even see. A `try`/`except` around the call turns a `Fault` or a connection problem into a friendly message box with `tkinter.messagebox.showerror`, or a red status line.
+
+Small touches matter in a GUI: pressing **Enter** in the text box should work like clicking the button (`entry.bind("<Return>", ...)`), the box should be cleared after a successful fetch, and the list should show the files sorted. Each is one or two lines.
+@how
+- Start the peer server in a daemon thread before `mainloop()`.
+- In the button handler: read the entry, call the peer, refresh the list, report the result.
+- Refresh with `listbox.delete(0, "end")` then `insert` each name from the folder.
+- `entry.bind("<Return>", lambda event: on_fetch())` lets Enter trigger a fetch.
+- Show errors with `messagebox.showerror(title, message)` or the status line.
+@example python norun: The window wired to the peer
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox
+from xmlrpc.client import Fault
+
+from peer import Node, start_server        # the peer from project 8
+
+FOLDER = Path("shared")
+node = Node(FOLDER)
+threading.Thread(target=start_server, args=(node,), daemon=True).start()
+
+root = tk.Tk()
+root.title("File sharing")
+query = tk.Entry(root, width=30)
+query.pack(padx=8, pady=4)
+files = tk.Listbox(root, width=40, height=10)
+files.pack(padx=8, pady=4)
+
+def refresh():
+    files.delete(0, "end")
+    for path in sorted(FOLDER.iterdir()):
+        files.insert("end", path.name)
+
+def on_fetch(event=None):
+    name = query.get().strip()
+    if not name:
+        return
+    try:
+        node.fetch(name)
+    except (Fault, OSError) as error:
+        messagebox.showerror("Could not fetch", str(error))
+        return
+    query.delete(0, "end")
+    refresh()
+
+query.bind("<Return>", on_fetch)
+tk.Button(root, text="Fetch", command=on_fetch).pack(pady=4)
+refresh()
+root.mainloop()
+@output
+(the window lists the files in the shared folder; typing a name and pressing Enter fetches it,
+ clears the box and refreshes the list, or shows an error dialog if no peer has it)
+@note
+The window never talks XML-RPC itself: it calls the node, then rereads the folder so the list always shows what is really there. The same `on_fetch` handles both the button and the Enter key, which is why it accepts an optional `event` argument.
+@example python: The refresh logic, without a window
+import tempfile
+from pathlib import Path
+
+folder = Path(tempfile.mkdtemp())
+for name in ["map.png", "recipe.txt", ".hidden"]:
+    (folder / name).write_text("x")
+(folder / "old").mkdir()
+
+def visible_files(folder):
+    return sorted(p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith("."))
+
+print(visible_files(folder))
+(folder / "song.mp3").write_text("x")
+print(visible_files(folder))
+@note
+Reading the folder each time keeps the list honest: new files appear, and hidden files and subfolders are left out. Because it is a plain function, it can be tested without tkinter and then called from `refresh`.
+@mistakes
+- **Printing errors to the terminal.** GUI users never see them. Show them in the window.
+- **Updating the list by hand after each fetch.** It drifts from what is really in the folder. Reread the folder.
+- **Different code paths for Enter and the button.** Use one handler for both.
+@keys
+- Start the peer in a background thread, then run the window.
+- The button handler calls the peer and refreshes the list from the folder.
+- Show errors in the window with a message box or status line.
+- Bind Enter to the same handler as the button.
+
+=== P9.3
+@idea
+The second implementation polishes the experience, and the most important fix is **responsiveness**. A fetch can take seconds while peers are asked one by one. If the button handler waits for it, the event loop stops: the window freezes, cannot redraw, and the operating system may call it "not responding".
+
+The solution is to do slow work in a **thread** and keep the main thread free for the window. One rule makes this safe: **only the main thread may touch widgets**. So the worker thread puts its result in a `queue.Queue`, and the window checks the queue regularly with `root.after(100, check)`, a timer that runs a function on the main thread. The worker never touches a widget directly.
+
+Further polish: a status line driven by a `StringVar`, the Fetch button disabled while a fetch is running, a progress message, and remembering the last folder or peer address in a small settings file (project ideas from chapter 19).
+@how
+- Start slow work with `threading.Thread(target=work, daemon=True).start()`.
+- The worker puts results in a `queue.Queue`; it never touches widgets.
+- `root.after(100, check_queue)` polls the queue on the main thread, then schedules itself again.
+- `button.config(state="disabled")` while working; `"normal"` when done.
+- `tk.StringVar` plus `Label(textvariable=...)` for a status line that updates itself.
+@example python: The worker-and-queue pattern, without a window
+import queue
+import threading
+import time
+
+results = queue.Queue()
+
+def slow_fetch(name):
+    time.sleep(0.2)                                  # asking peers takes a while
+    results.put(f"fetched {name}")
+
+def check_queue(log):
+    try:
+        while True:
+            log.append(results.get_nowait())
+    except queue.Empty:
+        pass
+
+log = []
+threading.Thread(target=slow_fetch, args=("recipe.txt",), daemon=True).start()
+ticks = 0
+while not log:                                       # stands in for root.after(100, check_queue)
+    ticks += 1
+    check_queue(log)
+    time.sleep(0.05)
+print(log, "| the window stayed free for", "several" if ticks > 2 else "few", "ticks")
+@note
+While the worker sleeps, the main loop keeps ticking, which is exactly when a real window redraws and answers clicks. The result arrives through the queue, and only the main thread reads it. In tkinter, `root.after` replaces the hand-written `while` loop.
+@example python norun: A responsive window
+import queue
+import threading
+import time
+import tkinter as tk
+
+root = tk.Tk()
+root.title("Responsive fetch")
+status = tk.StringVar(value="Ready")
+results = queue.Queue()
+
+def worker(name):
+    time.sleep(2)                                    # pretend the network is slow
+    results.put(f"Fetched {name}")
+
+def on_fetch():
+    button.config(state="disabled")
+    status.set("Fetching…")
+    threading.Thread(target=worker, args=("recipe.txt",), daemon=True).start()
+
+def check_queue():
+    try:
+        message = results.get_nowait()
+    except queue.Empty:
+        pass
+    else:
+        status.set(message)
+        button.config(state="normal")
+    root.after(100, check_queue)
+
+button = tk.Button(root, text="Fetch", command=on_fetch)
+button.pack(padx=20, pady=10)
+tk.Label(root, textvariable=status).pack(pady=(0, 10))
+check_queue()
+root.mainloop()
+@output
+(clicking Fetch greys out the button and shows "Fetching…"; the window can still be moved
+ and resized; two seconds later the status reads "Fetched recipe.txt" and the button returns)
+@note
+The worker thread never touches a widget: it only puts a message in the queue. `check_queue` runs on the main thread every 100 milliseconds, updates the status and re-enables the button. Disabling the button prevents a second fetch from starting while one is running.
+@mistakes
+- **Doing slow work in a button handler.** The window freezes. Use a thread.
+- **Updating widgets from the worker thread.** tkinter is not thread-safe and can crash. Pass results through a queue.
+- **Letting the user start the same job twice.** Disable the button while it runs.
+@keys
+- Slow work in a button handler freezes the window.
+- Run it in a thread; send results back through a `queue.Queue`.
+- Only the main thread touches widgets; `root.after` polls the queue.
+- Status lines and disabled buttons tell the user what is happening.
+
+=== P10.1
+@idea
+The last project is an **arcade game**. Pick something small enough to finish: the player dodges objects falling from the top of the screen, and the game ends when one hits. A finished simple game teaches far more than an ambitious one abandoned halfway. The game uses **pygame**, the popular game library (`pip install pygame`).
+
+Every game is built around the **game loop**, which runs many times per second. Each pass does three things in order: **handle events** (key presses, the window's close button), **update** the game state (move the player and the objects, check for collisions), and **draw** everything at its new position, then show the finished frame. A clock caps the loop at a steady rate, such as 60 frames per second, so the game runs at the same speed on every computer.
+
+Separating update from draw is the key idea. The state (positions, speeds, score) is ordinary data that you can update and test without a screen. Drawing just turns that state into a picture.
+@how
+- `pygame.init()`, `screen = pygame.display.set_mode((width, height))`, `clock = pygame.time.Clock()`.
+- Loop: `for event in pygame.event.get()` (quit on `pygame.QUIT`), update, draw, `pygame.display.flip()`, `clock.tick(60)`.
+- `pygame.key.get_pressed()` tells which keys are held down, for smooth movement.
+- Screen coordinates: (0, 0) is the top left; y grows downwards.
+- Keep the state in plain variables or objects so update logic can be tested.
+@example python norun: The game loop with a moving square
+import pygame
+
+pygame.init()
+screen = pygame.display.set_mode((480, 320))
+pygame.display.set_caption("Move the square")
+clock = pygame.time.Clock()
+x, y, speed = 220, 140, 4
+
+running = True
+while running:
+    for event in pygame.event.get():              # 1. events
+        if event.type == pygame.QUIT:
+            running = False
+    keys = pygame.key.get_pressed()               # 2. update
+    x += (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * speed
+    y += (keys[pygame.K_DOWN] - keys[pygame.K_UP]) * speed
+    x, y = max(0, min(x, 440)), max(0, min(y, 280))
+    screen.fill((30, 30, 50))                     # 3. draw
+    pygame.draw.rect(screen, (240, 200, 80), (x, y, 40, 40))
+    pygame.display.flip()
+    clock.tick(60)                                # at most 60 frames per second
+pygame.quit()
+@output
+(a dark window with a yellow square that moves smoothly while the arrow keys are held
+ and stops at the edges; closing the window ends the program)
+@note
+True and False count as 1 and 0, so `keys[RIGHT] - keys[LEFT]` is +1, -1 or 0: one line handles both directions. The `max`/`min` pair keeps the square on the screen. Run this on your own computer after `pip install pygame`; this page cannot open windows.
+@example python: The update step as plain, testable logic
+def update(state, keys, width=480, size=40, speed=4):
+    """Move the player one frame; keys is the set of held arrow keys."""
+    dx = ("right" in keys) - ("left" in keys)
+    state["x"] = max(0, min(state["x"] + dx * speed, width - size))
+    state["frame"] += 1
+    return state
+
+state = {"x": 220, "frame": 0}
+for _ in range(10):
+    update(state, {"right"})
+print(state)
+for _ in range(200):
+    update(state, {"right"})
+print(state, "- stopped at the right edge")
+update(state, {"left", "right"})
+print(state["x"], "- both keys cancel out")
+@note
+The update logic needs no window, so it can be checked with prints or tests: ten frames move 40 pixels, holding right stops at 440 (the width minus the player's size), and opposite keys cancel. In the game, the set of keys would come from `pygame.key.get_pressed()`.
+@mistakes
+- **Not handling the QUIT event.** The window cannot be closed. Always check for it.
+- **No clock.** The game runs at different speeds on different computers. Use `clock.tick(60)`.
+- **Drawing without `display.flip()`.** Nothing appears on screen. Flip once per frame, after drawing.
+@keys
+- Choose a small game you can finish.
+- The game loop: handle events, update, draw, then flip and tick.
+- `key.get_pressed()` gives smooth movement; a clock keeps a steady speed.
+- Keep update logic separate from drawing so it can be tested.
+
+=== P10.2
+@idea
+The first implementation makes the game playable: a player at the bottom moving left and right, rocks falling from random positions at the top, a score for every rock dodged, and game over when a rock hits the player. pygame's **Rect** does most of the geometry: a rectangle with `x`, `y`, `width`, `height`, handy properties like `top`, `bottom` and `centerx`, and `colliderect` to check whether two rectangles overlap.
+
+Structure the code as small functions or classes: `spawn_rock` adds a rock at a random x, `update_rocks` moves them down and removes the ones that left the screen (adding to the score), `hit` checks for a collision. The game loop then reads like a description of the game.
+
+The `random` module makes each game different. To test or debug, call `random.seed(n)` first: the "random" sequence is then the same every time, so a bug can be reproduced.
+@how
+- `pygame.Rect(x, y, w, h)`; `rect.move_ip(dx, dy)` moves it; `rect.colliderect(other)` checks overlap.
+- Spawn rocks at `random.randrange(0, width - size)` above the top of the screen.
+- Each frame: move rocks down, remove those below the screen, add one point per removed rock.
+- Game over when any rock collides with the player.
+- Draw text with `font.render(text, True, colour)` and `screen.blit(image, position)`.
+@example python: Rectangles and collisions
+import pygame
+
+player = pygame.Rect(200, 280, 40, 40)
+rocks = [pygame.Rect(210, 265, 30, 30), pygame.Rect(400, 100, 30, 30), pygame.Rect(240, 250, 30, 30)]
+
+print(player.top, player.bottom, player.centerx)
+print([player.colliderect(r) for r in rocks])
+print(player.collidelist(rocks), "- index of the first rock that hits")
+rocks[0].move_ip(0, 100)
+print(rocks[0], "after moving down 100")
+@note
+Rect works without a window, which makes the game logic testable. The first rock overlaps the player, the second is far away, and the third ends exactly where the player begins (its bottom is the player's top, 280): rectangles that merely touch do not count as colliding. `move_ip` moves a rectangle in place.
+@example python: One game, played by a script
+import random
+import pygame
+
+WIDTH, HEIGHT, SIZE = 480, 320, 30
+
+def play(moves, seed=1):
+    random.seed(seed)                           # the same rocks every run
+    player = pygame.Rect(WIDTH // 2, HEIGHT - 40, 40, 40)
+    rocks, score = [], 0
+    for frame, move in enumerate(moves):
+        if frame % 15 == 0:
+            rocks.append(pygame.Rect(random.randrange(0, WIDTH - SIZE), -SIZE, SIZE, SIZE))
+        player.x = max(0, min(player.x + move * 6, WIDTH - player.width))
+        for rock in rocks:
+            rock.move_ip(0, 5)
+        score += sum(rock.top > HEIGHT for rock in rocks)
+        rocks = [rock for rock in rocks if rock.top <= HEIGHT]
+        if player.collidelist(rocks) != -1:
+            return f"hit on frame {frame}, score {score}"
+    return f"survived {len(moves)} frames, score {score}"
+
+print(play([0] * 400))
+print(play([-1] * 400))
+print(play([1, 1, 1, -1, -1, -1] * 70))
+@note
+With a fixed seed, the same rocks fall every time, so each run is reproducible: standing still, running left and weaving give different but repeatable results. The logic is all here; the real game adds drawing and reads the moves from the keyboard.
+@mistakes
+- **Never removing rocks that left the screen.** The list grows forever and the game slows down.
+- **Removing items from a list while looping over it.** Some get skipped. Build a new list instead.
+- **Unrepeatable bugs.** Call `random.seed(n)` while testing so every run is the same.
+@keys
+- `pygame.Rect` handles positions, movement and collisions.
+- Spawn, move and remove objects each frame; count the ones dodged.
+- Small functions make the game loop read like the rules.
+- Seed the random generator to reproduce a game exactly.
+
+=== P10.3
+@idea
+The second implementation adds **game states**. A real game has more than one screen: a title screen ("press Space to start"), the game itself, a pause screen and a game-over screen with the score. Instead of a tangle of flags, keep one `state` variable and let each state have its own event handling, update and drawing. A table of **transitions** (from this state, on this event, go to that state) makes the rules clear.
+
+Then add **difficulty** that grows with the score: rocks fall faster and appear more often. Deriving speed and spawn rate from the score with small functions keeps the numbers in one place, where they are easy to tune.
+
+Finally, polish: a saved **high score** (a small JSON file), sounds (`pygame.mixer.Sound`), images instead of rectangles (`pygame.image.load`), and a short pause after game over so a key press meant for dodging does not immediately restart. Each is a small, separate improvement.
+@how
+- One `state` variable: "title", "playing", "paused", "game_over".
+- A transitions dictionary: `{("title", "space"): "playing", ...}`.
+- Each state has its own draw function; only "playing" updates the rocks.
+- Difficulty: `fall_speed(score)` and `spawn_every(score)` functions with limits.
+- Save the high score with `json` in a file next to the game.
+@example python: Game states as a transition table
+TRANSITIONS = {
+    ("title", "space"): "playing",
+    ("playing", "p"): "paused",
+    ("paused", "p"): "playing",
+    ("playing", "hit"): "game_over",
+    ("game_over", "space"): "playing",
+    ("game_over", "escape"): "title",
+}
+
+def next_state(state, event):
+    return TRANSITIONS.get((state, event), state)
+
+state = "title"
+for event in ["p", "space", "p", "left", "p", "hit", "escape", "space"]:
+    new = next_state(state, event)
+    print(f"{state:10} + {event:7} -> {new}")
+    state = new
+@note
+Events with no entry in the table leave the state unchanged, so pressing P on the title screen or an arrow key while paused does nothing. All the rules about which screen leads where are in one readable table instead of scattered `if` statements.
+@example python: Difficulty curves and a saved high score
+import json
+from pathlib import Path
+
+def fall_speed(score):
+    return min(4 + score // 5, 12)               # faster every 5 points, up to 12
+
+def spawn_every(score):
+    return max(30 - score, 8)                    # frames between rocks, never below 8
+
+for score in [0, 5, 10, 22, 50]:
+    print(f"score {score:2}: speed {fall_speed(score):2}, a rock every {spawn_every(score):2} frames")
+
+SCORES = Path("highscore.json")
+
+def save_high_score(score):
+    best = json.loads(SCORES.read_text())["best"] if SCORES.exists() else 0
+    if score > best:
+        SCORES.write_text(json.dumps({"best": score}))
+        return f"new high score: {score}"
+    return f"score {score}, best is still {best}"
+
+print(save_high_score(14))
+print(save_high_score(9))
+print(save_high_score(21))
+@note
+The difficulty functions keep every tuning number in one place, and the `min` and `max` limits stop the game from becoming impossible. The high score survives between runs because it is saved to a JSON file.
+@mistakes
+- **Boolean flags for every screen.** `is_paused`, `is_over`, `on_title`... soon contradict each other. Use one state variable.
+- **Difficulty that grows without limit.** The game becomes unplayable. Cap the speed.
+- **Magic numbers scattered through the loop.** Put tuning values in named functions or constants.
+@keys
+- One state variable and a transition table organise the screens.
+- Only the playing state updates the game; each state draws its own screen.
+- Derive difficulty from the score, with limits.
+- Save high scores to a file; add sounds and images as separate small steps.

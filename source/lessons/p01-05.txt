@@ -1,0 +1,1114 @@
+=== P1.1
+@idea
+The first project turns plain text into HTML, like a tiny version of Markdown. The planning step matters more than the code: before writing anything, decide the **conventions** your converter understands. A sensible first set: the first block is the title, blank lines separate paragraphs, lines starting with `- ` are list items, and `*word*` means emphasis. Writing these down turns a vague goal ("make a web page from text") into concrete rules you can implement and test one at a time.
+
+Then pick the tools. Text naturally splits into **blocks** separated by blank lines, and a **generator** is ideal for producing them one at a time: it reads lines, collects them until a blank line, yields the block and carries on. `re.sub` handles inline markup like emphasis by finding a pattern and replacing it. `html.escape` is essential too: characters like `<` and `&` in the input must become `&lt;` and `&amp;`, or they break the page.
+
+This "rules plus tools" plan is how most real programs start. It keeps the first implementation small and gives you a checklist to test against.
+@how
+- Write down the input conventions before coding: title, paragraphs, lists, emphasis.
+- Split the text into blocks at blank lines with a generator.
+- Escape text with `html.escape` before adding any tags.
+- Use `re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)` for inline emphasis.
+- Keep a small sample input file to test every rule.
+@example python: A generator that yields blocks of text
+def blocks(lines):
+    block = []
+    for line in lines:
+        if line.strip():
+            block.append(line.strip())
+        elif block:
+            yield " ".join(block)
+            block = []
+    if block:
+        yield " ".join(block)
+
+text = """Welcome to my page
+
+This is the first paragraph.
+It has two lines.
+
+
+- tea
+- cake
+"""
+for n, b in enumerate(blocks(text.splitlines()), 1):
+    print(n, repr(b))
+@note
+Lines are collected until a blank line ends the block; several blank lines in a row produce no empty blocks, and the last block is yielded after the loop. The list items came out as one block, which the next step will treat specially.
+@example pycon: Escaping and inline emphasis
+>>> import html, re
+>>> raw = "Fish & chips cost *less* than <5 dollars"
+>>> safe = html.escape(raw)
+>>> safe
+>>> re.sub(r"\*(.+?)\*", r"<em>\1</em>", safe)
+>>> re.sub(r"\*(.+)\*", r"<em>\1</em>", "*a* and *b*")
+@note
+Escaping happens first, so the `&` and `<` from the text cannot be confused with real HTML. `.+?` stops at the first closing star; the greedy `.+` in the last line runs to the last star and swallows "and" into one emphasis.
+@mistakes
+- **Adding tags before escaping.** Your own `<em>` would then be escaped too. Escape the text, then add markup.
+- **Greedy patterns.** `\*(.+)\*` matches across several emphasised words. Use `.+?`.
+- **Starting to code without written rules.** You will keep changing what the input means. Decide the conventions first.
+@keys
+- Plan the input conventions before writing code.
+- A generator splits text into blocks one at a time.
+- Escape with `html.escape`, then add markup with `re.sub`.
+- Keep a sample file that exercises every rule.
+
+=== P1.2
+@idea
+The first implementation should be the simplest program that follows the plan from end to end: read text from standard input, split it into blocks, turn the first block into a `<h1>` title and the rest into paragraphs, apply emphasis, and write a complete HTML page. Do not build for every future feature yet; get one working path, run it on your sample file, and look at the result in a browser.
+
+Reading from **standard input** (`sys.stdin`) instead of a fixed file name makes the script work like a classic command-line tool: `python markup.py < notes.txt > notes.html`. The program does not need to know where the text comes from or where the page goes, which keeps it flexible.
+
+A simple version also tells you where the design is weak. When you add a rule for lists, you will notice the code turning into a pile of `if` statements. That discomfort is useful information for the second implementation.
+@how
+- Read all input with `sys.stdin.read()` (or loop over `sys.stdin`).
+- Wrap the output in a full page: `<html>`, `<head>` with a `<title>`, and `<body>`.
+- First block → `<h1>`; blocks starting with `- ` → a `<ul>` list; everything else → `<p>`.
+- Apply escaping and emphasis to every block.
+- Run it with redirection: `python markup.py < in.txt > out.html`.
+@example python: The whole first version
+import html
+import re
+
+def blocks(lines):
+    block = []
+    for line in lines:
+        if line.strip():
+            block.append(line.strip())
+        elif block:
+            yield block
+            block = []
+    if block:
+        yield block
+
+def inline(text):
+    return re.sub(r"\*(.+?)\*", r"<em>\1</em>", html.escape(text))
+
+def convert(text):
+    parts = list(blocks(text.splitlines()))
+    title = " ".join(parts[0])
+    out = [f"<html><head><title>{html.escape(title)}</title></head><body>", f"<h1>{inline(title)}</h1>"]
+    for lines in parts[1:]:
+        if all(line.startswith("- ") for line in lines):
+            out.append("<ul>" + "".join(f"<li>{inline(l[2:])}</li>" for l in lines) + "</ul>")
+        else:
+            out.append(f"<p>{inline(' '.join(lines))}</p>")
+    out.append("</body></html>")
+    return "\n".join(out)
+
+print(convert("""My *first* page
+
+Tea & cake are served at <4pm>.
+
+- green tea
+- lemon *cake*
+"""))
+@note
+Blocks are now lists of lines, so the code can check whether every line starts with `- ` (that is what `all` does) and build a list. In a real script the input would be `sys.stdin.read()`; a string is used here so the example runs.
+@example python: Reading standard input like a command-line tool
+import io
+import sys
+
+sys.stdin = io.StringIO("line one\n\nline two\n")   # pretend the user ran: python count.py < notes.txt
+
+text = sys.stdin.read()
+lines = text.splitlines()
+print(f"{len(lines)} lines, {sum(1 for l in lines if l.strip())} with text, {len(text.split())} words")
+@note
+Replacing `sys.stdin` with a StringIO simulates input redirection so the example runs here. In a real terminal you would leave that line out and run `python count.py < notes.txt`; the rest of the program is identical.
+@mistakes
+- **Trying to support every format in version one.** Get one path working end to end first.
+- **Forgetting the title's own escaping.** The `<title>` needs escaping as much as the body.
+- **Hard-coding the input file name.** Reading `sys.stdin` lets the script work with any file via redirection.
+@keys
+- Build the simplest end-to-end version first and look at the output.
+- `sys.stdin.read()` plus redirection makes a flexible command-line tool.
+- `all()` checks that every line of a block follows a rule.
+- The pain points of version one guide the design of version two.
+
+=== P1.3
+@idea
+The first version mixed two jobs in one function: deciding **what kind** of block something is, and deciding **how to write** it. The second implementation separates them. **Rules** look at a block and decide whether they apply ("is this a list?", "is this a heading?"). A **handler** knows how to write each kind of block as output. A parser connects them: for each block, it asks the rules in order, and the first matching rule tells the handler what to do.
+
+The handler uses a neat trick: methods named after the block kinds (`start_paragraph`, `start_list`) and a dispatcher that calls them by name with `getattr(self, "start_" + kind, None)`. Adding a new kind of block then means adding one rule class and one or two handler methods; nothing else changes. Swapping the handler for a different one (Markdown output instead of HTML) reuses all the rules.
+
+This is the **open–closed** idea in practice: the program is open to extension (add new rules or handlers) but closed to modification (existing code stays as it is). It is the same structure used by real text-processing tools.
+@how
+- A Rule class has `condition(block)` (does it apply?) and `action(block, handler)` (tell the handler).
+- The handler has `start_x`, `end_x` and `feed` methods; `getattr(self, name, None)` finds them by name.
+- The parser tries rules in order; the first whose condition is true handles the block.
+- Put the most specific rules first and a catch-all paragraph rule last.
+- A new output format is a new Handler subclass; the rules stay unchanged.
+@example python: Calling methods by name
+class HTMLHandler:
+    def start(self, kind):
+        self.call("start_", kind)
+
+    def end(self, kind):
+        self.call("end_", kind)
+
+    def call(self, prefix, kind):
+        method = getattr(self, prefix + kind, None)
+        if callable(method):
+            method()
+        else:
+            print(f"  (no {prefix}{kind}, ignored)")
+
+    def start_paragraph(self): print("<p>", end="")
+    def end_paragraph(self): print("</p>")
+    def start_heading(self): print("<h2>", end="")
+    def end_heading(self): print("</h2>")
+
+h = HTMLHandler()
+for kind, text in [("heading", "Menu"), ("paragraph", "Tea and cake."), ("quote", "Delicious!")]:
+    h.start(kind)
+    print(text, end="")
+    h.end(kind)
+print()
+@note
+`getattr` looks up a method from a string, so the handler can be asked to start any kind of block. Kinds it has no method for are simply ignored, which lets new rules be added before every handler supports them.
+@example python: Rules that decide, handlers that write
+class Rule:
+    kind = None
+    def condition(self, block):
+        return False
+
+class HeadingRule(Rule):
+    kind = "heading"
+    def condition(self, block):
+        return len(block) < 40 and not block.endswith((".", ":", "!", "?"))
+
+class ListItemRule(Rule):
+    kind = "item"
+    def condition(self, block):
+        return block.startswith("- ")
+
+class ParagraphRule(Rule):
+    kind = "paragraph"
+    def condition(self, block):
+        return True
+
+class MarkdownHandler:
+    def write(self, kind, block):
+        prefix = {"heading": "## ", "item": "* ", "paragraph": ""}[kind]
+        print(prefix + block.removeprefix("- "))
+
+rules = [ListItemRule(), HeadingRule(), ParagraphRule()]
+handler = MarkdownHandler()
+for block in ["Opening hours", "We are open every day from 8 until 6.", "- Saturday: 9 to 5"]:
+    rule = next(r for r in rules if r.condition(block))
+    handler.write(rule.kind, block)
+@note
+Each rule only answers "does this apply?"; the handler only answers "how do I write it?". The rules are tried in order and the catch-all paragraph rule is last. Here the handler writes Markdown; an HTML handler would reuse exactly the same rules.
+@mistakes
+- **Putting the catch-all rule first.** It matches everything, so no other rule ever runs.
+- **Letting rules write output directly.** Then a new output format means changing every rule. Rules decide; handlers write.
+- **Calling a method name built from input without checking.** Use `getattr(obj, name, None)` and check it is callable.
+@keys
+- Separate deciding (rules) from writing (handlers).
+- `getattr` dispatches to methods by name, which makes adding block kinds easy.
+- Order rules from specific to general, with a catch-all last.
+- New formats are new handlers; existing code stays untouched.
+
+=== P2.1
+@idea
+The second project draws a chart from data, using **matplotlib**, the standard plotting library. Start by choosing data you care about: daily steps, monthly spending, temperatures, test scores. Real data you know makes the project far more motivating than a made-up example, and you will notice immediately if the chart is wrong.
+
+Then choose the right kind of chart for the question you want to answer. A **line chart** shows change over time. A **bar chart** compares categories. A **scatter plot** shows the relationship between two measurements. Getting this choice right matters more than any styling.
+
+matplotlib is a third-party library, so install it inside a virtual environment: `python -m venv .venv`, activate it, then `pip install matplotlib`. Keep your data in a simple **CSV** file, and read it with the `csv` module so the chart can be rebuilt whenever the data changes.
+@how
+- Pick real data and write the question the chart should answer.
+- Line chart for change over time, bar chart for comparing categories, scatter for relationships.
+- `python -m venv .venv`, activate, `pip install matplotlib`.
+- Store data as CSV with a header row; read it with `csv.DictReader`.
+- Convert text to numbers (and dates) while reading.
+@example python: Reading a CSV file into two lists
+import csv
+from pathlib import Path
+
+Path("steps.csv").write_text("""day,steps
+Mon,6200
+Tue,8450
+Wed,4100
+Thu,9900
+Fri,7300
+""")
+
+def read_steps(path):
+    days, steps = [], []
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            days.append(row["day"])
+            steps.append(int(row["steps"]))
+    return days, steps
+
+days, steps = read_steps("steps.csv")
+print(days)
+print(steps, "average", sum(steps) // len(steps))
+@note
+`DictReader` uses the header line for keys, and `int()` turns each count into a number. Returning two parallel lists matches what plotting functions expect: one list for the x axis and one for the y axis.
+@example python: A first chart saved to a file
+import matplotlib
+matplotlib.use("Agg")                     # draw to files, no window needed
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+steps = [6200, 8450, 4100, 9900, 7300]
+
+plt.bar(days, steps)
+plt.title("Steps this week")
+plt.savefig("steps.png")
+print("saved", Path("steps.png").stat().st_size > 1000, "| image format:", Path("steps.png").read_bytes()[1:4].decode())
+@note
+Three plotting lines make a real bar chart. The `Agg` backend writes images without opening a window, which is what you want in scripts and on servers; on your own computer, `plt.show()` opens an interactive window instead. The last line just confirms a PNG file was written.
+@mistakes
+- **Choosing the chart before the question.** Decide what you want to show, then pick the chart type.
+- **Installing matplotlib globally.** Use a virtual environment so the project's packages stay separate.
+- **Plotting numbers that are still text.** Convert while reading, or the axis will treat them as labels.
+@keys
+- Use data you care about and write down the question the chart answers.
+- Line for time, bar for categories, scatter for relationships.
+- Install matplotlib in a virtual environment; keep data in CSV.
+- Read with `csv.DictReader`, converting values as you go.
+
+=== P2.2
+@idea
+The first real implementation plots your data properly: a line or bar chart with a **title**, **axis labels** with units, and a **legend** when there is more than one series, saved as both PNG (for web pages and slides) and PDF (for printing, since it stays sharp at any size). These details turn a picture into something a reader understands without you standing next to it.
+
+matplotlib has two styles. The quick `plt.plot(...)` style is fine for one chart. The **object-oriented** style, `fig, ax = plt.subplots()` followed by `ax.plot(...)`, `ax.set_title(...)` and so on, is clearer once a figure has several parts, and it is what most real code uses. Use it from the start.
+
+Dates deserve care. Convert date strings with `datetime.strptime` so matplotlib places them correctly on a time axis (including gaps), instead of treating them as evenly spaced labels. A moving average over a few days can make the trend easier to see.
+@how
+- `fig, ax = plt.subplots(figsize=(8, 4))`, then `ax.plot(x, y, label="...")`.
+- `ax.set_title`, `ax.set_xlabel`, `ax.set_ylabel` (with units), `ax.legend()`.
+- `fig.savefig("chart.png", dpi=150)` and `fig.savefig("chart.pdf")`.
+- Parse dates with `datetime.strptime`; `fig.autofmt_xdate()` tilts date labels so they fit.
+- Smooth noisy data with a moving average.
+@example python: A labelled chart with two series
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from datetime import date, timedelta
+from pathlib import Path
+
+days = [date(2026, 11, 1) + timedelta(days=i) for i in range(10)]
+steps = [6200, 8450, 4100, 9900, 7300, 12000, 3000, 8100, 7600, 9400]
+
+def moving_average(values, n=3):
+    return [sum(values[max(0, i - n + 1):i + 1]) / len(values[max(0, i - n + 1):i + 1]) for i in range(len(values))]
+
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.plot(days, steps, marker="o", label="steps")
+ax.plot(days, moving_average(steps), linestyle="--", label="3-day average")
+ax.set_title("Daily steps, November 2026")
+ax.set_xlabel("Date")
+ax.set_ylabel("Steps per day")
+ax.legend()
+fig.autofmt_xdate()
+fig.savefig("steps.png", dpi=150)
+fig.savefig("steps.pdf")
+print(sorted(p.suffix for p in Path(".").glob("steps.*")))
+print([round(v) for v in moving_average(steps)][:5])
+@note
+Real `date` objects give a proper time axis. The dashed moving average smooths out the up-and-down days. One figure is saved twice, as PNG and PDF; the printed list confirms both files exist.
+@example pycon: Turning date strings into dates
+>>> from datetime import datetime
+>>> raw = ["2026-11-01", "2026-11-03", "2026-11-10"]
+>>> dates = [datetime.strptime(t, "%Y-%m-%d").date() for t in raw]
+>>> dates[1] - dates[0]
+>>> [d.strftime("%a %d") for d in dates]
+>>> (dates[-1] - dates[0]).days
+@note
+Once they are dates, the gaps between them are real: a time axis would leave space for the missing days, which a list of text labels would not.
+@mistakes
+- **Charts without labels or units.** A reader cannot tell what "8000" means. Always label axes and add a title.
+- **Plotting dates as text.** Uneven gaps disappear. Parse them into dates.
+- **Only saving PNG.** It looks blurry when printed large. Save a PDF too.
+@keys
+- Use `fig, ax = plt.subplots()` and the `ax.set_...` methods.
+- Every chart needs a title, labelled axes with units, and a legend for several series.
+- Parse dates so the time axis is correct.
+- Save PNG for screens and PDF for print.
+
+=== P2.3
+@idea
+The second implementation fetches the data from the web instead of a file you update by hand, so the chart is always current. Many organisations publish data as CSV or JSON at a fixed address. The program downloads it with `urllib` (or `requests`), parses it exactly as before, and draws the chart.
+
+Networks fail, so plan for it. A good pattern is to **cache** every successful download in a local file and fall back to that copy when the network is down, with a message saying which data is being used. That way the chart still works on a train, and a temporary outage never crashes your program.
+
+Then improve the picture: highlight the most important point with `ax.annotate`, add a grid that makes values easier to read, and keep colours consistent. One clear message per chart beats a chart that shows everything.
+@how
+- Download with `urlopen(url, timeout=10)` and decode the text.
+- Save each good download to a cache file; on failure, read the cache and say so.
+- Parse with `csv.DictReader(io.StringIO(text))`.
+- Highlight one point: `ax.annotate("record", xy=(x, y), xytext=(...), arrowprops={"arrowstyle": "->"})`.
+- `ax.grid(alpha=0.3)` adds a light grid.
+@example python: Download with a cached fallback
+import csv
+import io
+from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
+
+CACHE = Path("rain_cache.csv")
+CACHE.write_text("month,rain_mm\nSep,85\nOct,90\nNov,95\n")      # a copy saved on an earlier run
+
+def fetch(url):
+    try:
+        with urlopen(url, timeout=3) as r:
+            text = r.read().decode("utf-8")
+        CACHE.write_text(text)
+        return text, "downloaded"
+    except (URLError, TimeoutError):
+        return CACHE.read_text(), "using the cached copy (network unavailable)"
+
+text, source = fetch("http://127.0.0.1:9/rain.csv")             # nothing listens here, so it fails
+rows = list(csv.DictReader(io.StringIO(text)))
+print(source)
+print([(r["month"], int(r["rain_mm"])) for r in rows])
+@note
+The download fails, so the function returns the cached copy and says so. When the network works, each successful download refreshes the cache, so the fallback is always the most recent good data.
+@example python: Highlighting the point that matters
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+months = ["Jun", "Jul", "Aug", "Sep", "Oct", "Nov"]
+rain = [82, 97, 101, 85, 90, 140]
+peak = rain.index(max(rain))
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.bar(months, rain, color=["#9db4c0"] * len(rain))
+ax.patches[peak].set_color("#2a5a8c")
+ax.annotate(f"wettest: {rain[peak]} mm", xy=(peak, rain[peak]), xytext=(peak - 2.5, rain[peak] + 5),
+            arrowprops={"arrowstyle": "->"})
+ax.set_ylabel("Rain (mm)")
+ax.set_ylim(0, 170)
+ax.grid(axis="y", alpha=0.3)
+fig.savefig("rain.png")
+print("highlighted bar:", months[peak], "| bars drawn:", len(ax.patches))
+@note
+All bars are a muted colour except the wettest month, and the annotation tells the reader exactly where to look. The extra headroom from `set_ylim` keeps the label inside the chart.
+@mistakes
+- **Crashing when the network is down.** Catch the errors and fall back to a cached copy.
+- **No timeout.** A slow server would freeze the script. Always pass one.
+- **Highlighting everything.** If every bar is special, none is. Emphasise one point.
+@keys
+- Fetch data from the web so the chart stays current.
+- Cache good downloads and fall back to them when the network fails.
+- Annotate the one point that matters; keep the rest quiet.
+- Light grids and consistent colours make charts easier to read.
+
+=== P3.1
+@idea
+The third project builds a small website from a single **XML** file that describes its structure: folders contain pages, and pages contain HTML. XML is a markup format of nested **elements** with tags, attributes and text, like HTML but with tags you choose. Designing `website.xml` first (which elements, which attributes) is the key planning step, because the code will mirror that structure.
+
+Python offers two ways to read XML. **ElementTree** loads the whole document into a tree of elements you can walk, search and modify: easy, and fine for files that fit in memory. **SAX** is **event-based**: the parser reads the file from start to end and calls your methods as it meets each start tag, piece of text and end tag. It uses almost no memory, which suits huge files, but you must keep track of where you are yourself.
+
+The site generator is a good fit for both, which is why the project builds it twice: first with ElementTree, then with SAX.
+@how
+- Design the XML: `<website>`, `<directory name="...">`, `<page name="..." title="...">` containing HTML.
+- ElementTree: `ET.parse("website.xml")` or `ET.fromstring(text)`; `root.tag`, `elem.attrib`, `elem.get("name")`, `elem.text`.
+- Loop over children with `for child in elem`; search the whole tree with `elem.iter("page")`.
+- SAX: subclass `ContentHandler`, override `startElement`, `characters`, `endElement`.
+- Choose ElementTree for convenience, SAX for very large documents.
+@example python: Walking a site description with ElementTree
+import xml.etree.ElementTree as ET
+
+xml = """<website>
+  <page name="index" title="Home"><h1>Welcome</h1></page>
+  <directory name="recipes">
+    <page name="tea" title="Perfect tea"><p>Boil, steep 4 minutes.</p></page>
+    <page name="scones" title="Scones"><p>Flour, butter, milk.</p></page>
+  </directory>
+</website>"""
+
+root = ET.fromstring(xml)
+
+def walk(elem, path=""):
+    for child in elem:
+        if child.tag == "directory":
+            walk(child, path + child.get("name") + "/")
+        elif child.tag == "page":
+            print(f"{path}{child.get('name')}.html  ({child.get('title')})")
+
+walk(root)
+print([p.get("name") for p in root.iter("page")])
+@note
+The recursion follows the nesting of the XML: a directory adds to the path and goes one level deeper. `iter("page")` searches the whole tree at once, while looping over an element only sees its direct children.
+@example python: The same document as a stream of SAX events
+import io
+from xml.sax import parse
+from xml.sax.handler import ContentHandler
+
+class Outline(ContentHandler):
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+
+    def startElement(self, name, attrs):
+        if name in ("directory", "page"):
+            print("  " * self.depth + f"{name}: {attrs.get('name')}")
+            self.depth += 1
+
+    def endElement(self, name):
+        if name in ("directory", "page"):
+            self.depth -= 1
+
+xml = b"""<website><page name="index"/><directory name="recipes"><page name="tea"/>
+<directory name="baking"><page name="scones"/></directory></directory></website>"""
+parse(io.BytesIO(xml), Outline())
+@note
+SAX never builds a tree: it calls `startElement` and `endElement` as it reads, and the handler keeps its own `depth` counter to indent the outline. The same approach works for files far bigger than memory.
+@mistakes
+- **Reading XML with string methods.** Nesting and attributes make that fragile. Use a parser.
+- **Forgetting that `elem.text` is only the text before the first child.** Use `ET.tostring(elem)` or `itertext()` for mixed content.
+- **Using SAX for a small file you need to search.** ElementTree is simpler; SAX is for streaming large files.
+@keys
+- Design the XML structure first; the code mirrors it.
+- ElementTree loads a tree you can walk and search.
+- SAX streams events to your handler and uses little memory.
+- Recursion is the natural way to walk nested structures.
+
+=== P3.2
+@idea
+The first implementation walks the XML with ElementTree and writes one HTML file per `page` element, creating a folder on disk for every `directory` element. The page's content is already HTML inside the XML, so the generator only has to wrap it in a full page with a `<title>` and write it to the right path.
+
+`pathlib` makes the file work easy: `Path("site") / "recipes" / "tea.html"` builds the path, `mkdir(parents=True, exist_ok=True)` creates folders as needed, and `write_text` writes the file. Recursion again follows the structure: a function handles one element, calls itself for nested directories, and passes the current folder down.
+
+Write the output into a separate folder (`site/`) that you can delete and regenerate at any time. Treating generated files as disposable, and the XML as the single source of truth, is how static site generators work.
+@how
+- `ET.parse("website.xml").getroot()` to start.
+- For a directory: create the folder and recurse into it.
+- For a page: join the inner HTML with `ET.tostring(child, encoding="unicode")` for each child, wrap it in a page template, write it.
+- `Path.mkdir(parents=True, exist_ok=True)` creates nested folders.
+- Generate into a dedicated output folder that can be rebuilt from scratch.
+@example python: The whole first generator
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+xml = """<website>
+  <page name="index" title="Home"><h1>Welcome</h1><p>Recipes inside.</p></page>
+  <directory name="recipes">
+    <page name="tea" title="Perfect tea"><h1>Tea</h1><p>Steep 4 minutes.</p></page>
+  </directory>
+</website>"""
+
+TEMPLATE = "<html><head><title>{title}</title></head><body>\n{body}\n</body></html>\n"
+
+def build(elem, folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    for child in elem:
+        if child.tag == "directory":
+            build(child, folder / child.get("name"))
+        elif child.tag == "page":
+            body = "".join(ET.tostring(part, encoding="unicode") for part in child)
+            (folder / f"{child.get('name')}.html").write_text(TEMPLATE.format(title=child.get("title"), body=body))
+
+build(ET.fromstring(xml), Path("site"))
+for path in sorted(Path("site").rglob("*.html")):
+    print(path)
+print(Path("site/recipes/tea.html").read_text())
+@note
+Each directory element becomes a folder and each page a file, in the same nesting as the XML. `ET.tostring` turns the page's inner elements back into HTML text. `rglob` lists every generated file.
+@example python: Checking the input before generating
+import xml.etree.ElementTree as ET
+
+def problems(root):
+    found = []
+    seen = set()
+    def check(elem, path):
+        for child in elem:
+            name = child.get("name")
+            if child.tag in ("page", "directory") and not name:
+                found.append(f"{path}: a <{child.tag}> has no name")
+                continue
+            if child.tag == "page":
+                full = f"{path}{name}"
+                if full in seen:
+                    found.append(f"duplicate page {full}")
+                seen.add(full)
+                if not child.get("title"):
+                    found.append(f"{full}: missing title")
+            elif child.tag == "directory":
+                check(child, f"{path}{name}/")
+    check(root, "/")
+    return found
+
+xml = '<website><page name="a" title="A"/><page name="a" title="Again"/><directory><page name="b"/></directory></website>'
+print(problems(ET.fromstring(xml)) or "no problems")
+@note
+A quick validation pass catches mistakes in the XML (here a duplicate page and a directory without a name; a page without a title would be reported too) with clear messages before any files are written. The same recursive walk serves a different purpose.
+@mistakes
+- **Writing generated files into your source folder.** Keep output separate so it can be deleted and rebuilt.
+- **Using `elem.text` for page content.** It misses everything after the first child tag. Serialise the children with `ET.tostring`.
+- **Assuming every attribute exists.** Use `elem.get("name")` and validate.
+@keys
+- Recursively walk the tree: directories become folders, pages become files.
+- `pathlib` builds paths and creates nested folders.
+- Generate into a disposable output folder from a single source file.
+- Validate the input before writing anything.
+
+=== P3.3
+@idea
+The second implementation rebuilds the generator with a **SAX** handler. Instead of walking a tree, the handler reacts to events as the parser reads the file: a `directory` start tag means "create and enter a folder", a `page` start tag means "open a new file", text and inner tags inside a page are copied into that file, and the matching end tags close the file or leave the folder.
+
+To keep the handler tidy, it **dispatches** events to methods named after the tags: `startElement("page", ...)` calls `start_page`, `endElement("directory")` calls `end_directory`, and tags without a method are passed through as HTML. This is the same `getattr` dispatch trick as in project 1, and it makes adding a new tag a matter of adding a method.
+
+With the basics working, add **navigation**: each page should link to the others. That needs to know every page before writing any of them, so it suggests a two-pass design: first collect the list of pages, then generate them with a menu. Simple passes that each do one job are easier to get right than one clever pass.
+@how
+- Override `startElement`, `endElement`, `characters`; dispatch with `getattr(self, "start_" + name, None)`.
+- Keep a stack of folder names (a list you append to and pop from) to know the current path.
+- While inside a page, write passthrough tags and text straight to the open file.
+- Escape text with `xml.sax.saxutils.escape` when writing it back out.
+- For navigation, collect page paths in a first pass, then generate with links in a second.
+@example python: A dispatching SAX handler
+import io
+from xml.sax import parse
+from xml.sax.handler import ContentHandler
+from xml.sax.saxutils import escape
+
+class SiteBuilder(ContentHandler):
+    def __init__(self):
+        super().__init__()
+        self.folders, self.files, self.current = [], {}, None
+
+    def startElement(self, name, attrs):
+        method = getattr(self, "start_" + name, None)
+        if method:
+            method(attrs)
+        elif self.current is not None:
+            self.files[self.current].append(f"<{name}>")
+
+    def endElement(self, name):
+        method = getattr(self, "end_" + name, None)
+        if method:
+            method()
+        elif self.current is not None:
+            self.files[self.current].append(f"</{name}>")
+
+    def characters(self, text):
+        if self.current is not None and text.strip():
+            self.files[self.current].append(escape(text))
+
+    def start_directory(self, attrs): self.folders.append(attrs["name"])
+    def end_directory(self): self.folders.pop()
+    def start_page(self, attrs):
+        self.current = "/".join(self.folders + [attrs["name"] + ".html"])
+        self.files[self.current] = []
+    def end_page(self): self.current = None
+
+xml = b"""<website><page name="index"><h1>Home</h1></page>
+<directory name="recipes"><page name="tea"><p>Tea &amp; biscuits</p></page></directory></website>"""
+builder = SiteBuilder()
+parse(io.BytesIO(xml), builder)
+for path, parts in builder.files.items():
+    print(path, "->", "".join(parts))
+@note
+Tag names select the methods to call, so the handler reads almost like the XML itself. The folder stack grows on `<directory>` and shrinks on `</directory>`, which gives each page its path. Collecting into a dictionary instead of files keeps the example short.
+@example python: Two passes for navigation
+pages = ["index.html", "recipes/tea.html", "recipes/scones.html", "about.html"]
+
+def relative(from_page, to_page):
+    depth = from_page.count("/")
+    return "../" * depth + to_page
+
+def menu(current):
+    links = []
+    for page in pages:
+        label = page.rsplit("/", 1)[-1].removesuffix(".html").title()
+        links.append(f"<b>{label}</b>" if page == current else f'<a href="{relative(current, page)}">{label}</a>')
+    return " | ".join(links)
+
+print(menu("index.html"))
+print(menu("recipes/tea.html"))
+@note
+The first pass (here, the list) knows every page; the second builds each page's menu. Links from inside `recipes/` need `../` to climb back up, and the current page is shown in bold instead of linking to itself.
+@mistakes
+- **Assuming `characters` is called once per text block.** SAX may split text into several calls. Append pieces rather than replacing.
+- **Forgetting to escape text you write back out.** An `&` in the source would break the HTML.
+- **Doing navigation in one pass.** Early pages cannot link to pages not yet seen. Collect first, then generate.
+@keys
+- A SAX handler reacts to start tags, text and end tags as the file is read.
+- Dispatch events to methods named after tags with `getattr`.
+- A stack tracks the current folder path.
+- Use separate passes when one job needs the results of another.
+
+=== P4.1
+@idea
+The fourth project is a **news aggregator**: a program that collects headlines from several **RSS** feeds and puts them together in one place. RSS is an XML format that websites publish so programs can follow their latest items. A feed has a `<channel>` with a title and a list of `<item>` elements, each with a title, a link, a description and a publication date.
+
+The planning insight is to keep **sources** (where news comes from: an RSS feed, a JSON API, a local file) separate from **destinations** (where it goes: the terminal, an HTML page, an email). If the core program only moves "news items" from sources to destinations, you can combine any source with any destination, and adding a new one never touches the rest.
+
+Dates need care. RSS uses the email date format (`Fri, 30 Oct 2026 14:00:00 GMT`), which `email.utils.parsedate_to_datetime` reads into a proper `datetime`. With real dates you can sort items from all feeds into one timeline.
+@how
+- RSS structure: `rss/channel/title`, then `channel/item` elements with `title`, `link`, `description`, `pubDate`.
+- ElementTree's `findtext("channel/title")` and `findall("channel/item")` read it.
+- Parse dates with `email.utils.parsedate_to_datetime`.
+- Represent each headline as a small object (a dataclass) with the same fields, whatever the source.
+- Plan source classes and destination classes that share a common item type.
+@example python: Reading an RSS document
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
+
+rss = """<rss version="2.0"><channel>
+  <title>Tea Times</title>
+  <item><title>New green tea arrives</title><link>https://example.com/green</link>
+        <pubDate>Fri, 30 Oct 2026 14:00:00 GMT</pubDate></item>
+  <item><title>Scone recipe contest</title><link>https://example.com/scones</link>
+        <pubDate>Mon, 02 Nov 2026 09:30:00 GMT</pubDate></item>
+</channel></rss>"""
+
+root = ET.fromstring(rss)
+print("Feed:", root.findtext("channel/title"))
+for item in root.findall("channel/item"):
+    when = parsedate_to_datetime(item.findtext("pubDate"))
+    print(f"{when:%d %b %H:%M}  {item.findtext('title')}  <{item.findtext('link')}>")
+@note
+`findtext` reads the text of a child by path, and `findall` returns every item. The date string becomes a real `datetime`, which can be formatted, compared and sorted.
+@example python: One item type for every source
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+@dataclass
+class NewsItem:
+    title: str
+    link: str
+    published: datetime
+    source: str
+
+items = [
+    NewsItem("Scone recipe contest", "https://example.com/scones", datetime(2026, 11, 2, 9, 30, tzinfo=timezone.utc), "Tea Times"),
+    NewsItem("Kettle prices fall", "https://example.org/kettles", datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc), "Kitchen News"),
+    NewsItem("New green tea arrives", "https://example.com/green", datetime(2026, 10, 30, 14, 0, tzinfo=timezone.utc), "Tea Times"),
+]
+for item in sorted(items, key=lambda i: i.published, reverse=True):
+    print(f"{item.published:%d %b}  [{item.source}] {item.title}")
+@note
+A `dataclass` writes `__init__` and `__repr__` for you, giving every headline the same shape whatever feed or API it came from. With one item type, sorting all sources into a single timeline is one line.
+@mistakes
+- **Mixing fetching, parsing and printing in one function.** Keep sources, items and destinations separate.
+- **Sorting dates as strings.** "Fri, 30 Oct" versus "Mon, 02 Nov" sorts wrongly. Parse them first.
+- **Assuming every feed has every field.** Use `findtext(path, default="")`.
+@keys
+- RSS is XML: a channel with items that have a title, link and date.
+- Separate sources from destinations, connected by one item type.
+- Parse RSS dates with `email.utils.parsedate_to_datetime`.
+- A dataclass gives every item the same, readable shape.
+
+=== P4.2
+@idea
+The first implementation does one thing end to end: fetch one feed and print its headlines in the terminal. That proves the hard parts work (downloading, parsing, handling dates) before any design for multiple sources is added. Write it as small functions: one that downloads text, one that parses it into items, and one that prints them.
+
+Networks and feeds fail in predictable ways: the server is down (URLError), returns an error page (HTTPError), or sends something that is not valid XML (ET.ParseError). Catch those specific errors and report them clearly, so one broken feed does not crash the whole program. Do not catch everything: a typo in your own code should still show up as an error.
+
+To develop without hammering a real site, test against a local copy of a feed. Saving one real feed to a file, or serving it locally, lets you run the program a hundred times while you work.
+@how
+- `fetch(url) -> str`, `parse(text) -> list of items`, `show(items)`: three small functions.
+- Catch `URLError`/`HTTPError` around the download and `ET.ParseError` around parsing.
+- Pass a timeout to every request.
+- Develop against a saved or locally served feed.
+- Print the source name with any error so you know which feed failed.
+@example python: Fetch, parse, show, with a local test server
+import threading
+import xml.etree.ElementTree as ET
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.request import urlopen
+
+Path("feed.xml").write_text("""<rss><channel><title>Local News</title>
+<item><title>Library opens late on Fridays</title></item>
+<item><title>Farmers market moves indoors</title></item>
+</channel></rss>""")
+
+class Quiet(SimpleHTTPRequestHandler):
+    def log_message(self, *a): pass
+
+server = HTTPServer(("127.0.0.1", 0), Quiet)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+url = f"http://127.0.0.1:{server.server_address[1]}/feed.xml"
+
+def fetch(url):
+    with urlopen(url, timeout=5) as r:
+        return r.read().decode("utf-8")
+
+def parse(text):
+    root = ET.fromstring(text)
+    return root.findtext("channel/title"), [i.findtext("title") for i in root.iter("item")]
+
+def show(name, titles):
+    print(f"== {name} ==")
+    for t in titles:
+        print(" -", t)
+
+show(*parse(fetch(url)))
+server.shutdown()
+@note
+A local server stands in for the news site, so the program can be run repeatedly while developing. Each function does one job, which makes the next step (several sources) easy.
+@example python: One broken feed must not stop the others
+import xml.etree.ElementTree as ET
+from urllib.error import URLError
+
+def parse(text):
+    return [i.findtext("title") for i in ET.fromstring(text).iter("item")]
+
+feeds = {
+    "Good feed": "<rss><channel><item><title>All fine</title></item></channel></rss>",
+    "Broken XML": "<rss><channel><item><title>oops</channel>",
+    "Empty feed": "<rss><channel></channel></rss>",
+}
+for name, text in feeds.items():
+    try:
+        titles = parse(text)
+    except ET.ParseError as error:
+        print(f"{name}: could not read the feed ({error})")
+        continue
+    print(f"{name}: {titles or 'no items'}")
+@note
+The broken feed raises ET.ParseError, which is caught and reported with the feed's name; the loop carries on with the next feed. An empty feed is not an error, just a feed with no items.
+@mistakes
+- **Catching every exception.** Bugs in your own code get hidden. Catch the network and parse errors you expect.
+- **Testing against a live site constantly.** You may get blocked. Use a saved copy or a local server.
+- **One big function.** Fetching, parsing and printing separately are each easy to test and reuse.
+@keys
+- Build one source and one destination end to end first.
+- Small functions: fetch, parse, show.
+- Catch URLError, HTTPError and ParseError per feed, and report which feed failed.
+- Develop against a local copy of the feed.
+
+=== P4.3
+@idea
+The second implementation turns the plan into classes. A **source** is any object with a method that returns news items: `RSSSource(url)`, `JSONSource(url)`, `FileSource(path)`. A **destination** is any object with a method that receives items: `TerminalDestination()`, `HTMLDestination(path)`. A small **agent** holds a list of each and moves items from all sources to all destinations.
+
+The agent never needs to know what RSS or HTML is. It just calls `get_items()` on each source and `receive_items(items)` on each destination. This is duck typing from chapter 7 put to work: anything with the right method fits, so new sources and destinations plug in without changing the agent.
+
+Further ideas build on this naturally: filtering (only headlines containing a keyword), removing duplicates that several feeds carry, sorting everything by date, or a destination that only writes items newer than the last run. Each can be a small class or a step in the agent.
+@how
+- Sources: classes with `get_items()` returning a list of NewsItem objects.
+- Destinations: classes with `receive_items(items)`.
+- Agent: `add_source`, `add_destination`, `distribute()` that collects from every source and sends to every destination.
+- Add filtering and de-duplication in the agent (or as wrapper sources).
+- Each new format is one new class; nothing else changes.
+@example python: Sources, destinations and an agent
+from dataclasses import dataclass
+
+@dataclass
+class Item:
+    title: str
+    source: str
+
+class ListSource:
+    def __init__(self, name, titles):
+        self.name, self.titles = name, titles
+    def get_items(self):
+        return [Item(t, self.name) for t in self.titles]
+
+class Terminal:
+    def receive_items(self, items):
+        for i in items:
+            print(f"[{i.source}] {i.title}")
+
+class HTMLPage:
+    def __init__(self):
+        self.html = ""
+    def receive_items(self, items):
+        self.html = "<ul>" + "".join(f"<li>{i.title}</li>" for i in items) + "</ul>"
+
+class Agent:
+    def __init__(self):
+        self.sources, self.destinations = [], []
+    def distribute(self, keyword=None):
+        items = [i for s in self.sources for i in s.get_items()]
+        if keyword:
+            items = [i for i in items if keyword.lower() in i.title.lower()]
+        for d in self.destinations:
+            d.receive_items(items)
+
+agent = Agent()
+agent.sources += [ListSource("Tea Times", ["Green tea arrives", "Scone contest"]), ListSource("Kitchen", ["Tea kettles on sale"])]
+page = HTMLPage()
+agent.destinations += [Terminal(), page]
+agent.distribute(keyword="tea")
+print(page.html)
+@note
+The agent knows nothing about where items come from or how they are shown. Both destinations got the same filtered items, and adding, say, an email destination would be one more small class.
+@example python: Removing duplicates that several feeds carry
+from dataclasses import dataclass
+
+@dataclass
+class Item:
+    title: str
+    link: str
+    source: str
+
+def unique(items):
+    seen = set()
+    for item in items:
+        key = item.link.rstrip("/").lower()
+        if key not in seen:
+            seen.add(key)
+            yield item
+
+items = [
+    Item("Green tea arrives", "https://example.com/green", "Tea Times"),
+    Item("Green tea is here!", "https://EXAMPLE.com/green/", "Daily Brew"),
+    Item("Scone contest", "https://example.com/scones", "Tea Times"),
+]
+for item in unique(items):
+    print(item.source, "-", item.title)
+@note
+Two feeds linked to the same story with slightly different addresses. Normalising the link (lower case, no trailing slash) before comparing catches the duplicate, and the generator keeps the first copy it saw.
+@mistakes
+- **Letting the agent know about formats.** Then every new format changes the agent. Keep format details inside sources and destinations.
+- **Comparing raw links for duplicates.** Small differences hide real duplicates. Normalise first.
+- **Forgetting that one source failing should not stop the rest.** Catch errors per source.
+@keys
+- Sources provide items, destinations receive them, and an agent connects them.
+- Duck typing lets any object with the right method plug in.
+- Filtering, sorting and de-duplication fit naturally in the agent.
+- New formats are new classes; existing code stays the same.
+
+=== P5.1
+@idea
+The fifth project is a **chat server**: people connect from a terminal, type messages, and everyone else sees them. Planning starts with what the server must do: accept connections, ask each person for a name, receive lines of text, send each line to everyone else, and notice when someone leaves. Clients do not need a special program: tools like `telnet` or `nc` (netcat) open a raw text connection, so `nc localhost 6667` is enough to join.
+
+The hard part is that many people are connected **at the same time**, and each one is mostly silent, waiting. A program that handles one client at a time would freeze everyone while it waits for one person to type. **asyncio** solves this neatly: each connection runs in its own coroutine, and whenever a coroutine waits (`await reader.readline()`), the event loop switches to another one that is ready. One thread serves everyone.
+
+Before writing the server, it helps to see the idea in a tiny example: several tasks that each wait for different lengths of time finish in order of their waiting, all running together.
+@how
+- List the server's jobs: accept, name, broadcast, leave.
+- Clients connect with `nc localhost PORT` or `telnet localhost PORT`.
+- `asyncio.start_server(handle, host, port)` calls `handle(reader, writer)` for every connection.
+- `await reader.readline()` waits for a line without blocking other clients.
+- `writer.write(bytes)` then `await writer.drain()` sends data.
+@example python: Several tasks waiting at once
+import asyncio
+
+async def brew(drink, seconds):
+    print(f"start {drink}")
+    await asyncio.sleep(seconds)
+    print(f"{drink} ready")
+    return drink
+
+async def main():
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    done = await asyncio.gather(brew("tea", 0.3), brew("coffee", 0.1), brew("soup", 0.2))
+    print(done, "all together in under 0.5 s:", loop.time() - start < 0.5)
+
+asyncio.run(main())
+@note
+All three start at once, and each finishes as its wait ends, so coffee is ready first. The total time is about the longest wait, not the sum, because waiting tasks do not block each other. A chat server's clients wait for typing in exactly the same way.
+@example python: An echo server that serves two clients together
+import asyncio
+
+async def handle(reader, writer):
+    writer.write(b"Name? ")
+    await writer.drain()
+    name = (await reader.readline()).decode().strip()
+    writer.write(f"Hello, {name}!\n".encode())
+    await writer.drain()
+    writer.close()
+
+async def client(port, name, delay):
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    await reader.readuntil(b"? ")
+    await asyncio.sleep(delay)                       # a slow typist
+    writer.write(f"{name}\n".encode())
+    reply = (await reader.readline()).decode().strip()
+    writer.close()
+    return reply
+
+async def main():
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    for reply in await asyncio.gather(client(port, "Slow Sam", 0.3), client(port, "Quick Quinn", 0.0)):
+        print(reply)
+    server.close()
+    await server.wait_closed()
+
+asyncio.run(main())
+@note
+Quinn is answered straight away even though Sam connected first and is still typing: the server never waits on one client while others are ready. `gather` returns the replies in the order the clients were listed.
+@mistakes
+- **Serving one client at a time.** Everyone else freezes while one person types. Use asyncio (or threads).
+- **Calling `time.sleep` in a coroutine.** It blocks every client. Use `await asyncio.sleep`.
+- **Forgetting to encode and decode.** Streams carry bytes.
+@keys
+- A chat server accepts many clients, names them, broadcasts lines and notices departures.
+- Clients can be plain `nc` or `telnet` connections.
+- asyncio runs a coroutine per connection in one thread; `await` lets others run while waiting.
+- Total time is the longest wait, not the sum.
+
+=== P5.2
+@idea
+The first implementation makes the chat work: when someone sends a line, everyone else receives it. To do that, the server must remember who is connected. A `ChatServer` object holds a set (or dictionary) of the connected clients' **writers**, shared by every connection's coroutine. When a line arrives from one client, the server writes it to all the others.
+
+Each connection's coroutine follows the same pattern: ask for a name, announce the arrival, then loop reading lines until the client disconnects (`readline` returns `b""`), sending each line to the others, and finally remove the client and announce the departure. Putting the cleanup in a `finally` block guarantees it happens however the loop ends, even if the connection breaks.
+
+Testing a network program by hand gets tedious, so it pays to test it from code: start the server, connect a few test clients with `asyncio.open_connection`, have them send lines, and check what the others received.
+@how
+- Keep connected writers in a shared collection on the server object.
+- `broadcast(message, sender)` writes to every writer except the sender's.
+- Loop `while line := await reader.readline():` until the client hangs up.
+- Remove the client in `finally`, then announce that they left.
+- Test with scripted clients instead of typing into terminals.
+@example python: A working broadcast chat, tested with two clients
+import asyncio
+
+class ChatServer:
+    def __init__(self):
+        self.writers = {}
+
+    async def broadcast(self, text, sender=None):
+        for w in list(self.writers):
+            if w is not sender:
+                w.write(f"{text}\n".encode())
+                await w.drain()
+
+    async def handle(self, reader, writer):
+        name = (await reader.readline()).decode().strip()
+        self.writers[writer] = name
+        await self.broadcast(f"* {name} joined", writer)
+        try:
+            while line := await reader.readline():
+                await self.broadcast(f"{name}: {line.decode().strip()}", writer)
+        finally:
+            del self.writers[writer]
+            await self.broadcast(f"* {name} left")
+            writer.close()
+
+async def main():
+    chat = ChatServer()
+    server = await asyncio.start_server(chat.handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+
+    ada_r, ada_w = await asyncio.open_connection("127.0.0.1", port)
+    ada_w.write(b"Ada\n"); await ada_w.drain()
+    await asyncio.sleep(0.05)
+    ben_r, ben_w = await asyncio.open_connection("127.0.0.1", port)
+    ben_w.write(b"Ben\nhi Ada!\n"); await ben_w.drain()
+    await asyncio.sleep(0.05)
+    ben_w.close()
+    await asyncio.sleep(0.05)
+
+    received = []
+    while True:
+        try:
+            line = await asyncio.wait_for(ada_r.readline(), 0.2)
+        except asyncio.TimeoutError:
+            break
+        received.append(line.decode().strip())
+    print("Ada saw:", received)
+    ada_w.close()
+    server.close()
+    await server.wait_closed()
+
+asyncio.run(main())
+@note
+Ada sees Ben join, his message and his departure, but not her own lines. The `finally` block ran when Ben's connection closed, which is what produced "* Ben left". Scripted clients make the test repeatable.
+@example python: Reading lines until the other side hangs up
+import asyncio
+
+async def main():
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"hello\nhow are you?\n")
+    reader.feed_eof()                          # the other side hung up
+    count = 0
+    while line := await reader.readline():
+        count += 1
+        print(count, line.decode().strip())
+    print("readline returned", repr(await reader.readline()), "so the loop ended")
+
+asyncio.run(main())
+@note
+`readline` returns each line in turn and then an empty bytes object once the connection is closed, which ends the `while` loop. That empty result is the signal a chat server uses to know someone has left.
+@mistakes
+- **Sending a message back to its sender.** Skip the sender's writer when broadcasting.
+- **Forgetting to remove disconnected clients.** Writing to them raises errors. Clean up in `finally`.
+- **Changing the client collection while looping over it.** Loop over a copy: `list(self.writers)`.
+@keys
+- A shared server object remembers every connected writer.
+- Broadcast writes each message to everyone except the sender.
+- `readline` returning `b""` means the client left; clean up in `finally`.
+- Test network programs with scripted clients.
+
+=== P5.3
+@idea
+The second implementation adds **commands** and **rooms**. Lines that start with `/` are commands for the server rather than chat: `/nick NewName` changes your name, `/who` lists the people present, `/join kitchen` moves you to another room, `/quit` leaves. Everything else is a normal message, delivered only to people in the same room.
+
+Commands are parsed by splitting the line into the command word and the rest: `"/nick Captain Tea"[1:].partition(" ")` gives `("nick", " ", "Captain Tea")`. A dictionary or method-name dispatch (`getattr(self, "do_" + command, None)`) then picks the right function, the same trick used in projects 1 and 3. Unknown commands get a helpful reply.
+
+To keep track of each person's name and room, give every connection a small `User` object holding its writer, name and room. Broadcasting then filters by room. New rooms need no setup: a room exists as soon as someone joins it.
+@how
+- If a line starts with `/`, split it into command and argument with `partition(" ")`.
+- Dispatch with a dictionary of handlers or `getattr(self, "do_" + cmd, None)`.
+- A `User` object holds writer, name and room.
+- Broadcast only to users whose `room` matches the sender's.
+- Reply to unknown commands with the list of valid ones.
+@example pycon: Splitting a command from its argument
+>>> "/nick Captain Tea"[1:].partition(" ")
+>>> "/who"[1:].partition(" ")
+>>> line = "/join kitchen"
+>>> command, _, arg = line[1:].partition(" ")
+>>> command, arg
+>>> "hello everyone".startswith("/")
+@note
+`partition` always returns three parts, even when there is no argument, so unpacking never fails. A line that does not start with `/` is an ordinary chat message.
+@example python: Commands and rooms, without the networking
+class User:
+    def __init__(self, name):
+        self.name, self.room, self.inbox = name, "lobby", []
+
+class Chat:
+    def __init__(self):
+        self.users = []
+
+    def send(self, user, line):
+        if line.startswith("/"):
+            command, _, arg = line[1:].partition(" ")
+            handler = getattr(self, "do_" + command, None)
+            if handler is None:
+                user.inbox.append("commands: /nick NAME, /join ROOM, /who")
+            else:
+                handler(user, arg.strip())
+        else:
+            for other in self.users:
+                if other is not user and other.room == user.room:
+                    other.inbox.append(f"{user.name}: {line}")
+
+    def do_nick(self, user, arg):
+        user.name = arg or user.name
+
+    def do_join(self, user, arg):
+        user.room = arg or "lobby"
+
+    def do_who(self, user, arg):
+        user.inbox.append(", ".join(u.name for u in self.users if u.room == user.room))
+
+chat = Chat()
+ada, ben, cy = User("Ada"), User("Ben"), User("Cy")
+chat.users += [ada, ben, cy]
+chat.send(cy, "/join kitchen")
+chat.send(ada, "/nick Countess")
+chat.send(ada, "hello, lobby!")
+chat.send(cy, "anyone in the kitchen?")
+chat.send(ben, "/who")
+chat.send(ben, "/dance")
+for u in (ada, ben, cy):
+    print(u.name, u.room, u.inbox)
+@note
+The command logic is plain Python, tested here without any sockets: in the real server, `inbox.append` becomes `writer.write`. Cy's message reaches nobody because the kitchen is empty, and the unknown `/dance` gets the list of commands.
+@mistakes
+- **Treating a command as a chat message.** Check for `/` first.
+- **A huge if/elif chain of commands.** Dispatch by name or dictionary, so new commands are new methods.
+- **Mixing networking into the command logic.** Keep the logic testable without sockets.
+@keys
+- Lines starting with `/` are commands; `partition` splits command and argument.
+- Dispatch commands with `getattr` or a dictionary.
+- A User object holds each person's name and room; broadcasts filter by room.
+- Keep chat logic separate from networking so it can be tested.
