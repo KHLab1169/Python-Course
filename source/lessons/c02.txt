@@ -1,0 +1,267 @@
+=== 2.1
+@idea
+A **sequence** is an ordered collection of items: a list of names, the letters of a word, the days of a week. Python has several kinds (lists, tuples, strings, ranges), and they all share the same way of reaching an item: its position, called its **index**, written in square brackets.
+
+Positions start at **0**, not 1. The first item is `x[0]`, the second `x[1]`. A helpful picture is a ruler: the index is the distance from the start, and the first item is zero steps away. The last item of a sequence with 5 items is therefore at index 4.
+
+Python also counts from the end with **negative indices**: `x[-1]` is the last item, `x[-2]` the one before it. This saves you from writing `x[len(x) - 1]` and works whatever the length. Strings are sequences too, so `"hello"[1]` is `'e'`.
+@how
+- `seq[i]` gives the item at position `i`; the first position is 0.
+- For a sequence of length `n`, valid indices run from `0` to `n - 1`, and from `-1` back to `-n`.
+- `seq[-1]` is the last item, `seq[-2]` the second to last.
+- An index outside the range raises an **IndexError**.
+- `len(seq)` gives the number of items.
+- Indexing a string gives a one-character string. Indexing a list gives the item itself, which can be any value, even another list.
+@example pycon: Positions from the front and from the back
+>>> week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+>>> week[0], week[4]
+>>> week[-1], week[-7]
+>>> len(week)
+>>> week[len(week) - 1]
+>>> week[7]
+@note
+The last valid index is 6, one less than the length. `week[-1]` and `week[len(week) - 1]` both reach Sunday, but the negative form is shorter and cannot be wrong. Asking for index 7 raises an IndexError.
+@example pycon: Indexing strings and lists inside lists
+>>> word = "Python"
+>>> word[0] + word[-1]
+>>> grid = [[1, 2, 3], [4, 5, 6]]
+>>> grid[1]
+>>> grid[1][2]
+>>> initials = [name[0] for name in ["Ada", "Grace", "Linus"]]
+>>> initials
+@note
+`grid[1]` is the second inner list; adding `[2]` takes its third item. The last two lines peek ahead at a list comprehension, which takes the first letter of each name.
+@mistakes
+- **Thinking the first item is at 1.** `colours[1]` is the second colour. The first is `colours[0]`.
+- **Using `len(x)` as an index.** It is always one past the end and raises an IndexError. The last item is `x[-1]`.
+- **Forgetting that strings cannot be changed.** `word[0] = "J"` raises a TypeError. Build a new string instead: `"J" + word[1:]`.
+@keys
+- Indices start at 0; the last item is at `len(seq) - 1`, or simply `-1`.
+- Negative indices count from the end.
+- An index outside the sequence raises an IndexError.
+- Strings, lists and tuples are all indexed the same way.
+
+=== 2.2
+@idea
+A **slice** takes a part of a sequence and gives it back as a new sequence of the same kind. You write it as `seq[start:end]`. The result includes the item at `start` and stops **just before** `end`. So `"abcdefg"[2:5]` is `'cde'`: positions 2, 3 and 4.
+
+The "up to but not including" rule seems odd at first, but it pays off. The length of a slice is simply `end - start`. And two slices that share a boundary fit together with nothing lost or repeated: `s[:3] + s[3:]` is always the whole of `s`. Picture the indices as marks *between* the items, and the slice as the part between two marks.
+
+Either end can be left out: `s[:3]` means "from the start", `s[3:]` means "to the end", and `s[:]` is a copy of the whole thing. A third number adds a **step**: `s[::2]` takes every second item, and a negative step walks backwards, so `s[::-1]` reverses the sequence.
+@how
+- `s[start:end]` includes `start` and excludes `end`. Its length is `end - start`.
+- Leave out `start` to begin at 0; leave out `end` to go to the end.
+- Negative positions work in slices too: `s[-3:]` is the last three items.
+- `s[start:end:step]` takes every `step`-th item. A negative step goes backwards: `s[::-1]` reverses.
+- Slices never raise an IndexError: `s[2:100]` just stops at the end.
+- Slicing a list gives a new list (a shallow copy); changing the slice does not change the original.
+@example pycon: Taking parts of a date and a word
+>>> date = "2026-11-20"
+>>> date[:4], date[5:7], date[8:]
+>>> filename = "report.final.pdf"
+>>> filename[-3:]
+>>> word = "racecar"
+>>> word == word[::-1]
+>>> "abcdefgh"[1::3]
+@note
+The year, month and day are pulled out by position. `filename[-3:]` gives the last three characters, the file type. A word that equals its reverse is a palindrome. A step of 3 from position 1 gives b, e and h.
+@example pycon: Slices are copies and fit together
+>>> nums = [10, 20, 30, 40, 50]
+>>> nums[:2] + nums[2:]
+>>> first_two = nums[:2]
+>>> first_two[0] = 99
+>>> nums
+>>> nums[1:100]
+>>> nums[4:1]
+@note
+Changing the slice did not change `nums`, because a slice is a new list. A slice past the end just stops, and a slice whose start is after its end is empty (unless the step is negative).
+@mistakes
+- **Expecting the end item to be included.** `s[2:5]` has three items, positions 2 to 4. To include position 5, write `s[2:6]`.
+- **Using a slice when you want one item.** `s[0:1]` is a list with one item; `s[0]` is the item itself.
+- **Forgetting the step direction.** `s[5:1]` is empty. To go backwards from 5 to 2, write `s[5:1:-1]`.
+@keys
+- `s[start:end]` includes `start`, excludes `end`, and has `end - start` items.
+- Leaving out either end means "from the start" or "to the end"; `s[:]` is a copy.
+- A step takes every n-th item; `s[::-1]` reverses.
+- Slices never raise an IndexError and always give a new sequence.
+
+=== 2.3
+@idea
+All sequences share a small set of operations. `+` joins two sequences of the same kind into a new one. `*` repeats a sequence a number of times. `in` asks whether an item is in it, and gives back `True` or `False`. `len`, `min` and `max` tell you how many items there are and which is smallest and largest.
+
+Because these work the same way on lists, tuples and strings, you learn them once. There is one difference worth knowing: for strings, `in` looks for a whole piece of text (`"cat" in "concatenate"` is `True`), while for a list it looks for one item that is equal (`"cat" in ["concatenate"]` is `False`).
+
+**None** is Python's value for "nothing here yet". `[None] * 5` makes a list of five empty slots you can fill in later, and `[]` is an empty list. An empty sequence counts as false in an `if`, which you will use often.
+@how
+- `a + b` joins sequences of the same type: list + list, string + string. List + string raises a TypeError.
+- `seq * n` repeats it `n` times. `[0] * 4` is `[0, 0, 0, 0]`.
+- `x in seq` and `x not in seq` give `True` or `False`.
+- `len(seq)`, `min(seq)`, `max(seq)`; `sum(numbers)` adds them up.
+- `None` means "no value"; `[None] * n` makes placeholders; `[]` is empty.
+- Empty sequences are falsy: `if items:` means "if there is at least one item".
+@example pycon: Membership and quick statistics
+>>> scores = [72, 88, 95, 61, 79]
+>>> 95 in scores, 100 in scores
+>>> len(scores), min(scores), max(scores)
+>>> sum(scores) / len(scores)
+>>> "ss" in "Mississippi", "ss" in ["Mississippi"]
+>>> "@" not in "ada.example.com"
+@note
+`sum(scores) / len(scores)` is the average. For a string, `in` finds a piece of text; for a list, it looks for an equal item, which is why the second result is `False`. The last line is a quick (incomplete) email check.
+@example pycon: Joining, repeating and placeholders
+>>> [1, 2] + [3]
+>>> "-" * 20
+>>> seats = [None] * 4
+>>> seats[2] = "Ada"
+>>> seats
+>>> bool([]), bool([0])
+>>> [1, 2] + "3"
+@note
+Repeating `"-"` makes a quick divider line. `[None] * 4` reserves four seats, one of which is then filled. `[0]` is not empty (it holds one item), so it counts as true. Joining a list and a string raises a TypeError.
+@mistakes
+- **Repeating a list of lists with `*`.** `[[0] * 3] * 2` makes two references to the same inner list, so changing one row changes both. Use `[[0] * 3 for _ in range(2)]`.
+- **Using `in` on a string to find a word.** `"art" in "start"` is `True`. Split into words first if you need whole words: `"art" in "start".split()`.
+- **Calling `max` on an empty list.** It raises a ValueError. Check `if scores:` first, or use `max(scores, default=0)`.
+@keys
+- `+` joins and `*` repeats sequences of the same type.
+- `in` tests membership: a piece of text for strings, an equal item for lists and tuples.
+- `len`, `min`, `max` and `sum` summarise a sequence.
+- `None` means "no value"; empty sequences count as false.
+
+=== 2.4
+@idea
+Lists are the sequence you can **change** after creating it, which makes them the everyday workhorse of Python. You can replace an item by assigning to its index, remove items with `del`, and even replace a whole slice with something of a different length.
+
+`list(...)` builds a list from any sequence, such as the characters of a string: `list("abc")` is `['a', 'b', 'c']`. This is useful because strings cannot be changed: turn the text into a list, change the list, then join it back.
+
+**Slice assignment** is the powerful one. `nums[1:3] = [7, 8, 9]` removes the two items at positions 1 and 2 and puts three new items in their place, so the list grows. Assigning an empty list to a slice deletes it, and assigning to an empty slice like `nums[2:2]` inserts without removing anything.
+@how
+- `lst[i] = value` replaces one item. The index must exist.
+- `del lst[i]` removes one item; `del lst[a:b]` removes a slice. Later items move up.
+- `lst[a:b] = other` replaces that slice with the items of `other`, whatever its length.
+- `lst[i:i] = [x, y]` inserts at position `i`; `lst[a:b] = []` deletes.
+- `list(seq)` makes a new list from a string, tuple or range.
+- Assigning a list to a second name does **not** copy it: both names refer to the same list. Use `lst[:]` or `lst.copy()` for a copy.
+@example pycon: Editing a list in place
+>>> todo = ["email", "call bank", "shop", "gym"]
+>>> todo[1] = "call Ada"
+>>> del todo[-1]
+>>> todo
+>>> todo[1:2] = ["call Ada", "book flights", "pack"]
+>>> todo
+>>> todo[0:0] = ["coffee"]
+>>> todo
+@note
+The list changes in place each time. Replacing one item with three makes the list longer, and assigning to the empty slice `todo[0:0]` inserts at the front.
+@example pycon: Two names, one list
+>>> a = [1, 2, 3]
+>>> b = a
+>>> b.append(4)
+>>> a
+>>> c = a[:]
+>>> c.append(5)
+>>> a, c
+>>> letters = list("cat")
+>>> letters[0] = "b"
+>>> "".join(letters)
+@note
+`b = a` gives the same list a second name, so appending through `b` shows up in `a`. `a[:]` makes a separate copy. The last lines change a word by turning it into a list and joining it back.
+@mistakes
+- **Thinking `b = a` copies a list.** Both names point to one list. Use `b = a.copy()` or `b = a[:]`.
+- **Assigning past the end.** `lst[10] = "x"` on a short list raises an IndexError. Use `append` to add at the end.
+- **Assigning a string to a slice.** `lst[0:1] = "hello"` inserts five separate letters. Wrap it: `lst[0:1] = ["hello"]`.
+- **Deleting while looping over the same list.** Items move up and get skipped. Loop over a copy (`for x in lst[:]`) or build a new list.
+@keys
+- Lists can be changed: assign to an index, `del` an item or slice, or assign to a slice.
+- Slice assignment can grow, shrink, insert into or delete from a list.
+- `list(seq)` turns any sequence into a new list.
+- `b = a` shares the list; `a[:]` or `a.copy()` copies it.
+
+=== 2.5
+@idea
+A **method** is a function that belongs to a value and works on it. You call it with a dot: `nums.append(4)`. Lists come with a dozen methods for adding, finding, removing and ordering items, and knowing them saves you from writing loops for common jobs.
+
+Most list methods **change the list in place and return `None`**. That is a deliberate signal from Python: "I changed the list you already have; there is no new list to hand back." It is why `nums = nums.sort()` leaves you with `None`. When you want a new, sorted list and keep the original, use the built-in function `sorted(nums)` instead.
+
+Sorting can be customised. `reverse=True` sorts from largest to smallest. `key=` takes a function that is applied to each item to decide its order: `key=len` sorts words by length, `key=str.lower` sorts text ignoring upper and lower case.
+@how
+- Add: `append(x)` one item at the end; `extend(seq)` several items; `insert(i, x)` at a position.
+- Remove: `pop()` removes and returns the last item, `pop(i)` the one at `i`; `remove(x)` removes the first equal item.
+- Find: `index(x)` gives the first position of `x` (ValueError if missing); `count(x)` how many times it appears.
+- Order: `sort()` and `reverse()` change the list and return `None`; `sorted(seq)` and `reversed(seq)` give new results.
+- `sort(key=..., reverse=True)`: the key function decides what to compare.
+@example pycon: A queue at the counter
+>>> queue = ["Ada", "Ben"]
+>>> queue.append("Cy")
+>>> queue.insert(0, "Dee")
+>>> queue
+>>> served = queue.pop(0)
+>>> served, queue
+>>> queue.remove("Ben")
+>>> queue.index("Cy"), queue.count("Ada")
+@note
+`pop(0)` takes the first person out and gives them back, so it can be stored. `remove` deletes by value, `index` finds a position and `count` counts matches. For long queues, `collections.deque` is faster, as you will see later.
+@example pycon: Sorting in place, sorting a copy, sorting by a key
+>>> words = ["pear", "Fig", "banana", "apple"]
+>>> sorted(words)
+>>> sorted(words, key=str.lower)
+>>> sorted(words, key=len, reverse=True)
+>>> result = words.sort()
+>>> print(result)
+>>> words
+@note
+Plain sorting puts capital letters before lower case, so "Fig" comes first. `key=str.lower` compares the lower-case versions instead. `words.sort()` changed `words` itself and returned `None`, which is what `result` holds.
+@mistakes
+- **Writing `lst = lst.sort()`.** The list becomes `None`. Write `lst.sort()` on its own line, or `lst = sorted(lst)`.
+- **Using `append` to add several items.** `nums.append([4, 5])` adds one item, a list. Use `nums.extend([4, 5])`.
+- **Calling `index` or `remove` for something that is not there.** Both raise a ValueError. Check with `in` first.
+- **Sorting mixed types.** `[3, "a"].sort()` raises a TypeError: Python will not guess how to order numbers and text.
+@keys
+- `append`, `extend` and `insert` add; `pop` and `remove` take away; `index` and `count` look things up.
+- Methods that change the list return `None`; `sorted()` returns a new list.
+- `key=` chooses what to sort by; `reverse=True` sorts largest first.
+- Check with `in` before `index` or `remove` to avoid a ValueError.
+
+=== 2.6
+@idea
+A **tuple** is a sequence you cannot change after it is made. It is written with commas, usually inside brackets: `(3, 4)`. You can index it, slice it, loop over it and use `in` on it, just like a list, but you cannot assign to an item, append or remove.
+
+Why want a sequence that cannot change? Because some data comes as a fixed group whose parts belong together: a point `(x, y)`, a colour `(255, 128, 0)`, a date `(2026, 11, 20)`. Making it a tuple tells the reader "this is one record, not a growing collection", and Python protects it from being changed by mistake. Tuples can also be dictionary keys and set members, which lists cannot.
+
+It is the **comma** that makes a tuple, not the brackets. `(5)` is just the number 5 in brackets, while `(5,)` and even `5,` are tuples with one item. Functions often return several values as a tuple, and you can **unpack** it straight into names: `x, y = point`.
+@how
+- Make one with commas: `t = (1, 2, 3)` or just `t = 1, 2, 3`. Empty tuple: `()`. One item: `(x,)`.
+- Index, slice, `len`, `in`, `+` and `*` all work and return new tuples.
+- Assigning to an item raises a TypeError.
+- `tuple(seq)` builds a tuple from any sequence.
+- Unpack into names: `x, y = (3, 4)`. The number of names must match.
+- Methods: only `count` and `index`, since nothing can change.
+@example pycon: Records that should not change
+>>> origin = (0, 0)
+>>> point = (3, 4)
+>>> dx, dy = point[0] - origin[0], point[1] - origin[1]
+>>> (dx ** 2 + dy ** 2) ** 0.5
+>>> birthday = (1815, 12, 10)
+>>> year, month, day = birthday
+>>> print(f"Ada Lovelace was born on {day}/{month}/{year}")
+@note
+The distance between the points uses Pythagoras. Unpacking `birthday` into three names makes the next line readable. The `f"..."` string fills in the values in curly brackets, which you will meet properly in chapter 3.
+@example pycon: The comma makes the tuple
+>>> type((5)), type((5,))
+>>> pair = "Ada", 36
+>>> pair
+>>> pair + ("London",)
+>>> tuple([1, 2, 3])
+>>> pair[0] = "Grace"
+@note
+`(5)` is an int and `(5,)` a tuple. Writing values with commas makes a tuple even without brackets. Adding tuples gives a new, longer tuple. Changing an item raises a TypeError.
+@mistakes
+- **Leaving out the comma in a one-item tuple.** `("solo")` is just a string. Write `("solo",)`.
+- **Trying to change a tuple.** Build a new one instead: `point = (10, point[1])`.
+- **Unpacking the wrong number of values.** `x, y = (1, 2, 3)` raises a ValueError. Use `x, y, *rest = ...` to collect extras.
+- **Thinking a tuple's contents can never change.** A tuple holding a list can't swap that list for another, but the list itself can still change.
+@keys
+- A tuple is a sequence that cannot be changed; the comma makes it.
+- Use tuples for fixed records (points, dates, colours) and lists for collections that grow.
+- Unpack a tuple into names: `x, y = point`.
+- Tuples can be dictionary keys; lists cannot.

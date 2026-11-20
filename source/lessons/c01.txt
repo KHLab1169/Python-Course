@@ -1,0 +1,277 @@
+=== 1.1
+@idea
+Python is a program that reads instructions written in the Python language and carries them out. You can talk to it in two ways. The first is the **interactive interpreter**: you type one line at the `>>>` prompt, press Enter, and Python answers straight away. The second is a **saved program**: a file of instructions that Python runs from top to bottom. This lesson is about the first way, because it gives you instant feedback while you learn.
+
+Think of the interpreter as a calculator that also understands words. Type `2 + 3` and it shows `5`. Type `"hi" * 3` and it shows `'hihihi'`. Whatever you type is an **expression**, and the interpreter shows you its value. That habit of trying something and looking at the answer is the fastest way to learn a language.
+
+IDLE is the small editor that comes with Python. Its Shell window is the same interactive interpreter, with colours and a menu. In this course the editor in each exercise plays the role of a saved program, so there you need `print()` to see a result.
+@how
+- Install Python 3 from python.org (on Windows, tick "Add python.exe to PATH" in the installer). macOS and Linux often have it already: try `python3 --version` in a terminal.
+- Start the interpreter by typing `python` (Windows) or `python3` (macOS, Linux) in a terminal, or open IDLE. The `>>>` prompt means Python is waiting for you.
+- Type an expression and press Enter: Python works it out and shows the value on the next line.
+- `print(...)` shows text without the quotes. At the prompt you rarely need it; in a saved program you always do.
+- Leave with `exit()` or `quit()`, or press Ctrl+D (macOS, Linux) or Ctrl+Z then Enter (Windows).
+- When something goes wrong Python prints an error. Read the **last line** first: it names the kind of error and what it was about.
+@example pycon: The interpreter as a calculator
+>>> 60 * 24
+>>> (9 + 5) * 2
+>>> 7 / 2
+>>> 2 ** 8
+>>> print("Minutes in a day:", 60 * 24)
+@note
+Each expression is worked out and its value shown. `print` can take several things separated by commas and puts a space between them. Brackets work as in maths: they decide what is done first.
+@example pycon: Reading an error message
+>>> prnt("hello")
+>>> print("hello"
+...  )
+>>> 10 / 0
+@note
+The first line is a typo, so Python raises a NameError: it has never heard of a name called prnt. The second shows that Python waits with `...` when a bracket is still open, so a line can continue. The last raises a ZeroDivisionError. In every case the last line of the error tells you what happened.
+@mistakes
+- **Typing a shell command at the `>>>` prompt.** `python hello.py` is something you type in the terminal, not inside Python. At `>>>` it gives a SyntaxError. Leave the interpreter first with `exit()`.
+- **Forgetting the brackets on print.** `print "hi"` was Python 2. In Python 3 it is `print("hi")`.
+- **Panicking at a long error.** Start at the bottom line, which says what went wrong, then look up to the line number that says where.
+- **Expecting a value to appear in a saved program.** In a file, a line like `2 + 3` is worked out and thrown away. Use `print(2 + 3)`.
+@keys
+- The `>>>` prompt shows the value of every expression you type; a saved program shows only what you `print`.
+- `print` can show several values separated by commas, with a space between them.
+- Read errors from the bottom up: the last line names the error.
+- Quit the interpreter with `exit()` or Ctrl+D / Ctrl+Z.
+
+=== 1.2
+@idea
+Python has two main kinds of number. **Integers** (`int`) are whole numbers such as `7`, `-3` or `1000000`, and they can be as big as you like. **Floating-point numbers** (`float`) have a decimal point, such as `2.5` or `0.1`. Most of the time Python picks the right one for you, but knowing the difference explains a few surprises.
+
+The operators are the ones from school, plus three that programmers use all the time. `/` always gives a float, even for `8 / 2`. `//` is **floor division**: it divides and rounds down to a whole number. `%` is the **remainder** (also called modulo) after that whole-number division. Together they answer questions like "how many full boxes, and how many left over?". `**` raises to a power.
+
+Floats are stored in binary, so most decimals are stored as a tiny approximation. That is why `0.1 + 0.2` shows `0.30000000000000004`. It is not a bug in Python: every language that uses standard floats does this. For money, round when you display, or use the `decimal` module you will meet later.
+@how
+- `+ - *` work as usual. `/` gives a float: `7 / 2` is `3.5`.
+- `//` divides and rounds **down**: `7 // 2` is `3`, and `-7 // 2` is `-4` (down means towards minus infinity).
+- `%` gives what is left: `7 % 2` is `1`. Always `(a // b) * b + a % b == a`.
+- `**` is a power: `2 ** 10` is `1024`. It is done before `*` and `/`, which are done before `+` and `-`. Use brackets when in doubt.
+- Mixing an int and a float gives a float: `3 + 0.5` is `3.5`.
+- Literals can be written in other bases: `0x` for hexadecimal, `0o` for octal, `0b` for binary. `hex()`, `oct()` and `bin()` go the other way.
+- Long numbers can use underscores for readability: `1_000_000` is one million.
+@example pycon: Boxes and leftovers with // and %
+>>> eggs = 50
+>>> eggs // 12
+>>> eggs % 12
+>>> (eggs // 12) * 12 + eggs % 12
+>>> 365 % 7
+@note
+50 eggs fill 4 boxes of 12 with 2 left over, and the last line checks that the pieces add back up. 365 % 7 is 1, which is why a date moves one weekday later each year (two in a leap year).
+@example pycon: Order of operations, floats and bases
+>>> 2 + 3 * 4
+>>> (2 + 3) * 4
+>>> -2 ** 2
+>>> 3 + 0.5
+>>> round(0.1 + 0.2, 2)
+>>> 1_000_000 * 3
+>>> bin(10), hex(255)
+@note
+`**` binds tighter than the minus sign, so `-2 ** 2` means `-(2 ** 2)`. Rounding only changes how the float is shown, not the tiny binary error inside it. `bin` and `hex` return text, which is why the results have quotes.
+@mistakes
+- **Using `/` when you need a whole number.** `10 / 2` is `5.0`, a float. If you need an int (for a count or an index), use `//`.
+- **Expecting `//` to round towards zero.** `-7 // 2` is `-4`, not `-3`. If you want to cut off the decimals, use `int(-7 / 2)`.
+- **Comparing floats with `==`.** `0.1 + 0.2 == 0.3` is `False`. Compare with a tolerance (`abs(a - b) < 1e-9`) or use `math.isclose`.
+- **Writing 1,000 for a thousand.** `1,000` makes a pair of two numbers. Write `1000` or `1_000`.
+@keys
+- `/` always gives a float; `//` rounds down to a whole number; `%` is what is left over.
+- `**` is power and is done first; use brackets to make the order obvious.
+- Floats are close approximations, so `0.1 + 0.2` is not exactly `0.3`.
+- `0x`, `0o` and `0b` write numbers in hex, octal and binary; `_` in a number is just for readability.
+
+=== 1.3
+@idea
+A **variable** is a name that refers to a value. `price = 4.5` creates the name `price` and attaches it to the value `4.5`. Afterwards, wherever you write `price`, Python uses `4.5`. Assigning again moves the name to a new value. Picture a sticky label you can peel off one box and put on another.
+
+Two kinds of line appear in every program. An **expression** produces a value: `price * 2`. A **statement** does something: `price = 4.5` creates a variable, `print(...)` shows text. At the `>>>` prompt the value of an expression is shown; an assignment shows nothing because it is a statement.
+
+`input()` lets a program ask the user something. It shows a prompt, waits for the user to type and press Enter, and gives back what they typed **as text**, even if they typed digits. To do arithmetic with it, convert it with `int()` for whole numbers or `float()` for decimals. Forgetting this step is the single most common beginner bug.
+@how
+- Assign with `=`: the right side is worked out first, then the name on the left is attached to the result.
+- Names may contain letters, digits and `_`, must not start with a digit, and are case-sensitive (`Total` and `total` differ). Use clear lower-case words joined by underscores: `hours_worked`.
+- `x = x + 1` reads as "work out x + 1, then make x refer to that". `x += 1` is the short form.
+- `input("Prompt: ")` returns a string. `int(text)` and `float(text)` turn text into numbers, and raise a ValueError if the text is not a number.
+- `str(number)` goes the other way, which you need to join a number onto text with `+`.
+@example python: Ask, convert, calculate
+name = input("What is your name? ")
+age = int(input("How old are you? "))     # input() gives text, int() makes it a whole number
+next_year = age + 1
+print("Hello,", name)
+print("Next year you will be", next_year)
+print("That is " + str(next_year * 12) + " months old.")
+@stdin
+Ada
+36
+@note
+The typed answers appear after each prompt. `age` holds the number 36, so `age + 1` works. The last line joins pieces of text with `+`, which is why the number has to go through `str()` first. Passing several values to `print` with commas avoids that step.
+@example pycon: Text is not a number until you convert it
+>>> answer = "7"
+>>> answer * 3
+>>> int(answer) * 3
+>>> answer + 1
+@note
+Multiplying a string repeats it, so `"7" * 3` is `'777'`. Adding a number to a string raises a TypeError because Python will not guess whether you meant to join text or add numbers.
+@mistakes
+- **Doing maths on `input()` directly.** `input("Age: ") + 1` raises a TypeError. Convert first: `int(input("Age: ")) + 1`.
+- **Using `int()` on a decimal.** `int("2.5")` raises a ValueError. Use `float()` when the user might type a decimal point.
+- **Confusing `=` with `==`.** `=` assigns a value; `==` asks whether two values are equal.
+- **Using a name before it exists.** Python runs top to bottom, so a variable must be assigned on an earlier line, or you get a NameError.
+@keys
+- `name = value` attaches a name to a value; assigning again moves the name.
+- Expressions produce values; statements do things.
+- `input()` always returns text: convert it with `int()` or `float()` before doing arithmetic.
+- Use `str()` to join a number to text with `+`, or pass several values to `print` with commas.
+
+=== 1.4
+@idea
+A **function** is a named piece of code that does one job. You **call** it by writing its name followed by brackets, with the values it needs (its **arguments**) inside: `abs(-5)` gives `5`. Some functions give a value back (they **return** it); others, like `print`, do something and return nothing useful.
+
+Python comes with a set of **built-in** functions that are always available: `abs`, `round`, `pow`, `len`, `max`, `min`, `int`, `float`, `print` and more. Many other tools live in **modules**, which are files of extra functions you load when you need them. `import math` loads the `math` module; after that you write `math.sqrt(16)`, the module name, a dot, then the function. This keeps names organised: `math.floor` cannot clash with a `floor` of your own.
+
+`from math import sqrt` copies just one name into your program so you can write `sqrt(16)` directly. That saves typing but makes it less obvious where the name came from, so use it for a few well-known names only.
+@how
+- Call a function with `name(arguments)`. Several arguments are separated by commas: `round(3.14159, 2)`.
+- Built-ins need no import: `abs`, `round`, `pow`, `max`, `min`, `len`, `int`, `float`, `str`, `print`, `input`, `help`.
+- `import math` then `math.name(...)`. `from math import name` then `name(...)`.
+- `math.floor` rounds down, `math.ceil` rounds up, `math.sqrt` is the square root, `math.pi` is a value (no brackets, it is not a function).
+- `math.sqrt(-1)` raises an error; `cmath.sqrt(-1)` gives the complex number `1j`.
+- `help(math.ceil)` or `dir(math)` at the prompt shows what a function does or what a module contains.
+@example pycon: Built-ins and the math module
+>>> max(4, 11, 7), min(4, 11, 7)
+>>> round(2.675, 2)
+>>> round(7.5), round(8.5)
+>>> import math
+>>> math.floor(-2.5), math.ceil(-2.5)
+>>> math.sqrt(2)
+>>> math.pi * 3 ** 2
+@note
+`round(2.675, 2)` gives 2.67, not 2.68, because 2.675 is stored as a value slightly below it (the float issue from 1.2). Halves are rounded to the nearest even number, so both 7.5 and 8.5 round to 8. The last line is the area of a circle with radius 3.
+@example python: Paint for a wall
+import math
+
+width = 4.2      # metres
+height = 2.6
+coats = 2
+litre_covers = 10          # square metres per litre
+
+area = width * height * coats
+litres = area / litre_covers
+tins = math.ceil(litres / 2.5)      # paint comes in 2.5 litre tins; you cannot buy part of a tin
+
+print("Area to cover:", round(area, 1), "m²")
+print("Paint needed:", round(litres, 2), "litres")
+print("Tins to buy:", tins)
+@note
+`math.ceil` is the right choice here because 1.75 tins means you must buy 2. `round` is used only when showing numbers, so the calculation keeps full precision.
+@mistakes
+- **Forgetting the module name.** After `import math`, plain `sqrt(9)` raises a NameError. Write `math.sqrt(9)`, or use `from math import sqrt`.
+- **Calling a value or forgetting to call a function.** `math.pi()` fails because pi is a number. `math.sqrt` without brackets is the function itself, not a result.
+- **Expecting `round` to round halves up.** Python rounds halves to the nearest even number. Use `math.floor(x + 0.5)` if you need school rounding for positive numbers.
+- **Naming your own file `math.py`.** Then `import math` loads your file instead of the real module. Avoid module names for your files.
+@keys
+- Call a function with brackets: `name(argument, ...)`; many functions return a value you can store or print.
+- Built-ins are always there; other tools come from modules loaded with `import`.
+- `import math` gives `math.sqrt`; `from math import sqrt` gives `sqrt`.
+- `math.floor` and `math.ceil` round down and up; `round` rounds to the nearest, halves to even.
+
+=== 1.5
+@idea
+Typing at the `>>>` prompt is great for experiments, but everything disappears when you close the window. Real programs live in **files** ending in `.py`. When you run one, Python starts at the top line and carries out each statement in order, then stops. Nothing is shown unless the program calls `print` (or writes to a file).
+
+You can run a file in several ways. In IDLE, open it and press F5. In a terminal, go to the folder with `cd` and type `python name.py` (`python3 name.py` on macOS and Linux). Editors like VS Code have a Run button that does the same thing. In this course, the editor in each exercise works like a small file: Run executes it from top to bottom.
+
+**Comments** start with `#` and run to the end of the line. Python ignores them; they are notes for people, including you in three months. Good comments say **why** something is done, not what the code already says.
+@how
+- Save your code as a `.py` file in a folder you can find again, such as `Documents/python`.
+- In a terminal: `cd` into that folder, then `python file.py` (Windows) or `python3 file.py`. The output appears in the terminal.
+- A program runs top to bottom; a line can only use names created by lines above it.
+- `#` starts a comment. Use a short comment at the top to say what the file does.
+- Double-clicking a `.py` file on Windows opens a window that closes as soon as the program ends. Run it from a terminal instead, or put `input("Press Enter to finish")` at the end.
+- On macOS and Linux a first line like `#!/usr/bin/env python3` lets you run the file directly after `chmod +x file.py`.
+@example python: A complete small program
+# tip.py: split a restaurant bill, tip included
+# Run it with: python tip.py
+
+bill = 86.40
+tip_percent = 15
+people = 3
+
+tip = bill * tip_percent / 100
+total = bill + tip
+each = total / people
+
+print("Tip:", round(tip, 2))
+print("Total:", round(total, 2))
+print("Each person pays:", round(each, 2))
+@note
+The file reads like a short story: the facts first, then the calculations, then the results. Changing one number at the top (say, `people = 4`) and running again is all it takes to get new answers.
+@example python: Comments that explain why
+SECONDS_PER_DAY = 24 * 60 * 60   # written out so the reader sees where 86400 comes from
+
+uptime_seconds = 1_000_000
+days = uptime_seconds // SECONDS_PER_DAY
+hours = uptime_seconds % SECONDS_PER_DAY // 3600
+
+# Show whole days and hours only: users do not care about the seconds here
+print("Up for", days, "days and", hours, "hours")
+@note
+A name in capitals, like `SECONDS_PER_DAY`, is the usual way to mark a value that never changes. The comments add information the code cannot show: where the number comes from and why seconds are left out.
+@mistakes
+- **Saving with the wrong extension.** `hello.py.txt` (Windows can hide the `.txt`) will not run as Python. Check the full file name.
+- **Running from the wrong folder.** "No such file or directory" usually means the terminal is in another folder. Use `cd` to get to the file first, or give its full path.
+- **Expecting values to show without print.** A file that only says `2 + 3` runs silently. Use `print(2 + 3)`.
+- **Comments that repeat the code.** `x = x + 1  # add 1 to x` adds nothing. Say why: `# one more attempt used`.
+@keys
+- Programs live in `.py` files and run from top to bottom.
+- Run a file with F5 in IDLE or `python file.py` in a terminal opened in the right folder.
+- Only `print` (or writing a file) makes a program show anything.
+- `#` starts a comment; use comments to explain why, not what.
+
+=== 1.6
+@idea
+A **string** is a piece of text: a sequence of characters between quotes. Single quotes `'hi'` and double quotes `"hi"` mean exactly the same thing. Having both is handy: use double quotes when the text contains an apostrophe (`"Let's go"`) and single quotes when it contains double quotes (`'She said "yes"'`).
+
+Some characters cannot be typed directly inside quotes, so Python uses **escape sequences** starting with a backslash: `\n` is a new line, `\t` a tab, `\'` and `\"` a quote, and `\\` a real backslash. When you want the backslashes kept as they are (Windows paths, regular expressions), put an `r` in front to make a **raw string**: `r"C:\new\table"`.
+
+There are two ways to show a value. `print` shows the text itself, the way a user should see it. The interpreter's echo (and the `repr()` function) shows the value the way you would type it in code, quotes and escapes included. That difference explains why `>>> "a\nb"` shows `'a\nb'` while `print("a\nb")` shows two lines.
+@how
+- Quotes: `'...'` or `"..."`. Triple quotes `"""..."""` allow text over several lines.
+- Join with `+` (`"Py" + "thon"`), repeat with `*` (`"ab" * 3`). Only strings can be joined to strings: use `str(42)` for a number.
+- Escapes: `\n` new line, `\t` tab, `\\` backslash, `\'` and `\"` quotes.
+- Raw strings `r"..."` keep backslashes as typed. (A raw string cannot end with a single backslash.)
+- `str(x)` gives the friendly text; `repr(x)` gives the code-like text.
+- Python 3 strings are Unicode, so `"café"` and emoji just work. `"café".encode("utf-8")` gives the **bytes** used to store or send it.
+@example pycon: Quotes, escapes and raw strings
+>>> print("Let's go")
+>>> print('She said "yes"')
+>>> print("Line one\nLine two")
+>>> print("Name:\tAda")
+>>> print("C:\\Users\\ada")
+>>> print(r"C:\Users\ada")
+@note
+`\n` and `\t` are single characters: a line break and a tab. The two paths print the same, but the raw string is easier to type and read. Without the `r`, a path like `"C:\new"` would contain a line break where `\n` is.
+@example pycon: What print shows and what the interpreter shows
+>>> text = "Tab\there"
+>>> text
+>>> print(text)
+>>> len("café")
+>>> "café".encode("utf-8")
+>>> "Score: " + str(98)
+>>> poem = """Roses are red,
+... violets are blue."""
+>>> print(poem)
+@note
+The echo shows the code form with `\t`; print shows the tab itself. "café" has 4 characters but takes 5 bytes in UTF-8, because é needs two bytes. A triple-quoted string keeps its line break.
+@mistakes
+- **Joining a number to text with `+`.** `"Age: " + 36` raises a TypeError. Use `"Age: " + str(36)` or `print("Age:", 36)`.
+- **Windows paths without `r`.** `"C:\new\test.txt"` hides a new line and a tab inside. Write `r"C:\new\test.txt"` or use forward slashes, which Windows also accepts.
+- **Mismatched quotes.** `'It's'` ends the string after `It`. Use `"It's"` or escape it: `'It\'s'`.
+- **Thinking the echo is the output.** Quotes in the interpreter's answer are not part of the text; `print` shows the real text.
+@keys
+- Single and double quotes are the same; pick the one that avoids escaping.
+- Backslash escapes: `\n`, `\t`, `\\`, `\'`, `\"`; `r"..."` keeps backslashes.
+- `+` joins strings, `*` repeats them; convert numbers with `str()` first.
+- `print` shows text for people; the echo and `repr()` show it as code.

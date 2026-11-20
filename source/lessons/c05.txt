@@ -1,0 +1,377 @@
+=== 5.1
+@idea
+`print` does more than show one value. Give it several values separated by commas and it writes them with a space between, converting numbers to text for you. Two optional settings change how it writes: `sep` is what goes **between** the values (a space by default) and `end` is what goes **after** the last one (a newline by default).
+
+Changing `end` lets several `print` calls build up a single line, which is useful for progress messages and for printing items of a loop side by side. Changing `sep` builds things like dates, paths and CSV lines without joining strings by hand.
+
+`import` has its own small options. `import math as m` gives the module a shorter name; long module names are often shortened by convention (`import numpy as np`). `from math import ceil as round_up` imports one name under a name you choose, which helps when two modules use the same name or when a clearer name reads better in your code.
+@how
+- `print(a, b, c)` writes the values separated by spaces and ends with a newline.
+- `sep="..."` sets the separator; `sep=""` puts values right next to each other.
+- `end="..."` sets what comes after; `end=""` keeps the next print on the same line.
+- `print()` with nothing prints an empty line.
+- `import module as short` renames a module; `from module import name as other` renames one name.
+- `print(..., file=f)` writes to an open file instead of the screen (chapter 11).
+@example python: Building lines with sep and end
+print("2026", "11", "20", sep="-")
+print("Ada", "Lovelace", 1815, sep=",")
+print("Loading", end="")
+for _ in range(3):
+    print(".", end="")
+print(" done")
+for n in range(1, 6):
+    print(n, end=" ")
+print()
+print("A", "B", "C", sep="")
+@note
+`sep` builds a date and a CSV line. The loading dots stay on one line because `end=""` stops the newline; the final `print(" done")` finishes it. An empty `print()` ends the line of numbers.
+@example python: Import with a different name
+import statistics as stats
+from math import sqrt as square_root
+
+marks = [72, 88, 95, 61, 79]
+print("mean:", stats.mean(marks))
+print("median:", stats.median(marks))
+print("spread:", round(stats.stdev(marks), 1))
+print("side of a 50 m² square:", round(square_root(50), 2), "m")
+@note
+`stats` is shorter to type than `statistics`, and `square_root` reads more clearly than `sqrt` to a beginner. The module and function are exactly the same; only the name in your file changes.
+@mistakes
+- **Putting `sep` or `end` before the values.** They must come last and be named: `print(a, b, sep="-")`.
+- **Forgetting the final newline after `end=""`.** The next output then starts on the same line. Finish with `print()`.
+- **Renaming to a confusing name.** `import math as m` is fine; `import math as random` invites mistakes. Pick names that say what the thing is.
+@keys
+- `print` takes several values; `sep` goes between them and `end` after them.
+- `end=""` keeps the cursor on the same line; `print()` alone ends a line.
+- `import x as y` and `from x import a as b` choose the name used in your file.
+
+=== 5.2
+@idea
+Assignment in Python can do more than give one name one value. **Unpacking** assigns several names at once from a sequence: `x, y = 3, 4` gives `x` the 3 and `y` the 4. The right-hand side is worked out **completely first**, then the values are handed out from left to right. That order is what makes the famous swap `a, b = b, a` work with no temporary variable.
+
+A **starred** name collects whatever the other names do not take, as a list: `first, *rest = [1, 2, 3, 4]` makes `rest` equal to `[2, 3, 4]`. It can go at the start, the middle or the end, but only one name can have a star.
+
+Two shortcuts round it off. **Chained assignment** `a = b = 0` gives both names the same value (the same object, which matters for lists). **Augmented assignment** like `total += price` is short for `total = total + price`, and works with every operator: `-=`, `*=`, `//=`, `%=` and so on.
+@how
+- `a, b, c = sequence` needs exactly as many names as values, or it raises a ValueError.
+- The right side is fully evaluated before any name is assigned, so `a, b = b, a` swaps.
+- `head, *tail = seq` and `*start, last = seq`: the starred name becomes a list (possibly empty).
+- `a = b = value` gives both names the same object.
+- `x += 1`, `x -= 2`, `x *= 3`, `s += "!"`: operate and assign in one step.
+- Unpacking also works in `for` loops: `for name, age in pairs:`.
+@example pycon: Swapping and unpacking a record
+>>> a, b = "left", "right"
+>>> a, b = b, a
+>>> a, b
+>>> record = ("Ada", "Lovelace", 1815, 1852)
+>>> first, last, born, died = record
+>>> f"{first} {last} lived {died - born} years"
+>>> x, y = (1, 2, 3)
+@note
+The swap builds the pair `(b, a)` first and then unpacks it. Unpacking the record names each field, which makes the next line read like a sentence. Three values into two names raises a ValueError.
+@example pycon: Stars, chains and running totals
+>>> first, *middle, last = [3, 9, 4, 7, 1]
+>>> first, middle, last
+>>> *_, final = "abc"
+>>> final
+>>> total = 0
+>>> for price in [2.5, 4.0, 1.25]:
+...     total += price
+...
+>>> total
+>>> a = b = []
+>>> a.append(1)
+>>> b
+@note
+The starred name gathers everything between the first and last values. `_` is the usual name for values you do not need. `+=` keeps a running total. Chained assignment gave both names the same list, so appending through `a` shows in `b`.
+@mistakes
+- **Swapping in two steps.** `a = b` then `b = a` leaves both equal to the old `b`. Use `a, b = b, a`.
+- **Chaining with a list.** `a = b = []` shares one list. Use `a, b = [], []` for two separate lists.
+- **Two stars.** `*a, *b = items` is a SyntaxError; only one starred name is allowed.
+- **Using `+=` before the name exists.** `total += 1` needs `total = 0` first, or it raises a NameError.
+@keys
+- `a, b = b, a` swaps because the right side is evaluated first.
+- Unpacking needs matching counts, unless one name has a star to collect the rest.
+- `a = b = value` shares one object; be careful with lists.
+- `x += n` and its cousins update a variable in place of `x = x + n`.
+
+=== 5.3
+@idea
+So far every line of a program ran, one after another. An **if statement** lets a program choose: run some lines only when a condition is true. The lines that belong to the `if` form a **block**, and Python knows where a block starts and ends from the **indentation**, not from brackets. Every line indented under `if condition:` belongs to it; the first line back at the outer level is outside.
+
+`elif` ("else if") adds more conditions to check in order, and `else` catches everything that matched none of them. Python checks the conditions from top to bottom and runs **only the first** block whose condition is true, then skips the rest. That means the order of the branches matters: put the most specific case first.
+
+A condition does not have to be `True` or `False`. Any value can be tested, and Python treats some values as **falsy**: `False`, `None`, `0`, `0.0`, empty strings, empty lists, empty dictionaries. Everything else is **truthy**. So `if name:` means "if the name is not empty", and `if items:` means "if there is at least one item".
+@how
+- `if condition:` then an indented block (use 4 spaces). The colon is required.
+- `elif other:` checks another condition only if the earlier ones were false. Add as many as you need.
+- `else:` runs when nothing above matched. It is optional.
+- Falsy values: `False`, `None`, `0`, `0.0`, `""`, `[]`, `{}`, `()`, `set()`. Everything else is truthy.
+- Blocks can nest: an `if` inside another `if` is indented one level further.
+- The conditional expression picks one of two values in one line: `label = "even" if n % 2 == 0 else "odd"`.
+@example python: Grading with elif in the right order
+def grade(score):
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    else:
+        return "needs work"
+
+for s in [95, 84, 70, 52]:
+    print(s, grade(s))
+@note
+Because only the first true branch runs, 95 stops at "A" even though it is also at least 80 and 70. If the checks were in the opposite order (`score >= 70` first), every passing score would get a C. The function form is a preview of chapter 6.
+@example python: Truthy values and the conditional expression
+for name in ["Ada", "", "  "]:
+    if name.strip():
+        print(f"Hello, {name}!")
+    else:
+        print("You didn't type a name.")
+
+cart = []
+print("Cart:", "empty" if not cart else f"{len(cart)} items")
+cart.append("tea")
+print("Cart:", "empty" if not cart else f"{len(cart)} items")
+
+age = 17
+if age >= 13:
+    if age < 18:
+        print("teenager")
+@note
+An empty string is falsy, and `strip()` turns a string of spaces into an empty one, so both count as "no name". The conditional expression chooses between two texts in one line. The last part shows a nested `if`; `13 <= age < 18` would say the same thing more briefly (5.4).
+@mistakes
+- **Forgetting the colon or the indentation.** `if x > 3` without `:` is a SyntaxError; an unindented line after it raises an IndentationError.
+- **Mixing tabs and spaces.** Python refuses inconsistent indentation. Set your editor to insert 4 spaces for Tab.
+- **Checks in the wrong order.** A broad condition first (`>= 70` before `>= 90`) catches everything. Put the most specific test first.
+- **Writing `if x == True:`.** Just write `if x:`. And `if len(items) > 0:` is simply `if items:`.
+@keys
+- Indentation defines blocks; every line of a block is indented the same amount.
+- `if`, `elif`, `else`: only the first true branch runs, so order matters.
+- Empty and zero values are falsy; everything else is truthy.
+- `a if condition else b` chooses a value in one expression.
+
+=== 5.4
+@idea
+Conditions are built from **comparisons**: `==` (equal), `!=` (not equal), `<`, `<=`, `>`, `>=`, and `in` for membership. Each one gives `True` or `False`. Python lets you **chain** them like in maths, so `0 <= x < 10` means "x is at least 0 and less than 10", which reads exactly as written.
+
+To combine conditions, use `and` (both must be true), `or` (at least one must be true) and `not` (flips true and false). These are **short-circuit** operators: Python stops as soon as the answer is known. In `x != 0 and 10 / x > 2`, the division never runs when `x` is 0, which is a common way to guard against errors.
+
+`==` and `is` are different questions. `==` asks "do these have the same value?"; `is` asks "are these the very same object?". Two separate lists with the same items are `==` but not `is`. Use `is` only to compare with `None` (`if result is None:`); use `==` for everything else. Finally, `assert condition, "message"` stops the program with an AssertionError if something you believe must be true is not, which catches bugs early.
+@how
+- `==`, `!=`, `<`, `<=`, `>`, `>=` compare values; strings compare alphabetically by character code.
+- Chains: `a < b < c` means `a < b and b < c`.
+- `and`: true only if both are true. `or`: true if either is. `not`: the opposite.
+- Short-circuit: `and` stops at the first false value, `or` at the first true one. They return that value, not always a bool: `name or "anonymous"` gives a default.
+- `is` / `is not` check identity; use them with `None`, `True` and `False` only.
+- `assert check, "message"` raises an AssertionError when the check is false.
+@example pycon: Chains, logic and short-circuits
+>>> temp = 22
+>>> 18 <= temp <= 24
+>>> temp < 0 or temp > 35
+>>> not (temp > 30)
+>>> x = 0
+>>> x != 0 and 10 / x > 2
+>>> username = ""
+>>> username or "anonymous"
+@note
+The chain reads like "temp is between 18 and 24". With `x = 0`, `and` stops at the first false part, so the division by zero never happens. `or` returns the first truthy value, which gives a neat default for an empty name.
+@example pycon: Same value or same object, and assert
+>>> a = [1, 2, 3]
+>>> b = [1, 2, 3]
+>>> c = a
+>>> a == b, a is b, a is c
+>>> result = None
+>>> result is None
+>>> "apple" < "banana", "Zoo" < "apple"
+>>> balance = -5
+>>> assert balance >= 0, "balance can never be negative"
+@note
+`a` and `b` have equal values but are separate lists; `c` is another name for `a`. Capital letters sort before lower case, so "Zoo" comes first. The failed assert raises an AssertionError with its message, pointing straight at the broken assumption.
+@mistakes
+- **Using `=` in a condition.** `if x = 5:` is a SyntaxError. Comparison is `==`.
+- **Writing `x == 1 or 2`.** That is always true, because `2` on its own is truthy. Write `x == 1 or x == 2`, or `x in (1, 2)`.
+- **Using `is` to compare numbers or strings.** It can seem to work for small values and then fail. Use `==`.
+- **Validating user input with `assert`.** Asserts can be switched off with `python -O`. Use `if` and raise a proper error for input checks; keep asserts for "this can't happen" bugs.
+@keys
+- Comparisons give `True` or `False`, and can be chained: `0 <= x < 10`.
+- `and`, `or` and `not` combine conditions and stop as soon as the answer is known.
+- `==` compares values; `is` checks identity and is for `None`.
+- `assert` documents and checks assumptions while you develop.
+
+=== 5.5
+@idea
+Loops repeat a block of code. Python has two kinds. A **while loop** repeats as long as a condition stays true: it checks the condition, runs the block, checks again, and so on. Use it when you do not know in advance how many times to repeat, for example "keep asking until the answer is valid". Something inside the loop must eventually make the condition false, or it runs forever.
+
+A **for loop** goes through the items of a sequence (or anything you can loop over) one at a time, giving each item a name in turn: `for fruit in basket:`. Use it whenever you have a collection to process. It is the loop you will write most often, and it cannot accidentally run forever over a list.
+
+`range` produces a sequence of numbers to loop over: `range(5)` gives 0 to 4, `range(1, 6)` gives 1 to 5, and `range(0, 10, 2)` counts in twos. Like slices, the end is not included. Looping over a dictionary gives its keys; `.items()` gives key and value together.
+@how
+- `while condition:` + block. Make sure the block changes something the condition depends on.
+- `for item in sequence:` + block. Works on lists, tuples, strings, ranges, dictionaries, files and more.
+- `range(stop)`, `range(start, stop)`, `range(start, stop, step)`: the stop value is excluded. A negative step counts down.
+- `for key in d:` loops over keys; `for key, value in d.items():` over both.
+- The loop variable keeps its last value after the loop ends.
+- Press Ctrl+C to stop a program stuck in an endless loop.
+@example python: while for an unknown number of steps
+balance = 1000.0
+rate = 0.05
+years = 0
+while balance < 2000:
+    balance *= 1 + rate
+    years += 1
+print(f"Doubled after {years} years: ${balance:,.2f}")
+
+n = 27
+steps = 0
+while n != 1:
+    n = n // 2 if n % 2 == 0 else 3 * n + 1
+    steps += 1
+print("27 reaches 1 after", steps, "steps")
+@note
+Nobody knows the number of years in advance, so `while` keeps going until the goal is reached. The second loop follows the Collatz rule (halve even numbers, triple-and-add-one odd ones), which wanders a long way before reaching 1.
+@example python: for over lists, ranges and dictionaries
+for letter in "abc":
+    print(letter.upper(), end=" ")
+print()
+
+for n in range(10, 0, -3):
+    print(n, end=" ")
+print()
+
+prices = {"tea": 2.5, "cake": 3.75, "soup": 5.0}
+total = 0
+for item, price in prices.items():
+    total += price
+    print(f"{item:<5} {price:>5.2f}")
+print(f"{'total':<5} {total:>5.2f}")
+@note
+A string loops character by character. `range(10, 0, -3)` counts down by 3 and stops before 0. `items()` hands over each name with its price, so the loop can print both and keep a total.
+@mistakes
+- **A while loop that never ends.** If nothing in the block changes the condition, it repeats forever. Check that each pass moves towards the end.
+- **Off by one with range.** `range(1, 10)` stops at 9. To include 10, write `range(1, 11)`.
+- **Changing a list while looping over it.** Removing items inside `for x in lst:` skips some. Loop over a copy or build a new list.
+- **Using `while` with a manual counter to walk a list.** `for item in items:` is shorter and cannot go out of range.
+@keys
+- `while` repeats while a condition is true; `for` goes through each item of a collection.
+- Prefer `for` when you have a collection; use `while` when the number of steps is unknown.
+- `range(start, stop, step)` excludes `stop`.
+- Loop over a dictionary's keys directly, or over `.items()` for both.
+
+=== 5.6
+@idea
+Several built-ins make loops shorter and clearer. **enumerate** gives each item together with its position, so you never need a separate counter: `for i, name in enumerate(names, start=1):`. **zip** walks two or more sequences side by side, pairing their items: `for name, score in zip(names, scores):`. **sorted** and **reversed** let you loop in a different order without changing the original list.
+
+Two statements control a loop from the inside. **break** leaves the loop immediately; **continue** skips the rest of this pass and moves to the next item. A common pattern is `while True:` with a `break` when the job is done, which reads naturally for "keep asking until the input is valid".
+
+Loops can have an **else** block, which runs only if the loop finished **without** hitting `break`. It answers the question "did the search find anything?" without a flag variable: break when you find it, and put the "not found" message in the `else`.
+@how
+- `enumerate(seq, start=0)` yields `(index, item)` pairs.
+- `zip(a, b)` yields `(a_item, b_item)` pairs and stops at the shorter sequence.
+- `sorted(seq)` and `reversed(seq)` loop in another order without changing `seq`.
+- `break` exits the innermost loop; `continue` jumps to the next pass.
+- `while True:` + `break` for loops that end from the inside.
+- `for ... else` / `while ... else`: the `else` runs only when the loop ended normally (no `break`).
+@example python: enumerate, zip and sorted
+names = ["Cy", "Ada", "Ben"]
+scores = [71, 93, 85]
+
+for place, (name, score) in enumerate(sorted(zip(scores, names), reverse=True), start=1):
+    print(f"{place}. {score} {name}")
+
+for i, name in enumerate(names):
+    print(i, name)
+
+print(list(zip("abc", [1, 2, 3, 4])))
+@note
+`zip(scores, names)` makes (score, name) pairs, `sorted(..., reverse=True)` puts the best first, and `enumerate` numbers them from 1. The second loop shows the default start of 0. `zip` stops at the shorter input, so the 4 is dropped.
+@example python: break, continue and else
+readings = [12, 15, -1, 14, 999, 13]
+
+for r in readings:
+    if r < 0:
+        continue          # a sensor glitch: skip it
+    if r > 100:
+        print("Alarm at reading", r)
+        break             # stop checking
+    print("ok", r)
+else:
+    print("All readings checked, no alarm")
+
+for n in [9, 15, 21]:
+    if n % 2 == 0:
+        print("found an even number:", n)
+        break
+else:
+    print("no even numbers")
+@note
+`continue` skips the glitch, and `break` stops at the alarm, so the first loop's `else` does not run. The second loop never breaks, so its `else` reports that nothing was found.
+@mistakes
+- **Keeping a manual counter.** `i = 0 ... i += 1` beside a for loop is what `enumerate` does for you.
+- **Expecting zip to pad the shorter list.** It stops at the shortest. Use `itertools.zip_longest` if you need padding.
+- **Indenting the loop's else under the if.** The `else` of a loop must line up with `for` or `while`, not with the `if` inside.
+- **break in a nested loop.** It only leaves the inner loop. Put the loops in a function and use `return` to leave both.
+@keys
+- `enumerate` gives positions, `zip` pairs sequences, `sorted` and `reversed` change the order.
+- `break` leaves a loop; `continue` skips to the next pass.
+- `while True:` with `break` suits loops that end from inside.
+- A loop's `else` runs only if the loop did not `break`.
+
+=== 5.7
+@idea
+A **comprehension** builds a new list, set or dictionary from another collection in one readable line. `[x * 2 for x in nums]` means "a list of x * 2 for every x in nums". It replaces the common three-line pattern of making an empty list, looping, and appending. Add an `if` at the end to keep only some items: `[w for w in words if len(w) > 3]`.
+
+The same idea works with curly brackets: `{len(w) for w in words}` builds a **set** (duplicates removed) and `{w: len(w) for w in words}` builds a **dictionary**. Comprehensions are fast and clear for simple transformations; when the logic grows past one condition, a normal loop is easier to read.
+
+This lesson also covers a few small statements. `pass` does nothing and fills a block you will write later. `del` removes a name (or a list item or dictionary key). `eval` runs a string as a Python expression and `exec` runs a string of statements. They are powerful but dangerous: running text from a user means running any code they type, so avoid them, and never use them on input you do not control.
+@how
+- List: `[expression for item in iterable]`; filtered: `[expr for item in iterable if condition]`.
+- Set: `{expr for item in iterable}`. Dictionary: `{key_expr: value_expr for item in iterable}`.
+- Several `for` parts nest left to right: `[(x, y) for x in a for y in b]`.
+- `pass` is an empty statement for blocks that must not be empty.
+- `del name` removes the name; `del lst[i]` and `del d[key]` remove items.
+- `eval("2 + 3")` evaluates an expression; `ast.literal_eval` safely reads literals such as `"[1, 2]"`. Avoid `eval` and `exec` on untrusted text.
+@example pycon: The loop and the comprehension side by side
+>>> prices = [4.0, 12.5, 7.25, 30.0]
+>>> with_tax = []
+>>> for p in prices:
+...     with_tax.append(round(p * 1.15, 2))
+...
+>>> with_tax
+>>> [round(p * 1.15, 2) for p in prices]
+>>> [p for p in prices if p < 10]
+>>> {p: p >= 10 for p in prices}
+>>> {w[0] for w in ["apple", "avocado", "banana"]}
+@note
+The comprehension gives the same list as the four-line loop. The filtered version keeps cheap items only. The dictionary maps each price to whether it is at least 10, and the set of first letters drops the duplicate "a".
+@example pycon: pass, del and safe evaluation
+>>> def todo():
+...     pass
+...
+>>> todo() is None
+>>> scratch = [1, 2, 3]
+>>> del scratch[0]
+>>> scratch
+>>> del scratch
+>>> scratch
+>>> import ast
+>>> ast.literal_eval("[1, 2, {'a': 3}]")
+>>> try:
+...     ast.literal_eval("__import__('os').getcwd()")
+... except ValueError:
+...     print("refused: that is code, not plain data")
+...
+@note
+`pass` lets the function exist before it does anything. `del` removes an item, then the name itself, after which using it raises a NameError. `ast.literal_eval` reads plain data from text but refuses anything that would run code, which `eval` would happily do.
+@mistakes
+- **Cramming too much into one comprehension.** Two conditions and a nested loop in one line is hard to read. Use a regular loop.
+- **Using a comprehension only for its side effects.** `[print(x) for x in items]` builds a useless list. Write a `for` loop.
+- **Expecting `{}` to be an empty set.** It is an empty dictionary. An empty set is `set()`.
+- **Calling `eval(input())`.** A user can type code that deletes files. Convert with `int()` or `float()`, or use `ast.literal_eval`.
+@keys
+- Comprehensions build lists, sets and dictionaries in one line, with an optional `if` filter.
+- Prefer a normal loop when the logic gets complicated.
+- `pass` fills empty blocks; `del` removes names and items.
+- Avoid `eval` and `exec`; use `ast.literal_eval` to read data from text.

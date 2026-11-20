@@ -1,0 +1,147 @@
+=== 4.1
+@idea
+A list finds things by position, which is fine when order matters. But often you want to find things by **name**: a person's phone number, a product's price, a word's definition. Searching a list for those is slow and clumsy. A **dictionary** solves this: it stores **key–value pairs** and looks up a value directly from its key, the way you look up a word in a real dictionary.
+
+You write a dictionary with curly brackets, a colon between each key and its value, and commas between pairs: `{"Ada": 36, "Ben": 28}`. `ages["Ada"]` gives `36`. Assigning to a key that does not exist yet adds it; assigning to one that does replaces its value. Each key appears only once.
+
+Lookups are fast no matter how big the dictionary gets, because Python turns each key into a number (a **hash**) that points straight to where the value is stored. That is also why keys must be **immutable**: strings, numbers and tuples work as keys; lists do not. Since Python 3.7, dictionaries remember the order in which keys were added.
+@how
+- Create: `{}` (empty), `{"a": 1, "b": 2}`, or `dict(a=1, b=2)`, or `dict([("a", 1), ("b", 2)])`.
+- Read: `d[key]` gives the value and raises a **KeyError** if the key is missing.
+- Add or change: `d[key] = value`. Delete: `del d[key]`.
+- `key in d` checks for a key (not a value). `len(d)` counts pairs.
+- Keys must be immutable (str, int, float, tuple); values can be anything, even lists or other dictionaries.
+- Looping `for key in d:` goes through the keys in insertion order.
+@example pycon: A phone book
+>>> phones = {"Ada": "555-0101", "Ben": "555-0199"}
+>>> phones["Ada"]
+>>> phones["Cy"] = "555-0123"
+>>> phones["Ben"] = "555-0100"
+>>> phones
+>>> "Ben" in phones, "555-0123" in phones
+>>> del phones["Ada"]
+>>> phones["Ada"]
+@note
+Adding Cy and changing Ben use the same syntax. `in` checks keys only, so the phone number is not found. Looking up a deleted key raises a KeyError, which the next lesson shows how to avoid with `get`.
+@example pycon: Counting with a dictionary
+>>> words = "the cat and the hat and the bat".split()
+>>> counts = {}
+>>> for w in words:
+...     counts[w] = counts.get(w, 0) + 1
+...
+>>> counts
+>>> max(counts, key=counts.get)
+>>> {(0, 0): "start", (3, 4): "treasure"}[(3, 4)]
+@note
+For each word, `counts.get(w, 0)` gives the count so far (0 the first time) and one is added. `max(counts, key=counts.get)` finds the key with the highest value. The last line uses tuples as keys, which works because tuples cannot change.
+@mistakes
+- **Reading a key that might be missing.** `d["x"]` raises a KeyError. Check `if "x" in d:` or use `d.get("x")`.
+- **Using a list as a key.** `{[1, 2]: "a"}` raises a TypeError (unhashable). Use a tuple: `{(1, 2): "a"}`.
+- **Expecting `in` to search the values.** `"555-0101" in phones` checks keys. Use `in phones.values()` for values.
+- **Expecting two equal keys to coexist.** `{"a": 1, "a": 2}` is `{"a": 2}`: the later value wins.
+@keys
+- A dictionary maps unique, immutable keys to values for fast lookup by name.
+- `d[key]` reads, `d[key] = value` adds or changes, `del d[key]` removes.
+- A missing key raises a KeyError; check with `in` or use `get`.
+- `in` tests keys; dictionaries keep insertion order.
+
+=== 4.2
+@idea
+Dictionaries and string formatting fit together naturally. A dictionary is a set of named values, and a template like `"{title} by {author}"` is a sentence with named gaps. **format_map** fills each named gap with the value stored under the same key, so the template and the data can live in different places.
+
+This matters when the wording changes more often than the code. An email template, a report line or a message in several languages can be stored as text, while the program supplies one dictionary per customer, per row or per language. The same template then works for every record.
+
+f-strings can read from a dictionary too: `f"{book['title']}"`. The quotes inside must differ from the quotes around the f-string (before Python 3.12). For a template stored in a variable or a file, f-strings cannot help, because they are filled in at the moment the line runs; that is exactly when `format_map` or `format(**d)` is the right tool.
+@how
+- `template.format_map(d)` replaces each `{key}` with `d[key]`. A missing key raises a KeyError.
+- `template.format(**d)` does the same; `**` unpacks the dictionary into named arguments.
+- Format specs still work: `"{price:.2f}".format_map(item)`.
+- In an f-string, index the dictionary inside the brackets: `f"{d['name']}"`.
+- Extra keys in the dictionary are ignored; only the gaps in the template are used.
+@example python: One template, many records
+template = "{name:<8} owes ${amount:>7.2f}  (due {due})"
+
+invoices = [
+    {"name": "Ada", "amount": 120.5, "due": "Dec 1"},
+    {"name": "Ben", "amount": 9.99, "due": "Nov 25", "note": "paid half"},
+    {"name": "Cy", "amount": 1500, "due": "Jan 10"},
+]
+
+for invoice in invoices:
+    print(template.format_map(invoice))
+@note
+The template is written once, with widths and decimals. Ben's extra "note" key is simply ignored because the template never asks for it.
+@example pycon: f-strings and format with a dictionary
+>>> book = {"title": "Dune", "author": "Frank Herbert", "year": 1965}
+>>> f"{book['title']} ({book['year']})"
+>>> "{title} by {author}".format(**book)
+>>> age = 2026 - book["year"]
+>>> f"{book['title']} is {age} years old"
+>>> "{title}, {pages} pages".format_map(book)
+@note
+Inside the f-string the key uses single quotes because the string itself uses double quotes. The last line asks for a key the dictionary does not have, so it raises a KeyError naming the missing key.
+@mistakes
+- **Same quotes inside and outside an f-string.** `f"{book["title"]}"` fails before Python 3.12. Use `f"{book['title']}"`.
+- **A template gap with no matching key.** It raises a KeyError. Check the spelling of keys and gaps, or give every record the same keys.
+- **Writing an f-string for a template you store.** `template = f"{name}"` is filled in immediately, when `name` may not exist. Store a plain string and call `format_map` later.
+@keys
+- `format_map(d)` and `format(**d)` fill `{key}` gaps from a dictionary.
+- Format specs work inside the gaps as usual.
+- In f-strings, index the dictionary with the other kind of quotes.
+- Keep templates as plain strings when the data arrives later.
+
+=== 4.3
+@idea
+Dictionaries come with methods for the jobs you do all the time: reading a key that might be missing, looping over pairs, merging two dictionaries, and taking values out. Using them makes code shorter and avoids most KeyErrors.
+
+The most useful is **get**: `d.get(key)` returns the value, or `None` if the key is missing, and `d.get(key, default)` returns your default instead. **setdefault** does the same lookup but also stores the default when the key is missing, which is handy for building lists of things per key. **items()** gives the key–value pairs, so `for name, age in ages.items():` loops over both at once.
+
+Copying deserves care. `d.copy()` makes a **shallow** copy: a new dictionary, but the values are the same objects as before. If a value is a list, both dictionaries share that one list, so changing it through one shows in the other. `copy.deepcopy(d)` copies everything inside as well.
+@how
+- `get(k, default)` reads without a KeyError; `setdefault(k, default)` reads and stores the default if missing.
+- `keys()`, `values()`, `items()` give live views; wrap in `list(...)` to keep a snapshot.
+- `update(other)` copies pairs in, replacing existing values; `d | other` (3.9+) makes a merged new dictionary.
+- `pop(k)` removes and returns a value (KeyError if missing, unless you give a default); `popitem()` removes the last added pair.
+- `clear()` empties the dictionary; `dict.fromkeys(keys, value)` builds one with the same value for each key.
+- `copy()` is shallow; `copy.deepcopy()` copies nested values too.
+@example python: Grouping with setdefault and looping with items
+orders = [("Ada", "tea"), ("Ben", "coffee"), ("Ada", "scone"), ("Cy", "tea"), ("Ben", "muffin")]
+
+by_person = {}
+for person, item in orders:
+    by_person.setdefault(person, []).append(item)
+
+for person, items in by_person.items():
+    print(f"{person}: {', '.join(items)}")
+
+stock = {"tea": 10, "coffee": 4}
+print("scones left:", stock.get("scone", 0))
+@note
+`setdefault(person, [])` gives the existing list for that person, or creates an empty one and stores it, so `append` always has a list to work on. `items()` gives each name with its list. `get` with a default answers "how many?" without a KeyError.
+@example pycon: Merging, popping and the copy trap
+>>> base = {"theme": "light", "size": 12}
+>>> mine = {"size": 14, "lang": "fr"}
+>>> base | mine
+>>> settings = base.copy()
+>>> settings.update(mine)
+>>> settings.pop("lang"), settings
+>>> team = {"name": "Blue", "members": ["Ada"]}
+>>> clone = team.copy()
+>>> clone["members"].append("Ben")
+>>> team["members"]
+>>> import copy
+>>> safe = copy.deepcopy(team)
+>>> safe["members"].append("Cy")
+>>> team["members"], safe["members"]
+@note
+When both dictionaries have a key, the right-hand one wins. The shallow copy shares the members list, so Ben joined both teams. `deepcopy` gave `safe` its own list, so Cy joined only that one.
+@mistakes
+- **Changing a dictionary while looping over it.** Adding or deleting keys during `for k in d:` raises a RuntimeError. Loop over `list(d)` instead.
+- **Expecting `copy()` to copy nested lists.** It does not; use `copy.deepcopy` when values are lists or dictionaries you will change.
+- **Using `dict.fromkeys(keys, [])`.** Every key shares the same list. Use `{k: [] for k in keys}`.
+- **Forgetting that `update` replaces.** It does not add numbers together; a key that exists simply gets the new value.
+@keys
+- `get` and `setdefault` read keys that may be missing without a KeyError.
+- `items()` loops over keys and values together.
+- `update` and `|` merge, with the right-hand values winning.
+- `copy()` is shallow; use `copy.deepcopy` for nested data.

@@ -1,0 +1,225 @@
+=== 3.1
+@idea
+A string is a sequence of characters, so everything from chapter 2 applies: indexing, slicing, `len`, `in`, `+` and `*`. Once you see text as "a row of characters with positions", many text problems become simple sequence problems. The first letter is `s[0]`, the file extension is `s[-3:]`, and checking for a word is `"word" in s`.
+
+The big difference from a list is that strings are **immutable**: once made, a string never changes. Operations that seem to change a string actually build a **new** one and leave the original alone. `s.upper()` returns a new upper-case string; `s` itself is the same as before. To keep the result, assign it: `s = s.upper()`.
+
+Immutability sounds limiting but it makes strings safe to share. If two names refer to the same string, neither can surprise the other by changing it. It also means building a long string piece by piece with `+=` in a loop creates many temporary strings; for lots of pieces, collect them in a list and use `"".join(...)` at the end (lesson 3.4).
+@how
+- `s[i]`, `s[a:b]`, `s[::-1]`, `len(s)`, `"x" in s`, `s + t` and `s * n` all work as for other sequences.
+- You cannot assign to `s[i]`; build a new string instead, for example with slices: `s[:i] + "X" + s[i+1:]`.
+- Methods like `upper`, `replace` and `strip` return a new string; assign the result to keep it.
+- Strings compare character by character using Unicode order, so `"Zebra" < "apple"` (capitals come first).
+- `for ch in s:` goes through the characters one at a time.
+@example pycon: Text problems as sequence problems
+>>> email = "ada.lovelace@example.com"
+>>> at = email.index("@")
+>>> email[:at], email[at + 1:]
+>>> email.count(".")
+>>> "@" in email and email[-4:] == ".com"
+>>> initials = "".join(part[0].upper() for part in "ada king lovelace".split())
+>>> initials
+@note
+`index` finds the position of the @ so slices can cut out the user name and the domain. `count` counts characters, and `in` plus a slice make a rough check. The last lines take the first letter of each word.
+@example pycon: Strings never change, results are new strings
+>>> name = "grace"
+>>> name.capitalize()
+>>> name
+>>> name = name.capitalize()
+>>> name
+>>> name[0] = "G"
+>>> "Zebra" < "apple"
+@note
+`capitalize()` gave back a new string and left `name` alone until the result was assigned to it. Assigning to a position raises a TypeError. Capital letters sort before lower case, so "Zebra" counts as smaller.
+@mistakes
+- **Calling a method and throwing the result away.** `s.strip()` on its own line does nothing visible. Write `s = s.strip()`.
+- **Trying to change one character.** `s[0] = "X"` raises a TypeError. Build a new string with slices or `replace`.
+- **Comparing text with different capitals.** `"Yes" == "yes"` is `False`. Compare lower-case versions: `answer.lower() == "yes"`.
+@keys
+- Strings are sequences: indexing, slicing, `len`, `in`, `+` and `*` all work.
+- Strings are immutable; methods return new strings, so assign the result.
+- Build a modified string from slices rather than assigning to a position.
+- Comparisons are case-sensitive and follow Unicode order.
+
+=== 3.2
+@idea
+Programs constantly turn values into text: "Ada scored 87.5 points", "Total: $12.40". Gluing pieces together with `+` and `str()` works but gets messy fast. **String formatting** lets you write the sentence once as a template with gaps, and have Python fill the gaps with values.
+
+The modern way is the **f-string**: put an `f` before the opening quote and write any expression inside curly brackets. `f"{name} scored {score}"` replaces `{name}` and `{score}` with their values. Because the expressions sit right where they appear in the sentence, f-strings are the easiest to read, and they are what you should use in new code.
+
+Two older styles are still common. `"{} scored {}".format(name, score)` fills the gaps from arguments; it is useful when the template comes from somewhere else, such as a settings file. The `%` style, `"%s scored %d" % (name, score)`, comes from C and appears in old code and in the `logging` module. You only need to recognise it.
+@how
+- f-strings: `f"text {expression} text"`. Anything that gives a value can go in the brackets: `{price * 2}`, `{name.upper()}`.
+- A colon inside the brackets adds a format spec: `{score:.1f}` shows one decimal place (more in 3.3).
+- `{value!r}` shows the repr, quotes included: handy when debugging.
+- `{value=}` (Python 3.8+) shows both the expression and its value: `f"{total=}"` gives `total=12`.
+- `str.format`: `"{} and {}".format(a, b)`, `"{0} {1} {0}".format(a, b)`, `"{name}".format(name=a)`.
+- To show a real curly bracket, double it: `f"{{not a gap}}"`.
+@example python: A receipt with f-strings
+item = "Notebook"
+price = 3.5
+quantity = 4
+total = price * quantity
+
+print(f"{quantity} x {item} at ${price:.2f} each")
+print(f"Total: ${total:.2f}")
+print(f"Shout it: {item.upper()}!")
+print(f"{total=}")
+print(f"Use {{braces}} for literal brackets")
+@note
+`:.2f` always shows two decimal places, which is what prices need. Method calls and arithmetic work inside the brackets. `{total=}` is a quick debugging aid, and doubled brackets print a single one.
+@example pycon: The same sentence in three styles
+>>> name, score = "Mina", 87.456
+>>> f"{name} scored {score:.1f}"
+>>> "{} scored {:.1f}".format(name, score)
+>>> "{n} scored {s:.1f}".format(n=name, s=score)
+>>> "%s scored %.1f" % (name, score)
+>>> template = "Dear {who}, your order {num} has shipped."
+>>> template.format(who="Ada", num=1042)
+@note
+All four lines produce the same text. `format` shines when the template is stored separately from the values, as in the last two lines.
+@mistakes
+- **Forgetting the `f`.** `"{name} scored"` prints the brackets literally. The `f` must come right before the quote.
+- **Mixing quote types inside an f-string.** `f"{data["key"]}"` fails before Python 3.12. Use the other quote inside: `f"{data['key']}"`.
+- **Formatting a string as a number.** `f"{'12':.2f}"` raises a ValueError. Convert first: `f"{float(text):.2f}"`.
+- **Using `+` with numbers.** `"Total: " + 12` raises a TypeError; an f-string handles the conversion for you.
+@keys
+- f-strings (`f"...{value}..."`) are the clearest way to build text from values.
+- A colon adds formatting: `{x:.2f}` for two decimals.
+- `str.format` fills a template later; the `%` style is for reading old code.
+- Double the brackets to show a literal `{` or `}`.
+
+=== 3.3
+@idea
+The part after the colon in `{value:spec}` is a small language of its own, the **format specification**. It controls how wide the result is, how it lines up, how many decimals to show, and how to write signs and large numbers. With it you can print tidy tables and reports without counting spaces by hand.
+
+The pieces always come in the same order, all optional: **fill** and **align**, **sign**, **width**, **thousands separator**, **precision**, then **type**. You rarely need more than two or three at once. `{price:>8.2f}` reads as "right-align in 8 characters, 2 decimals, fixed-point". `{name:<12}` means "left-align in 12 characters".
+
+Alignment uses `<` (left), `>` (right) and `^` (centre). Numbers line up on the right by default and text on the left, which matches how tables are usually read. Any character before the alignment sign becomes the padding: `{title:*^20}` centres the title in a row of stars.
+@how
+- Order: `[fill][align][sign][width][,][.precision][type]`.
+- Align: `<` left, `>` right, `^` centre. Fill: any one character before it, such as `-` or `0`.
+- Width: the minimum number of characters; longer values are never cut.
+- `.2f` two decimals; `.1%` percentage with one decimal (multiplies by 100); `e` scientific notation.
+- `,` or `_` adds thousands separators: `{1234567:,}` is `1,234,567`.
+- `+` always shows a sign; `06` pads with zeros to width 6; `x`, `o` and `b` show hex, octal and binary.
+@example python: A tidy price table
+items = [("Coffee", 3.5), ("Croissant", 2.25), ("Orange juice", 4.75)]
+
+print(f"{'Item':<15}{'Price':>8}")
+print("-" * 23)
+for name, price in items:
+    print(f"{name:<15}{price:>8.2f}")
+print("-" * 23)
+print(f"{'Total':<15}{sum(p for _, p in items):>8.2f}")
+@note
+Every row uses the same widths, so the columns line up whatever the item names are. Text is left-aligned and prices right-aligned with two decimals, the way a receipt looks.
+@example pycon: Signs, separators, percentages and padding
+>>> f"{1234567.891:,.2f}"
+>>> f"{0.125:.1%}"
+>>> f"{-3:+} {3:+}"
+>>> f"{7:03}", f"{255:x}", f"{5:08b}"
+>>> f"{'Menu':=^20}"
+>>> f"{'too long for the width':5}"
+@note
+`,` groups thousands, `%` turns 0.125 into 12.5%, `+` forces a sign, `03` pads with zeros and `08b` writes 5 as eight binary digits. A width is a minimum, so long text is never cut.
+@mistakes
+- **Putting the pieces in the wrong order.** `{x:.2f>8}` is an error. Width and alignment come before precision: `{x:>8.2f}`.
+- **Using `%` on a value that is already a percentage.** `{87:.0%}` shows `8700%`. Divide by 100 first, or just write `{87}%`.
+- **Expecting a width to cut long text.** It only pads. Slice the text first if you need a fixed maximum: `f"{name[:10]:<10}"`.
+@keys
+- After the colon: fill, align, sign, width, separator, precision, type, in that order.
+- `<`, `>` and `^` align; a character before them is the padding.
+- `.2f`, `.1%`, `,` and `+` cover most number formatting.
+- Widths make columns line up; they never shorten values.
+
+=== 3.4
+@idea
+String **methods** are functions that belong to every string and work on it: `"hello".upper()`. A handful of them do most of the everyday work of cleaning, searching and reshaping text, and learning them well saves you from writing fiddly loops.
+
+The most important pair is **split** and **join**. `split` breaks a string into a list of pieces: with no argument it splits on any run of spaces, tabs or newlines; with an argument it splits on exactly that text. `join` is the opposite: it is called **on the separator** and glues a list of strings together, as in `", ".join(names)`. Reading CSV-like lines, cleaning user input and building sentences all come down to these two.
+
+Remember that strings are immutable, so every method here returns a **new** string (or a list or number) and leaves the original alone. That also means you can chain calls: `text.strip().lower().replace("-", " ")` runs left to right, each step working on the result of the previous one.
+@how
+- `split()` splits on whitespace and drops empty pieces; `split(",")` splits on each comma exactly.
+- `sep.join(list_of_strings)` joins with `sep` between items. All items must be strings.
+- `lower()`, `upper()`, `title()`, `capitalize()` change case.
+- `replace(old, new)` replaces every occurrence; `replace(old, new, 1)` only the first.
+- `find(sub)` gives the first position or `-1`; `index(sub)` is the same but raises a ValueError when missing; `count(sub)` counts.
+- `center(width, fill)` centres text in a given width.
+@example pycon: Reading and rebuilding a line of data
+>>> line = "Ada Lovelace, 1815, London"
+>>> name, year, city = line.split(", ")
+>>> name.split()
+>>> int(year) + 200
+>>> " | ".join([city.upper(), year, name])
+>>> "-".join("2026 11 20".split())
+@note
+Splitting on ", " gives the three fields, and unpacking names them. Splitting the name with no argument breaks it into words. `join` puts its separator between the pieces, and the last line swaps spaces for dashes.
+@example pycon: Searching and replacing
+>>> text = "the cat sat on the mat"
+>>> text.find("cat"), text.find("dog")
+>>> text.count("at")
+>>> text.replace("at", "og")
+>>> text.replace("the", "a", 1)
+>>> text.title()
+>>> "Menu".center(16, "*")
+@note
+`find` returns -1 when the text is missing, which `index` would turn into an error. `count` and `replace` work on any piece of text, even inside words, so "at" matches cat, sat and mat.
+@mistakes
+- **Calling join on the list.** `names.join(", ")` fails. The separator does the joining: `", ".join(names)`.
+- **Joining numbers.** `", ".join([1, 2])` raises a TypeError. Convert first: `", ".join(str(n) for n in nums)`.
+- **Using `split(" ")` on messy spacing.** Double spaces produce empty strings in the list. Plain `split()` handles any amount of whitespace.
+- **Testing `find` like a boolean.** `if text.find("x"):` is wrong because position 0 counts as false and -1 as true. Use `if "x" in text:`.
+@keys
+- `split` turns text into a list; `sep.join(list)` turns a list back into text.
+- Case methods, `replace`, `find`, `index` and `count` cover most searching and cleaning.
+- Every method returns a new value; chain them or assign the result.
+- Use `in` for yes/no questions, `find` when you need the position.
+
+=== 3.5
+@idea
+Text that comes from users, files or the web is rarely clean. It has stray spaces, inconsistent capitals, unexpected characters and values that should be numbers but might not be. The methods in this lesson are the toolkit for **cleaning** text and **checking** what kind of text you have before you use it.
+
+`strip()` removes whitespace (spaces, tabs, newlines) from both ends; `lstrip()` and `rstrip()` do one side only. Given an argument, they remove any of those characters from the ends instead. Lines read from a file end with `\n`, so `line.strip()` is one of the most common calls in Python. `startswith` and `endswith` check how text begins or ends, and accept a tuple of options.
+
+The **is-methods** answer questions about the characters: `isdigit()` (only digits), `isalpha()` (only letters), `isalnum()` (letters or digits), `isspace()`, `isupper()` and `islower()`. They return `True` or `False`, which makes them ideal for checking input before converting it. For swapping or deleting many characters at once, `str.maketrans` and `translate` are faster and tidier than a chain of `replace` calls.
+@how
+- `strip()`, `lstrip()`, `rstrip()` remove whitespace; `strip("*-")` removes any of those characters from the ends.
+- `startswith(prefix)` and `endswith(suffix)`; pass a tuple to accept several: `name.endswith((".jpg", ".png"))`.
+- `isdigit()`, `isalpha()`, `isalnum()`, `isspace()`, `isupper()`, `islower()` return `True` or `False`. An empty string gives `False`.
+- `str.maketrans("abc", "xyz")` pairs characters by position; a third argument lists characters to delete. Use it with `text.translate(table)`.
+- `removeprefix` and `removesuffix` (Python 3.9+) remove one exact piece from the start or end.
+@example python: Cleaning messy input
+raw_answers = ["  Yes\n", "no ", "YES", " y ", "maybe"]
+
+for raw in raw_answers:
+    answer = raw.strip().lower()
+    if answer in ("yes", "y"):
+        print(f"{raw!r:>10} -> agreed")
+    elif answer in ("no", "n"):
+        print(f"{raw!r:>10} -> declined")
+    else:
+        print(f"{raw!r:>10} -> not understood")
+@note
+`strip().lower()` turns every variant of yes into the same text before comparing. `!r` shows each raw value with its hidden spaces and newline, which makes the cleaning visible.
+@example pycon: Checking and translating text
+>>> "2026".isdigit(), "20.5".isdigit(), "".isdigit()
+>>> "Ada".isalpha(), "Ada L".isalpha()
+>>> "photo.JPG".lower().endswith((".jpg", ".jpeg", ".png"))
+>>> "--==Title==--".strip("-=")
+>>> table = str.maketrans("áéíóú", "aeiou", "!?")
+>>> "¡Qué día más bonito!".translate(table)
+>>> "report_final.txt".removesuffix(".txt")
+@note
+`isdigit` is false for "20.5" because the dot is not a digit, and for an empty string. `strip` with characters removes any mix of them from both ends. The translation table swaps accented vowels and deletes `!` and `?` in one step (the `¡` stays because it was not listed).
+@mistakes
+- **Thinking `strip("abc")` removes the word "abc".** It removes any of the characters a, b and c from the ends. Use `removeprefix` or `removesuffix` for an exact piece.
+- **Using `isdigit` to check for any number.** Negative numbers and decimals fail it. Try the conversion inside `try`/`except ValueError` instead (chapter 8).
+- **Forgetting the newline at the end of lines from a file.** `line == "done"` is false for `"done\n"`. Strip first.
+- **Passing a list to `endswith`.** It must be a tuple: `endswith((".a", ".b"))`.
+@keys
+- `strip` and its cousins clean the ends of text; with an argument they remove those characters.
+- `startswith` and `endswith` accept a tuple of options.
+- The is-methods check what kind of characters a string holds; empty strings give `False`.
+- `maketrans` plus `translate` swap or delete many characters in one go.
