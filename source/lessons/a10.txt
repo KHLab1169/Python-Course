@@ -1,0 +1,616 @@
+=== A10.1
+@idea
+Web APIs speak **HTTP**: a client sends a **request** (a method such as GET or POST, a URL, headers, and sometimes a body) and the server returns a **response** (a status code, headers and a body, usually JSON). Status codes are grouped by their first digit: **2xx** success (200 OK, 201 Created, 204 No Content), **3xx** redirects, **4xx** client errors (400 bad request, 401 not authenticated, 403 forbidden, 404 not found, 429 too many requests) and **5xx** server errors (500, 502, 503).
+
+The `requests` library (or `httpx`, which adds async support) makes calls short: `requests.get(url, params=..., timeout=5)`, then `response.raise_for_status()` and `response.json()`. Robust clients add three habits. Always pass a **timeout**, or a stalled server hangs your program forever. **Retry** only failures that can succeed on a second try (connection errors, 429, 502, 503, 504), with **exponential backoff** (wait 0.5 s, 1 s, 2 s...) so you do not hammer a struggling service; never blindly retry a 400 or a non-idempotent POST. Reuse a **Session** for connection pooling and shared headers such as an API key.
+
+Large collections come in **pages**. APIs use page numbers, offsets, or a **cursor** ("next" token or URL) returned with each page. A generator that follows the pages and yields items one by one hides that detail from the rest of your code.
+@how
+- `r = session.get(url, params={"q": "tea"}, timeout=5)`; `r.status_code`, `r.headers`, `r.json()`.
+- `r.raise_for_status()` turns 4xx/5xx into an exception.
+- Retry on connection errors and 429/5xx, with backoff; honour a `Retry-After` header.
+- `requests.Session()` reuses connections; set `session.headers["Authorization"] = f"Bearer {token}"`.
+- Paginate with a generator that follows `next` links or cursors.
+- Keep API keys in environment variables, never in code.
+@example python: A client with timeouts, retries and backoff, against a local flaky server
+import json
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import requests
+
+calls = {"n": 0}
+
+class Flaky(BaseHTTPRequestHandler):
+    def do_GET(self):
+        calls["n"] += 1
+        if self.path.startswith("/rates") and calls["n"] < 3:
+            self.send_response(503)                      # fails twice, then works
+            self.end_headers()
+            return
+        status, body = (200, {"CAD": 1.0, "USD": 0.71}) if self.path.startswith("/rates") else (404, {"error": "not found"})
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+    def log_message(self, *args):
+        pass
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Flaky)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+BASE = f"http://127.0.0.1:{server.server_address[1]}"
+
+RETRYABLE = {429, 502, 503, 504}
+
+def get_json(session, path, attempts=4, delay=0.05):
+    for attempt in range(1, attempts + 1):
+        try:
+            r = session.get(BASE + path, timeout=2)
+        except requests.ConnectionError:
+            r = None
+        if r is not None and r.status_code not in RETRYABLE:
+            r.raise_for_status()                         # 4xx: do not retry
+            return r.json()
+        print(f"  attempt {attempt}: {r.status_code if r is not None else 'no connection'}, waiting {delay:.2f}s")
+        time.sleep(delay)
+        delay *= 2
+    raise RuntimeError(f"{path} still failing after {attempts} attempts")
+
+with requests.Session() as s:
+    print(get_json(s, "/rates"))
+    try:
+        get_json(s, "/nope")
+    except requests.HTTPError as error:
+        print("HTTPError:", error.response.status_code, error.response.json())
+server.shutdown()
+@note
+The server returned 503 twice; the client waited with doubling delays and succeeded on the third try. The 404 was not retried, because asking again cannot help: `raise_for_status` turned it into an HTTPError whose response still carries the error body.
+@example python: Following pages with a generator
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+import requests
+
+ITEMS = [f"order-{i}" for i in range(1, 12)]
+
+class Paged(BaseHTTPRequestHandler):
+    def do_GET(self):
+        q = parse_qs(urlparse(self.path).query)
+        start = int(q.get("cursor", ["0"])[0])
+        page = ITEMS[start:start + 4]
+        nxt = start + 4 if start + 4 < len(ITEMS) else None
+        body = {"items": page, "next": f"/orders?cursor={nxt}" if nxt is not None else None}
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+    def log_message(self, *args):
+        pass
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Paged)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+base = f"http://127.0.0.1:{server.server_address[1]}"
+
+def all_orders(session, path="/orders"):
+    pages = 0
+    while path:
+        data = session.get(base + path, timeout=2).json()
+        pages += 1
+        yield from data["items"]
+        path = data["next"]
+    print(f"  ({pages} pages fetched)")
+
+with requests.Session() as s:
+    orders = list(all_orders(s))
+print(len(orders), orders[:3], orders[-1])
+server.shutdown()
+@note
+The generator followed each `next` link until there was none, yielding items one at a time; callers just see a stream of orders and never deal with cursors. Because it is lazy, a caller that stops early (say, after the first match) never fetches the remaining pages.
+@mistakes
+- **No timeout.** A stalled server hangs the program forever. Always pass one.
+- **Retrying everything.** Retrying a 400 just repeats the error, and retrying a POST may create duplicates. Retry transient failures only.
+- **Ignoring pagination.** You silently process only the first page.
+@keys
+- HTTP: method, URL, headers, body → status code, headers, body.
+- Timeouts always; `raise_for_status()` for errors.
+- Retry transient failures with exponential backoff.
+- Sessions reuse connections; generators hide pagination.
+
+=== A10.2
+@idea
+A relational database stores data in **tables** of rows and columns, with a **schema** saying what each column holds. Every table gets a **primary key** that identifies each row; a **foreign key** refers to a row in another table (an order's `customer_id`), and the database can enforce that it points somewhere real. SQLite, built into Python as `sqlite3`, is a full SQL database in a single file, ideal for learning, tests, tools and many small applications.
+
+The core of SQL: `SELECT` columns `FROM` a table `WHERE` a condition, `ORDER BY`, `LIMIT`. A **JOIN** combines rows from related tables (orders with their customers). **GROUP BY** with aggregate functions (`COUNT`, `SUM`, `AVG`) summarises groups, and `HAVING` filters the groups. An **index** on columns you search or join by turns full-table scans into fast lookups; `EXPLAIN QUERY PLAN` shows whether one is used.
+
+Two rules matter in Python. Always pass values as **parameters** (`?` placeholders), never with f-strings: placeholders prevent SQL injection and handle quoting. And group related changes into a **transaction**: `with con:` commits if the block succeeds and **rolls back** if it raises, so a transfer that debits one account can never forget to credit the other.
+@how
+- `con = sqlite3.connect("app.db")`; `con.row_factory = sqlite3.Row` for rows by name.
+- `CREATE TABLE ... (id INTEGER PRIMARY KEY, ..., FOREIGN KEY (x) REFERENCES t(id))`; enable with `PRAGMA foreign_keys = ON`.
+- `con.execute("... WHERE id = ?", (id,))`; `executemany` for bulk inserts.
+- `JOIN ... ON`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`.
+- `CREATE INDEX idx_orders_customer ON orders(customer_id)`; check with `EXPLAIN QUERY PLAN`.
+- `with con:` for transactions: commit on success, rollback on error.
+@example python: Schema, join and group by
+import sqlite3
+
+con = sqlite3.connect(":memory:")
+con.row_factory = sqlite3.Row
+con.executescript("""
+PRAGMA foreign_keys = ON;
+CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, city TEXT);
+CREATE TABLE orders (
+    id INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    total REAL NOT NULL
+);
+CREATE INDEX idx_orders_customer ON orders(customer_id);
+""")
+con.executemany("INSERT INTO customers (name, city) VALUES (?, ?)",
+                [("Ada", "Montréal"), ("Ben", "Toronto"), ("Cy", "Montréal")])
+con.executemany("INSERT INTO orders (customer_id, total) VALUES (?, ?)",
+                [(1, 30.0), (1, 12.5), (2, 99.0), (3, 8.0), (1, 4.5)])
+
+rows = con.execute("""
+    SELECT c.city, COUNT(o.id) AS orders, ROUND(SUM(o.total), 2) AS revenue
+    FROM orders o JOIN customers c ON c.id = o.customer_id
+    GROUP BY c.city HAVING revenue > 20 ORDER BY revenue DESC
+""").fetchall()
+for r in rows:
+    print(dict(r))
+
+plan = con.execute("EXPLAIN QUERY PLAN SELECT * FROM orders WHERE customer_id = ?", (1,)).fetchall()
+print("uses the index:", any("idx_orders_customer" in row[3] for row in plan))
+try:
+    con.execute("INSERT INTO orders (customer_id, total) VALUES (?, ?)", (99, 1.0))
+except sqlite3.IntegrityError as error:
+    print("IntegrityError:", error)
+@note
+The join connects each order to its customer, GROUP BY totals them per city, and HAVING keeps only cities above 20. The query plan confirms the index is used for lookups by customer. With foreign keys switched on, an order for a non-existent customer is refused.
+@example python: Transactions and injection-proof parameters
+import sqlite3
+
+con = sqlite3.connect(":memory:")
+con.execute("CREATE TABLE accounts (name TEXT PRIMARY KEY, balance INTEGER CHECK (balance >= 0))")
+con.executemany("INSERT INTO accounts VALUES (?, ?)", [("ada", 100), ("ben", 20)])
+con.commit()
+
+def transfer(src, dst, amount):
+    try:
+        with con:                                 # one transaction
+            con.execute("UPDATE accounts SET balance = balance + ? WHERE name = ?", (amount, dst))
+            con.execute("UPDATE accounts SET balance = balance - ? WHERE name = ?", (amount, src))
+        return "ok"
+    except sqlite3.IntegrityError as error:
+        return f"rolled back ({error})"
+
+print(transfer("ada", "ben", 30), dict(con.execute("SELECT * FROM accounts")))
+print(transfer("ben", "ada", 500), dict(con.execute("SELECT * FROM accounts")))
+
+evil = "x' OR '1'='1"
+unsafe = f"SELECT COUNT(*) FROM accounts WHERE name = '{evil}'"
+print("f-string query matched", con.execute(unsafe).fetchone()[0], "rows")
+print("parameter query matched", con.execute("SELECT COUNT(*) FROM accounts WHERE name = ?", (evil,)).fetchone()[0], "rows")
+@note
+The second transfer credited Ada first, then the debit broke Ben's `CHECK (balance >= 0)`; the `with con:` block rolled back both updates, so no money appeared from nowhere. The f-string query let crafted input rewrite the condition and match every row; the parameterised one treated it as a plain name.
+@mistakes
+- **Building SQL with f-strings.** That is SQL injection. Use `?` placeholders.
+- **Multi-step changes outside a transaction.** A crash halfway leaves inconsistent data. Use `with con:`.
+- **Forgetting `PRAGMA foreign_keys = ON` in SQLite.** Foreign keys are not enforced without it.
+@keys
+- Tables, primary keys and foreign keys model related data.
+- SELECT with JOIN, GROUP BY and HAVING answers most questions.
+- Indexes speed up searches and joins; check with EXPLAIN QUERY PLAN.
+- Parameters prevent injection; transactions keep changes all-or-nothing.
+
+=== A10.3
+@idea
+**FastAPI** builds web APIs from ordinary type-hinted functions. A **route** decorator (`@app.get("/items/{item_id}")`) connects a URL and method to a function; FastAPI reads the function's parameters to decide where each value comes from: names in the path are **path parameters**, simple typed parameters are **query parameters**, and a parameter typed as a **Pydantic model** is the JSON **request body**.
+
+The type hints do real work at run time. FastAPI **validates and converts** incoming data with Pydantic: an `item_id: int` that receives "abc" produces a 422 response explaining exactly which field was wrong, before your code runs. A `response_model` filters and documents what is returned (so internal fields like password hashes never leak), and `status_code=201` sets the success code for creation. Raise `HTTPException(status_code=404, detail="...")` for errors.
+
+**Dependencies** (`Depends`) inject shared things into routes: a database session, the current user, settings. They keep routes short and make testing easy, since a test can override a dependency with a fake. FastAPI also generates interactive **documentation** at `/docs` from the same hints. `TestClient` calls the app directly in tests, without starting a server.
+@how
+- `app = FastAPI()`; `@app.get`, `@app.post(..., status_code=201, response_model=Out)`.
+- Path `/{id}` → path parameter; `limit: int = 10` → query; `body: ItemIn` → JSON body.
+- Pydantic models: `class ItemIn(BaseModel): name: str = Field(min_length=1); price: float = Field(gt=0)`.
+- Invalid input → automatic 422 with details; raise `HTTPException` for your own errors.
+- `Depends(get_db)` injects dependencies; override in tests with `app.dependency_overrides`.
+- Run with `uvicorn app:app --reload` (or `fastapi dev`); docs at `/docs`.
+@example python: A small API: validation, status codes and errors
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
+
+app = FastAPI(title="Tea shop")
+
+class TeaIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    price: float = Field(gt=0)
+
+class TeaOut(TeaIn):
+    id: int
+
+TEAS: dict[int, TeaOut] = {}
+
+@app.post("/teas", status_code=201, response_model=TeaOut)
+def create_tea(tea: TeaIn):
+    new = TeaOut(id=len(TEAS) + 1, **tea.model_dump())
+    TEAS[new.id] = new
+    return new
+
+@app.get("/teas/{tea_id}", response_model=TeaOut)
+def get_tea(tea_id: int):
+    if tea_id not in TEAS:
+        raise HTTPException(status_code=404, detail=f"tea {tea_id} not found")
+    return TEAS[tea_id]
+
+@app.get("/teas", response_model=list[TeaOut])
+def list_teas(max_price: float | None = None):
+    return [t for t in TEAS.values() if max_price is None or t.price <= max_price]
+
+client = TestClient(app)
+print(client.post("/teas", json={"name": "Sencha", "price": 6.5}).status_code)
+client.post("/teas", json={"name": "Assam", "price": 4.0})
+print(client.get("/teas", params={"max_price": 5}).json())
+print(client.get("/teas/9").status_code, client.get("/teas/9").json())
+bad = client.post("/teas", json={"name": "", "price": -1})
+print(bad.status_code, [(e["loc"][-1], e["msg"]) for e in bad.json()["detail"]])
+print(client.get("/teas/abc").status_code, "- 'abc' is not an int")
+@note
+Creating returned 201, the query parameter filtered the list, and an unknown id produced a 404 with a readable message. The invalid body never reached `create_tea`: Pydantic rejected both fields with 422 and explained each problem. All of it ran through `TestClient`, no server needed.
+@example python: Dependencies, and overriding them in tests
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+
+app = FastAPI()
+
+class RealStore:
+    def stock(self):
+        raise RuntimeError("would connect to the production database")
+
+def get_store():
+    return RealStore()
+
+def get_page(page: int = 1, size: int = 2):
+    return {"offset": (page - 1) * size, "size": size}
+
+@app.get("/stock")
+def stock(store=Depends(get_store), paging: dict = Depends(get_page)):
+    items = store.stock()
+    return {"items": items[paging["offset"]:paging["offset"] + paging["size"]], "total": len(items)}
+
+class FakeStore:
+    def stock(self):
+        return ["sencha", "assam", "rooibos", "earl grey", "oolong"]
+
+app.dependency_overrides[get_store] = FakeStore
+client = TestClient(app)
+print(client.get("/stock").json())
+print(client.get("/stock", params={"page": 3}).json())
+print(sorted(app.openapi()["paths"]), "- documented automatically")
+@note
+The route asks for a store and paging settings instead of creating them, so the test swapped in a fake store with one line and never touched a real database. The paging dependency read `page` and `size` from the query string and is reusable by any route. The same hints feed the OpenAPI documentation.
+@mistakes
+- **Returning internal models directly.** Fields like password hashes leak. Use a `response_model`.
+- **Validating input by hand in every route.** Put the rules in Pydantic models.
+- **Creating database connections inside routes.** Inject them with `Depends`, so tests can override them.
+@keys
+- Routes are type-hinted functions; parameters map to path, query and body.
+- Pydantic validates input automatically and returns 422 with details.
+- `response_model`, `status_code` and `HTTPException` shape the responses.
+- Dependencies inject shared resources and make testing easy.
+
+=== A10.4
+@idea
+**SQLAlchemy** is Python's most widely used database toolkit. Its **ORM** (object-relational mapper) lets you define tables as Python classes and work with rows as objects, while it writes the SQL. An **engine** knows how to connect to a database (`create_engine("sqlite:///app.db")` or a PostgreSQL URL); a **session** is a unit of work: you add, change and delete objects, and `session.commit()` writes all changes in one transaction.
+
+Models are declared with type-annotated attributes: `id: Mapped[int] = mapped_column(primary_key=True)`. A **relationship** connects models through a foreign key, so `author.books` gives a list of Book objects and `book.author` the Author, with SQLAlchemy loading them as needed. Queries use `select(Book).where(Book.year > 2000).order_by(Book.title)`, executed with `session.scalars(...)`.
+
+Watch out for the **N+1 problem**: looping over 100 authors and touching `author.books` can issue 101 queries. Loading options like `selectinload(Author.books)` fetch related rows in one extra query. Real schemas change over time, and **Alembic** manages those changes as versioned **migrations**: scripts that upgrade (and downgrade) the database schema step by step, committed with your code, so every environment can be brought to the same version.
+@how
+- `engine = create_engine(url)`; `class Base(DeclarativeBase): pass`; models subclass Base.
+- Columns: `Mapped[str] = mapped_column(String(80))`; nullable with `Mapped[str | None]`.
+- Relationships: `books: Mapped[list["Book"]] = relationship(back_populates="author")`.
+- `with Session(engine) as s: s.add(obj); s.commit()`.
+- Queries: `s.scalars(select(Model).where(...).order_by(...)).all()`; `s.get(Model, id)`.
+- Avoid N+1 with `options(selectinload(...))`; manage schema changes with Alembic (`alembic revision --autogenerate`, `alembic upgrade head`).
+@example python: Models, a relationship and queries
+from sqlalchemy import ForeignKey, String, create_engine, func, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
+class Base(DeclarativeBase):
+    pass
+
+class Author(Base):
+    __tablename__ = "authors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    books: Mapped[list["Book"]] = relationship(back_populates="author")
+
+class Book(Base):
+    __tablename__ = "books"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    year: Mapped[int]
+    author_id: Mapped[int] = mapped_column(ForeignKey("authors.id"))
+    author: Mapped[Author] = relationship(back_populates="books")
+
+engine = create_engine("sqlite://")
+Base.metadata.create_all(engine)
+
+with Session(engine) as s:
+    austen = Author(name="Jane Austen", books=[Book(title="Emma", year=1815), Book(title="Persuasion", year=1817)])
+    herbert = Author(name="Frank Herbert", books=[Book(title="Dune", year=1965)])
+    s.add_all([austen, herbert])
+    s.commit()
+
+    for book in s.scalars(select(Book).where(Book.year > 1816).order_by(Book.year)):
+        print(book.title, "by", book.author.name)
+    counts = s.execute(select(Author.name, func.count(Book.id)).join(Author.books).group_by(Author.name).order_by(Author.name)).all()
+    print(counts)
+    emma = s.scalars(select(Book).where(Book.title == "Emma")).one()
+    emma.year = 1816
+    s.commit()
+    print(s.get(Book, emma.id).year)
+@note
+Adding the authors with their books inserted all rows in one commit, with foreign keys filled in automatically. `book.author` and `.join(Author.books)` navigate the relationship without writing join conditions. Changing an attribute and committing issued the UPDATE for you.
+@example python: Spotting and fixing the N+1 problem
+from sqlalchemy import ForeignKey, create_engine, event, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, selectinload
+
+class Base(DeclarativeBase):
+    pass
+
+class Author(Base):
+    __tablename__ = "authors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    books: Mapped[list["Book"]] = relationship()
+
+class Book(Base):
+    __tablename__ = "books"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    author_id: Mapped[int] = mapped_column(ForeignKey("authors.id"))
+
+engine = create_engine("sqlite://")
+Base.metadata.create_all(engine)
+with Session(engine) as s:
+    s.add_all([Author(name=f"author {i}", books=[Book(title=f"book {i}.{j}") for j in range(3)]) for i in range(20)])
+    s.commit()
+
+queries = []
+event.listen(engine, "before_cursor_execute", lambda *args: queries.append(1))
+
+for label, stmt in [("lazy", select(Author)), ("selectinload", select(Author).options(selectinload(Author.books)))]:
+    queries.clear()
+    with Session(engine) as s:
+        total = sum(len(a.books) for a in s.scalars(stmt))
+    print(f"{label:13} {total} books loaded with {len(queries)} queries")
+@note
+Touching `a.books` lazily ran one query for the authors plus one per author: 21 queries for 20 authors. `selectinload` fetched all the books in a single extra query, two in total. Counting queries with an event listener is a quick way to catch this in tests.
+@mistakes
+- **Forgetting `commit()`.** Changes vanish when the session closes.
+- **Lazy-loading relationships inside loops.** N+1 queries. Use `selectinload` or `joinedload`.
+- **Changing production schemas by hand.** Environments drift. Use Alembic migrations, committed with the code.
+@keys
+- Engine connects; sessions are units of work committed as transactions.
+- Models with `Mapped` columns and relationships map tables to classes.
+- `select()` builds queries; relationships navigate between objects.
+- Watch for N+1 queries; manage schema changes with Alembic.
+
+=== A10.5
+@idea
+The same code runs in several places: your laptop, CI, staging, production. What differs between them (database URL, debug mode, API keys, allowed hosts) is **configuration**, and it belongs in the **environment**, not in the code. Reading settings from environment variables (the "twelve-factor" approach) means the same build moves unchanged between environments. **pydantic-settings** turns this into a typed class: each field reads the matching variable, converts and validates it, and fails at start-up with a clear message if something is missing or wrong.
+
+**Secrets** need extra care. Never commit them: keep them in environment variables, a git-ignored `.env` file for local development, or the platform's secret store. Never log them, and give them a type like `SecretStr` so they print as `**********`. If a secret is ever committed, rotate it; deleting the commit is not enough.
+
+**Docker** packages the application with its exact Python version and dependencies into an **image** that runs the same everywhere. A good Dockerfile starts from a slim Python image, installs dependencies before copying the code (so rebuilds reuse the cached layer), runs as a non-root user and starts the server. Deployment platforms then run that image, passing configuration as environment variables.
+@how
+- `class Settings(BaseSettings)` with typed fields; `model_config = SettingsConfigDict(env_prefix="APP_", env_file=".env")`.
+- `SecretStr` for passwords and keys; `.get_secret_value()` only where needed.
+- `.env` in `.gitignore`; commit a `.env.example` with dummy values.
+- Dockerfile: slim base, copy dependency files, install, copy code, non-root user, `CMD`.
+- `docker build -t notes-api .`; `docker run -p 8000:8000 -e APP_DATABASE_URL=... notes-api`.
+- Health-check endpoint (`/health`) for the platform to probe.
+@example python: Typed settings from the environment, with validation
+from pydantic import Field, SecretStr, ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="NOTES_")
+    database_url: str = "sqlite:///notes.db"
+    debug: bool = False
+    workers: int = Field(default=2, ge=1, le=32)
+    api_key: SecretStr
+
+import os
+os.environ.update({"NOTES_API_KEY": "s3cr3t-value", "NOTES_DEBUG": "yes", "NOTES_WORKERS": "4"})
+settings = Settings()
+print(settings.database_url, settings.debug, settings.workers)
+print(settings.api_key, "| repr:", repr(settings.api_key))
+print("real value only on request:", settings.api_key.get_secret_value()[:3] + "...")
+
+os.environ["NOTES_WORKERS"] = "lots"
+del os.environ["NOTES_API_KEY"]
+try:
+    Settings()
+except ValidationError as error:
+    for e in error.errors():
+        print(f"config error: {e['loc'][0]}: {e['msg']}")
+@note
+Each field read its `NOTES_` variable and was converted: "yes" became True and "4" an int, while the database URL kept its default. The secret prints as asterisks so it cannot leak into logs by accident. A broken environment fails immediately with every problem listed, instead of crashing later in the middle of a request.
+@example text: A production-minded Dockerfile
+# Dockerfile
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# 1. dependencies first: this layer is cached until requirements change
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 2. then the code, which changes often
+COPY src/ ./src/
+
+# 3. never run as root
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8000
+HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+CMD ["uvicorn", "src.notes.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# build and run, passing configuration through the environment:
+#   docker build -t notes-api .
+#   docker run -p 8000:8000 -e NOTES_API_KEY=... -e NOTES_DATABASE_URL=... notes-api
+@note
+Ordering matters: copying the requirements and installing them before the code means editing a source file only rebuilds the last layers, which takes seconds. The container runs as an unprivileged user, reports its health, and receives every secret at run time rather than baking it into the image.
+@mistakes
+- **Secrets in code or in the image.** Anyone with the repository or image has them. Pass them at run time.
+- **Reading `os.environ` all over the code.** Validation is scattered and typos go unnoticed. Use one Settings class.
+- **Copying the code before installing dependencies in the Dockerfile.** Every code change reinstalls everything.
+@keys
+- Configuration lives in the environment; one typed Settings class reads and validates it.
+- Secrets: never committed, never logged, `SecretStr`, rotate if leaked.
+- Docker packages the exact runtime; order layers for caching; run as non-root.
+- The same image runs everywhere, configured by environment variables.
+
+=== A10.P
+@idea
+The project is a **notes API**: users register and log in, then create, read, update and delete their own notes, and never see anyone else's. It brings the module together: FastAPI routes and Pydantic models, a database through SQLAlchemy (or sqlite3), settings from the environment, tests with TestClient, and a Dockerfile.
+
+**Authentication** is the new piece. Passwords are stored only as slow, salted **hashes** (with `bcrypt`, `argon2` or at least `hashlib.scrypt`). Logging in exchanges a correct password for a **token**: a random opaque string stored server-side, or a signed JWT. Each later request sends it in the `Authorization: Bearer <token>` header, and a dependency (`get_current_user`) turns the header into a user or a 401.
+
+**Authorization** is the second check: is *this* user allowed to touch *this* note? Every query for notes filters by the owner, and asking for someone else's note returns 404 (not 403, which would confirm the note exists). Tests must cover these rules explicitly: no token, a wrong token, another user's note. Those are the bugs that matter most in a real service.
+@how
+- Models: User (email, password hash) and Note (title, body, owner_id).
+- `POST /register`, `POST /login` → token; `GET/POST /notes`, `GET/PUT/DELETE /notes/{id}`.
+- `get_current_user` dependency reads `Authorization: Bearer ...`; raises 401 if missing or invalid.
+- Filter every note query by `owner_id == user.id`; return 404 for others' notes.
+- Tests for each auth rule; settings for the secret key and database URL.
+@example python: Tokens, a current-user dependency and per-owner notes
+import hashlib
+import secrets
+
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
+
+app = FastAPI()
+USERS: dict[str, bytes] = {}           # email -> password hash
+TOKENS: dict[str, str] = {}            # token -> email
+NOTES: dict[int, dict] = {}
+
+def hash_password(password: str, salt: bytes | None = None) -> bytes:
+    salt = salt or secrets.token_bytes(16)
+    return salt + hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+
+def check_password(password: str, stored: bytes) -> bool:
+    return secrets.compare_digest(hash_password(password, stored[:16]), stored)
+
+class Credentials(BaseModel):
+    email: str
+    password: str
+
+class NoteIn(BaseModel):
+    title: str
+
+def current_user(authorization: str = Header(default="")) -> str:
+    token = authorization.removeprefix("Bearer ")
+    if token not in TOKENS:
+        raise HTTPException(401, "missing or invalid token")
+    return TOKENS[token]
+
+@app.post("/register", status_code=201)
+def register(c: Credentials):
+    USERS[c.email] = hash_password(c.password)
+    return {"email": c.email}
+
+@app.post("/login")
+def login(c: Credentials):
+    if c.email not in USERS or not check_password(c.password, USERS[c.email]):
+        raise HTTPException(401, "wrong email or password")
+    token = secrets.token_urlsafe(16)
+    TOKENS[token] = c.email
+    return {"token": token}
+
+@app.post("/notes", status_code=201)
+def create(note: NoteIn, user: str = Depends(current_user)):
+    nid = len(NOTES) + 1
+    NOTES[nid] = {"id": nid, "title": note.title, "owner": user}
+    return NOTES[nid]
+
+@app.get("/notes/{nid}")
+def read(nid: int, user: str = Depends(current_user)):
+    note = NOTES.get(nid)
+    if note is None or note["owner"] != user:
+        raise HTTPException(404, "note not found")
+    return note
+
+c = TestClient(app)
+for email in ["ada@example.com", "ben@example.com"]:
+    c.post("/register", json={"email": email, "password": "correct horse"})
+ada = {"Authorization": "Bearer " + c.post("/login", json={"email": "ada@example.com", "password": "correct horse"}).json()["token"]}
+ben = {"Authorization": "Bearer " + c.post("/login", json={"email": "ben@example.com", "password": "correct horse"}).json()["token"]}
+
+print(c.post("/login", json={"email": "ada@example.com", "password": "guess"}).status_code, "wrong password")
+print(c.post("/notes", json={"title": "secret plan"}, headers=ada).json())
+print(c.get("/notes/1", headers=ada).status_code, "owner reads it")
+print(c.get("/notes/1", headers=ben).status_code, "another user gets not found")
+print(c.get("/notes/1").status_code, "no token")
+print(b"correct horse" not in USERS["ada@example.com"], "- only a salted hash is stored")
+@note
+Passwords are stored as salted scrypt hashes and compared in constant time. Logging in returns a random token; the `current_user` dependency guards every notes route. Ben gets 404 for Ada's note, so he cannot even learn it exists, and a request without a token gets 401.
+@example python: Testing the security rules explicitly with pytest
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("test_auth_rules.py").write_text('''
+import pytest
+
+NOTES = {1: {"owner": "ada", "title": "plan"}}
+TOKENS = {"tok-ada": "ada", "tok-ben": "ben"}
+
+def read_note(token, note_id):
+    user = TOKENS.get(token)
+    if user is None:
+        return 401
+    note = NOTES.get(note_id)
+    if note is None or note["owner"] != user:
+        return 404
+    return 200
+
+@pytest.mark.parametrize("token, note_id, expected, why", [
+    ("tok-ada", 1, 200, "owner"),
+    ("tok-ben", 1, 404, "someone else"),
+    (None, 1, 401, "no token"),
+    ("forged", 1, 401, "bad token"),
+    ("tok-ada", 99, 404, "missing note"),
+])
+def test_read_rules(token, note_id, expected, why):
+    assert read_note(token, note_id) == expected, why
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-v", "-p", "no:cacheprovider", "test_auth_rules.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]", "", line).replace("test_auth_rules.py::", ""))
+@note
+One table lists every access rule with its reason, and each row becomes its own test. In the real project, `read_note` would be a TestClient request; the point is that "someone else's note", "no token" and "forged token" are tested deliberately, because they are exactly what attackers try.
+@mistakes
+- **Storing passwords with fast hashes (MD5, SHA-256) or unsalted.** Use a slow, salted algorithm.
+- **Forgetting the owner filter on one route.** One missed check leaks everyone's data. Filter every query by owner, and test it.
+- **Returning 403 for others' resources.** It confirms they exist. Return 404.
+@keys
+- Authentication: hashed passwords, tokens, a `current_user` dependency.
+- Authorization: every query filtered by owner; 404 for others' notes.
+- Test the security rules explicitly with a parametrized table.
+- Settings from the environment and a Dockerfile complete the service.

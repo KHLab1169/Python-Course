@@ -1,0 +1,676 @@
+=== A11.1
+@idea
+**NumPy** gives Python fast arrays of numbers. An `ndarray` is a block of memory holding values of one **dtype** (such as `float64`, `int32` or `bool`) arranged in a **shape**: `(7,)` for a week of readings, `(3, 7)` for three cities by seven days. Because the values are packed and typed, NumPy can run operations over a whole array in compiled C code, often a hundred times faster than a Python loop.
+
+That style is called **vectorisation**: instead of looping, write the operation on the whole array. `prices * 1.15` multiplies every element; `temps > 0` produces a boolean array; `temps[temps > 0]` (a **boolean mask**) selects the matching values. Aggregations such as `sum`, `mean`, `max` and `argmax` take an `axis`: `axis=0` collapses rows (one result per column), `axis=1` collapses columns (one result per row).
+
+**Broadcasting** lets arrays of different shapes combine when their dimensions are compatible: a `(3, 7)` table minus a `(3, 1)` column of city averages subtracts each city's own average from its row, without copying data. One subtlety: slicing returns a **view** onto the same memory, so changing the slice changes the original; use `.copy()` when you need independence.
+@how
+- `np.array(list)`, `np.arange`, `np.linspace`, `np.zeros((r, c))`; `a.shape`, `a.dtype`, `a.ndim`.
+- Element-wise maths: `a + b`, `a * 2`, `np.sqrt(a)`; comparisons give boolean arrays.
+- Masks: `a[a > 0]`, `np.where(cond, x, y)`, `mask.sum()` counts True values.
+- Aggregate with `axis=0` (per column) or `axis=1` (per row); `keepdims=True` keeps shapes broadcastable.
+- Broadcasting aligns shapes from the right; size-1 dimensions stretch.
+- Slices are views; `.copy()` to detach.
+@example python: Vectorised maths, masks and axes
+import numpy as np
+
+cities = ["Montréal", "Toronto", "Vancouver"]
+highs = np.array([
+    [-3.0, -1.5, 0.5, 2.0, -4.0, -6.5, -2.0],
+    [1.0, 2.5, 3.0, 4.5, 0.0, -1.0, 2.0],
+    [7.5, 2.0, 6.5, 3.0, 8.5, 7.0, 1.0],
+])
+print(highs.shape, highs.dtype)
+print("weekly mean per city:", {c: float(m) for c, m in zip(cities, highs.mean(axis=1).round(2))})
+print("warmest city each day:", [cities[i] for i in highs.argmax(axis=0)])
+print("days above zero per city:", (highs > 0).sum(axis=1))
+print("Montréal's freezing days:", highs[0][highs[0] < 0])
+print("in Fahrenheit:", (highs[1] * 9 / 5 + 32).round(1))
+print("labels:", np.where(highs[2] >= 8, "mild", "cool"))
+@note
+One expression handles every value: `mean(axis=1)` averages each row (city), `argmax(axis=0)` finds the warmest row in each column (day), and summing a boolean array counts the True values. No Python loops were needed.
+@example python: Broadcasting, views, and the speed difference
+import time
+import numpy as np
+
+highs = np.array([[-3.0, -1.5, 0.5], [1.0, 2.5, 3.0]])
+city_mean = highs.mean(axis=1, keepdims=True)          # shape (2, 1)
+print(city_mean.shape, "->", (highs - city_mean).round(2).tolist())
+
+week = np.arange(10)
+first_half = week[:5]
+first_half[0] = 99
+print("slice is a view:", week[:3], "| copy is independent:", week[5:].copy().base is None)
+
+values = np.random.default_rng(0).random(1_000_000)
+start = time.perf_counter(); total_loop = sum(v * v for v in values.tolist()); t_loop = time.perf_counter() - start
+start = time.perf_counter(); total_np = float((values * values).sum()); t_np = time.perf_counter() - start
+print("same result:", np.isclose(total_loop, total_np), "| NumPy over 10x faster:", t_loop > 10 * t_np)
+@note
+Subtracting a `(2, 1)` column from a `(2, 3)` table stretched the column across each row, so every city was compared with its own average. Changing the slice changed the original array, because slices are views. The vectorised sum of squares matched the loop and ran far faster.
+@mistakes
+- **Looping over arrays element by element.** You lose NumPy's speed. Write whole-array expressions.
+- **Mixing up axes.** `axis=0` gives one result per column; `axis=1` one per row. Check the shape of the result.
+- **Modifying a slice and expecting the original unchanged.** Slices are views. Copy first.
+@keys
+- An ndarray holds one dtype in a shape; operations run in compiled code.
+- Vectorise: element-wise maths, comparisons and boolean masks.
+- Aggregate along an axis; broadcasting combines compatible shapes.
+- Slices are views; use `.copy()` for independence.
+
+=== A11.2
+@idea
+**pandas** is the standard tool for tabular data. A **DataFrame** is a table with labelled columns (each a **Series** with its own dtype) and an **index** labelling the rows. You load data with `pd.read_csv`, inspect it with `head()`, `info()` and `describe()`, and select with `df["col"]`, `df[["a", "b"]]`, `df.loc[row_labels, cols]` (by label) and `df.iloc[positions]` (by position). Filters use boolean masks just like NumPy: `df[(df.city == "Montréal") & (df.qty > 2)]`.
+
+Real data is messy, so cleaning comes first. Check `dtypes` (numbers read as text are common), convert with `pd.to_numeric(..., errors="coerce")` and `pd.to_datetime`, and handle **missing data** (`NaN`) deliberately with `isna()`, `dropna()` or `fillna()`; never let it silently skew a mean.
+
+Analysis is mostly three operations. **groupby** splits rows into groups, applies aggregations and combines the results: `df.groupby("city")["revenue"].sum()`, or `.agg(total=("revenue", "sum"), orders=("id", "count"))`. **merge** joins two tables on key columns, like SQL joins (`how="left"` keeps every row of the left table). **pivot_table** reshapes into a cross-tab with one variable down the side and another across the top.
+@how
+- `pd.read_csv(path, parse_dates=["date"])`; `df.info()`, `df.describe()`, `df.head()`.
+- Select: `df["c"]`, `df.loc[mask, ["a", "b"]]`, `df.iloc[0:5]`; new columns: `df["total"] = df.qty * df.price`.
+- Clean: `pd.to_numeric(s, errors="coerce")`, `df.isna().sum()`, `fillna`, `dropna`, `str.strip()`.
+- `df.groupby(keys).agg(name=(column, func))`; `.reset_index()` to get columns back.
+- `pd.merge(left, right, on="key", how="left", validate="many_to_one")`.
+- `df.pivot_table(index=..., columns=..., values=..., aggfunc="sum", fill_value=0)`.
+@example python: Cleaning messy columns and handling missing values
+import io
+import pandas as pd
+
+raw = io.StringIO("""order_id,date,city,qty,price
+1,2026-11-02,Montréal,3,4.50
+2,2026-11-02, Toronto ,two,6.00
+3,2026-11-03,Montréal,1,
+4,2026-11-04,Québec,2,5.25
+5,2026-11-04,toronto,4,6.00
+""")
+df = pd.read_csv(raw, parse_dates=["date"])
+print("numeric columns:", df.select_dtypes("number").columns.tolist())
+
+df["city"] = df["city"].str.strip().str.title()
+df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
+print("missing values per column:", df.isna().sum()[lambda s: s > 0].to_dict())
+
+clean = df.dropna(subset=["qty", "price"]).copy()
+clean["revenue"] = clean["qty"] * clean["price"]
+print(clean[["order_id", "city", "qty", "revenue"]].to_string(index=False))
+print("rows dropped:", len(df) - len(clean), "| revenue:", clean["revenue"].sum())
+@note
+Only `order_id` and `price` were read as numbers: `qty` was read as text because of the value "two", so it was coerced to numbers, turning "two" into NaN. Messy city names were normalised. The rows with missing quantity or price were dropped explicitly and counted, rather than quietly producing a wrong total.
+@example python: groupby, merge and pivot_table
+import pandas as pd
+
+orders = pd.DataFrame({
+    "order_id": [1, 2, 3, 4, 5, 6],
+    "store": ["MTL", "TOR", "MTL", "QC", "TOR", "MTL"],
+    "product": ["tea", "tea", "cake", "tea", "cake", "cake"],
+    "revenue": [13.5, 24.0, 9.0, 10.5, 18.0, 4.5],
+})
+stores = pd.DataFrame({"store": ["MTL", "TOR", "QC"], "city": ["Montréal", "Toronto", "Québec"], "manager": ["Ada", "Ben", "Cy"]})
+
+summary = orders.groupby("store").agg(orders=("order_id", "count"), revenue=("revenue", "sum")).reset_index()
+report = summary.merge(stores, on="store", how="left", validate="one_to_one").sort_values("revenue", ascending=False)
+print(report[["city", "manager", "orders", "revenue"]].to_string(index=False))
+print()
+print(orders.pivot_table(index="store", columns="product", values="revenue", aggfunc="sum", fill_value=0))
+@note
+`groupby` with named aggregations counted orders and summed revenue per store; `merge` added each store's city and manager, and `validate` would raise if a store appeared twice in the lookup table. The pivot table cross-tabulates revenue by store and product, with 0 where a store sold none.
+@mistakes
+- **Analysing before checking dtypes.** Numbers stored as text sort and add wrongly. Inspect `dtypes` first.
+- **Ignoring NaN.** Means and counts silently change. Decide how to handle missing values and count what you drop.
+- **Merges that duplicate rows.** Duplicate keys multiply rows. Use `validate=` to catch it.
+@keys
+- DataFrames are labelled tables; select with columns, masks, `loc` and `iloc`.
+- Clean first: fix dtypes, normalise text, handle missing values deliberately.
+- groupby/agg summarises, merge joins tables, pivot_table cross-tabulates.
+- Validate merges and count dropped rows.
+
+=== A11.3
+@idea
+A chart should answer one question at a glance. Start from the question and pick the form that fits: **change over time** → line chart; **comparing categories** → bar chart (horizontal when labels are long, sorted by value); **distribution** of one variable → histogram or box plot; **relationship** between two variables → scatter plot. Pie charts are hard to read beyond two or three slices; a bar chart almost always works better.
+
+**matplotlib** draws them. The object-oriented style is clearest: `fig, ax = plt.subplots()`, draw on `ax`, then set a title that states the finding ("Sales doubled after the price cut", not "Sales"), axis labels with units, and remove clutter (unnecessary gridlines, legends for single series, the top and right borders). pandas has a `.plot()` method that wraps matplotlib for quick looks. Save with `fig.savefig("chart.png", dpi=150, bbox_inches="tight")`.
+
+**Notebooks** (Jupyter, VS Code) mix code, output, charts and prose, which makes them excellent for exploring data and for reports. They also have traps: cells run out of order leave hidden state, so a notebook that works for you may fail for others. Before sharing, restart the kernel and run all cells top to bottom; move reusable logic into `.py` modules that the notebook imports.
+@how
+- Question first; then line (time), bar (categories), histogram/box (distribution), scatter (relationship).
+- `fig, ax = plt.subplots(figsize=(8, 4))`; `ax.plot`, `ax.bar`/`ax.barh`, `ax.hist`, `ax.scatter`.
+- Title states the finding; label axes with units; sort bars; remove chart junk.
+- `ax.spines[["top", "right"]].set_visible(False)`; `ax.annotate` for the key point.
+- `fig.savefig(path, dpi=150, bbox_inches="tight")`; `matplotlib.use("Agg")` in scripts without a screen.
+- Notebooks: restart and run all before sharing; keep logic in modules.
+@example python: The same data, three questions, three charts
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+from pathlib import Path
+
+rng = np.random.default_rng(7)
+months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+sales = [120, 135, 128, 190, 240, 260]
+by_store = {"Montréal": 420, "Toronto": 365, "Québec": 210, "Ottawa": 180}
+order_values = rng.gamma(3, 6, 500)
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 3.5))
+axes[0].plot(months, sales, marker="o")
+axes[0].set_title("Sales doubled after the April price cut")
+axes[0].set_ylabel("Orders per month")
+axes[0].annotate("price cut", xy=(3, 190), xytext=(0.3, 230), arrowprops={"arrowstyle": "->"})
+
+names, values = zip(*sorted(by_store.items(), key=lambda kv: kv[1]))
+axes[1].barh(names, values)
+axes[1].set_title("Montréal sells the most")
+axes[1].set_xlabel("Orders (Q2)")
+
+axes[2].hist(order_values, bins=25)
+axes[2].axvline(np.median(order_values), linestyle="--")
+axes[2].set_title(f"Typical order: about ${np.median(order_values):.0f}")
+axes[2].set_xlabel("Order value ($)")
+for ax in axes:
+    ax.spines[["top", "right"]].set_visible(False)
+fig.tight_layout()
+fig.savefig("three_questions.png", dpi=120, bbox_inches="tight")
+print("saved:", Path("three_questions.png").stat().st_size > 10_000, "| charts:", [ax.get_title() for ax in axes])
+@note
+Each panel answers a different question with the form that suits it: a line for change over time with the cause annotated, sorted horizontal bars for comparing stores, and a histogram with the median marked for the distribution. Every title states a finding instead of naming the data.
+@example python: Quick looks with pandas .plot, saved for a report
+import matplotlib
+matplotlib.use("Agg")
+import pandas as pd
+from pathlib import Path
+
+df = pd.DataFrame({
+    "week": pd.date_range("2026-09-07", periods=8, freq="W-MON"),
+    "tea": [40, 42, 47, 51, 55, 60, 58, 66],
+    "coffee": [70, 68, 69, 66, 64, 63, 61, 60],
+}).set_index("week")
+
+ax = df.plot(figsize=(7, 3.5), marker="o", title="Tea is catching up with coffee")
+ax.set_ylabel("Cups sold per week")
+ax.set_xlabel("")
+ax.figure.savefig("tea_vs_coffee.png", dpi=120, bbox_inches="tight")
+print("lines drawn:", [line.get_label() for line in ax.get_lines()])
+print("growth over 8 weeks:", (df.iloc[-1] / df.iloc[0] - 1).round(2).to_dict())
+@note
+`DataFrame.plot` draws one line per column with the index on the x axis and adds a legend, a fast way to look at data. It returns a matplotlib Axes, so labels and saving work as usual. The numbers behind the title are computed alongside, so the claim can be checked.
+@mistakes
+- **Choosing the chart type before the question.** Decide what the reader should learn, then pick the form.
+- **Titles that just name the data.** State the finding.
+- **Sharing notebooks that only work in one run order.** Restart and run all first.
+@keys
+- Match the chart to the question: line, bar, histogram/box, scatter.
+- Titles state findings; label axes with units; remove clutter.
+- matplotlib's object-oriented style; pandas `.plot` for quick looks.
+- Notebooks are great reports once they run cleanly top to bottom.
+
+=== A11.P
+@idea
+The project is a **dataset report**: pick a public dataset you find interesting (city open data, weather records, a sports league, transit ridership), ask three or four concrete questions, and produce an analysis that **someone else can rerun** from scratch and get the same numbers and charts.
+
+Reproducibility shapes the structure. A single script (or a notebook backed by modules) runs the whole pipeline in order: **get** the raw data (download once, keep it in `raw/` untouched), **clean** it into a tidy table with documented decisions (which rows were dropped and why), **analyse** to answer each question, and **report**: write charts and a summary table to `results/`. Each stage is a function, so stages can be tested and rerun independently. Pin package versions, fix random seeds, and never edit data by hand: every change happens in code.
+
+The write-up (README or notebook) states each question, the answer with the chart that shows it, and the **limitations**: what the data cannot tell you, gaps, and biases. Honest caveats make an analysis more credible, not less.
+@how
+- Folders: `raw/` (never edited), `results/` (generated), `analysis.py` or a notebook plus `src/` modules.
+- Pipeline functions: `get_raw()`, `clean(df)`, one function per question, `write_report()`.
+- Log cleaning decisions with counts (rows dropped, values fixed).
+- Pin versions in requirements or a lock file; set random seeds.
+- README: questions, answers with charts, how to rerun, limitations.
+@example python: A rerunnable pipeline with logged cleaning decisions
+import io
+import json
+from pathlib import Path
+
+import pandas as pd
+
+RAW, OUT = Path("raw"), Path("results")
+RAW.mkdir(exist_ok=True); OUT.mkdir(exist_ok=True)
+(RAW / "rides.csv").write_text("""date,station,riders
+2026-10-05,Berri,1200
+2026-10-05,Atwater,640
+2026-10-06,Berri,
+2026-10-06,Atwater,700
+2026-10-12,Berri,1350
+2026-10-12,Atwater,-5
+2026-10-13,Berri,1290
+2026-10-13,Atwater,710
+""")
+
+def get_raw():
+    return pd.read_csv(RAW / "rides.csv", parse_dates=["date"])
+
+def clean(df, log):
+    before = len(df)
+    df = df.dropna(subset=["riders"])
+    log.append(f"dropped {before - len(df)} rows with missing riders")
+    bad = df["riders"] < 0
+    log.append(f"dropped {int(bad.sum())} rows with negative riders")
+    return df[~bad].assign(week=lambda d: d["date"].dt.isocalendar().week)
+
+def busiest_station(df):
+    return df.groupby("station")["riders"].mean().round(1).sort_values(ascending=False)
+
+def weekly_change(df):
+    weekly = df.groupby("week")["riders"].sum()
+    return round(float(weekly.iloc[-1] / weekly.iloc[0] - 1), 3)
+
+def run():
+    log = []
+    df = clean(get_raw(), log)
+    results = {"busiest": busiest_station(df).to_dict(), "weekly_change": weekly_change(df), "cleaning": log}
+    (OUT / "summary.json").write_text(json.dumps(results, indent=2))
+    return results
+
+first, second = run(), run()
+print(json.dumps(first, indent=1))
+print("rerun gives identical results:", first == second)
+@note
+Each stage is a function and the raw file is never modified, so running the script twice gives identical results, which is the whole point. Cleaning decisions are recorded with counts and saved alongside the answers, so a reader can see exactly what was removed and judge whether it matters.
+@example text: A report README that answers the questions honestly
+# Montréal metro ridership, autumn 2026
+
+## Questions
+1. Which station is busiest on an average day?
+2. Did ridership grow from week 41 to week 42?
+
+## Answers
+1. **Berri** averages 1,280 riders a day, about twice Atwater (683).
+   ![Average daily riders by station](results/busiest.png)
+2. Yes: total riders grew **by about a third** between the two weeks.
+   ![Weekly riders](results/weekly.png)
+
+## How to rerun
+    uv sync
+    uv run python analysis.py      # writes everything in results/
+
+## Cleaning decisions
+- Dropped 1 row with missing riders (Berri, 6 Oct).
+- Dropped 1 row with a negative count (Atwater, 12 Oct), a sensor error.
+
+## Limitations
+- Only two stations and two weeks: far too little to talk about trends.
+- The missing Berri day lowers week 41's total and exaggerates the growth.
+- Counts are turnstile entries; transfers inside the network are not counted.
+@note
+Each question gets a direct answer, the chart that shows it, and the numbers behind it. The cleaning decisions and limitations are stated plainly, including how one dropped row biases the growth figure: exactly the kind of caveat that makes readers trust the rest.
+@mistakes
+- **Editing raw data by hand.** Nobody can reproduce it. Clean in code and keep the raw file untouched.
+- **Hidden cleaning steps.** Readers cannot judge the results. Log every decision with counts.
+- **Conclusions beyond what the data supports.** State the limitations.
+@keys
+- Ask concrete questions; answer each with a number and a chart.
+- Pipeline: get → clean → analyse → report, each a function; raw data never edited.
+- Reproducible: one command reruns everything; pinned versions and seeds.
+- Document cleaning decisions and limitations honestly.
+
+=== A12.1
+@idea
+The capstone is a project of your own choosing that shows everything you can do. The most common way capstones fail is **scope**: an idea that sounds modest ("a budgeting app") hides months of work. The cure is a short written **specification** before any code.
+
+A good spec fits on one or two pages. It states the **problem** and who has it, the **users** and their main **user stories** ("As a manager, I can add a shift so the team sees the schedule"), the **must-haves** for version 1, explicit **non-goals** (what you will *not* build, which protects you from scope creep), the **technical approach** (stack, data model, main components), and a definition of **done** for each feature that someone else could check: "Adding an overlapping shift shows an error and saves nothing" is checkable; "shift management works" is not.
+
+Then estimate, and cut. List the features, give each a rough size, and keep only what fits comfortably in the time you have, roughly half of what you think you can do, because everything takes longer than planned. Choose a track that plays to your goals: a web API with a database, a data pipeline and report, a CLI tool, or a testing-focused project; for a QA career, a project whose test strategy is itself a highlight is a strong choice.
+@how
+- One-page spec: problem, users, user stories, must-haves, non-goals, approach, done criteria.
+- Write done criteria as checkable statements (inputs → visible outcomes).
+- List features with rough sizes; cut to fit half your available time.
+- Name the risks (unknown libraries, data access) and tackle the riskiest first.
+- Keep the spec in the repository and update it when decisions change.
+@example python: Turning a feature list into a scope that fits
+features = [
+    ("add and list shifts", 3, "must"),
+    ("reject overlapping shifts", 2, "must"),
+    ("split tips by hours", 3, "must"),
+    ("browser tests for the main journeys", 3, "must"),
+    ("CI with lint, types and tests", 1, "must"),
+    ("user accounts and login", 5, "should"),
+    ("export schedule to PDF", 3, "could"),
+    ("mobile app", 13, "could"),
+]
+available_days = 24
+budget = available_days / 2                     # plan for half: everything takes longer
+plan, total = [], 0
+for name, days, priority in sorted(features, key=lambda f: ["must", "should", "could"].index(f[2])):
+    if total + days <= budget:
+        plan.append(name)
+        total += days
+print(f"budget {budget:.0f} of {available_days} days, planned {total}:")
+for name in plan:
+    print("  IN ", name)
+for name, days, _ in features:
+    if name not in plan:
+        print("  OUT", f"{name} ({days} days) -> non-goal for v1")
+@note
+Sorting by priority and filling only half the available time leaves a realistic version 1: the must-haves fit, everything else becomes an explicit non-goal. Writing the OUT list down is as important as the IN list, because it is what stops scope creep later.
+@example text: A one-page spec for a capstone
+# Shift board: specification v1
+
+## Problem
+Small restaurants schedule shifts on paper and split tips by hand,
+which causes double-booked staff and arguments about money.
+
+## Users and stories
+- Manager: add, edit and remove shifts for the week.
+- Manager: split the night's tips by hours worked, to the cent.
+- Staff: see this week's schedule on a phone.
+
+## Must-haves (v1)
+1. Shifts: employee, day, start, end; listed by day.
+2. Overlapping shifts for one employee are refused with a clear message.
+3. Tip split by hours; shares always sum exactly to the total.
+4. Tests: unit + API + browser journeys; CI on every push.
+
+## Non-goals (v1)
+Accounts and login, payroll, PDF export, a native mobile app.
+
+## Approach
+FastAPI + SQLite (SQLAlchemy), server-rendered pages, pytest + Playwright,
+Docker image, deployed to one small server.
+
+## Done means
+- Adding 09:00–17:00 then 16:00–20:00 for Ana shows "Ana already works
+  then" and saves nothing; 17:00–20:00 is accepted.
+- Splitting $0.01 among three people gives 0.01, 0.00, 0.00.
+- A stranger can run it with `docker run` using only the README.
+@note
+The spec is short but specific: each must-have has a checkable "done" statement, and the non-goals are explicit. The done criteria even double as acceptance tests, which is a natural bridge to the test-first habits from module 8.
+@mistakes
+- **Starting to code without a written spec.** Scope grows invisibly. Write the page first.
+- **Vague done criteria.** You never know when to stop. Make them checkable.
+- **Planning for 100% of your time.** Everything takes longer. Plan for half.
+@keys
+- A one-page spec: problem, users, stories, must-haves, non-goals, approach, done.
+- Non-goals protect the scope as much as goals define it.
+- Checkable done criteria become acceptance tests.
+- Estimate, then cut to half the available time; tackle risks first.
+
+=== A12.2
+@idea
+The first milestone is a **walking skeleton**: the thinnest possible version of the system that works **end to end**, through every layer, and is tested and deployed. For the shift board, that might be one page that lists shifts read from the database through the API, with one test at each level, a CI pipeline, and a running deployment. It does almost nothing useful yet, and that is the point.
+
+Building the skeleton first flushes out the integration problems (configuration, database connections, packaging, deployment, CI) while the code is still tiny and the problems are cheap to fix. Every later feature is then a matter of adding flesh to bones that already connect, rather than discovering at the end that the pieces do not fit together. It also gives you something to show from the first week.
+
+The skeleton's checklist: repository with README and licence; project structure and `pyproject.toml`; settings from the environment; the database schema created by a migration; one route that reads and returns data; one page that shows it; one unit test, one API test and one browser test; CI running lint, types and tests; a Dockerfile; and a deployment you can open in a browser. Commit in small steps along the way.
+@how
+- Pick one tiny vertical slice that touches every layer.
+- Set up repo, structure, settings, CI and deployment around it, before features.
+- One test per level: unit, API, browser.
+- Deploy early, even if it is ugly; automate deployment if you can.
+- Stop when it works end to end; resist adding features yet.
+@example python: The skeleton's slice, tested at three levels
+import sqlite3
+from fastapi import Depends, FastAPI
+from fastapi.responses import HTMLResponse
+from fastapi.testclient import TestClient
+
+def format_shift(row):                                       # unit level
+    return f"{row['employee']} {row['day']} {row['start']}-{row['end']}"
+
+def get_db():
+    con = sqlite3.connect(":memory:", check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE shifts (employee TEXT, day TEXT, start TEXT, end TEXT)")
+    con.execute("INSERT INTO shifts VALUES ('Ana', 'Fri', '09:00', '17:00')")
+    return con
+
+app = FastAPI()
+
+@app.get("/api/shifts")                                      # API level
+def list_shifts(db=Depends(get_db)):
+    return [dict(r) for r in db.execute("SELECT * FROM shifts")]
+
+@app.get("/", response_class=HTMLResponse)                   # page level
+def board(db=Depends(get_db)):
+    items = "".join(f"<li>{format_shift(r)}</li>" for r in db.execute("SELECT * FROM shifts"))
+    return f"<h1>Shift board</h1><ul>{items}</ul>"
+
+assert format_shift({"employee": "Ana", "day": "Fri", "start": "09:00", "end": "17:00"}) == "Ana Fri 09:00-17:00"
+client = TestClient(app)
+assert client.get("/api/shifts").json() == [{"employee": "Ana", "day": "Fri", "start": "09:00", "end": "17:00"}]
+page = client.get("/").text
+assert "<li>Ana Fri 09:00-17:00</li>" in page
+print("unit, API and page checks pass:", page)
+@note
+The feature is trivial (one hard-coded shift) but the slice crosses every layer: database, API, page, and a check at each level. In the real skeleton the page check would be a Playwright test, and CI plus a deployment would surround it. From here, every feature extends parts that already connect.
+@example text: The walking-skeleton checklist
+Walking skeleton: done when every box is ticked
+[x] Repository: README (what + how to run), LICENSE, .gitignore
+[x] src/ layout, pyproject.toml, locked dependencies
+[x] Settings from environment variables (.env.example committed)
+[x] Database schema created by a migration (alembic upgrade head)
+[x] GET /api/shifts returns rows from the database
+[x] GET / shows them on a page
+[x] Tests: 1 unit, 1 API (TestClient), 1 browser (Playwright)
+[x] CI: ruff, mypy, pytest on every push; badge in README
+[x] Dockerfile; image builds in CI
+[x] Deployed: https://shiftboard.example.app shows the page
+[ ] Features beyond the slice: NOT in this milestone
+@note
+Every item is about connecting the pieces, not about features. The last line is deliberate: the skeleton is finished when the slice works end to end and is deployed, and new features wait for the next milestone.
+@mistakes
+- **Building features layer by layer** (all models, then all routes, then all pages). Integration problems surface last, when they are expensive.
+- **Postponing deployment to the end.** Deployment always has surprises. Do it in week one.
+- **Letting the skeleton grow features.** Finish the slice, then move on.
+@keys
+- A walking skeleton is a thin end-to-end slice, tested and deployed.
+- It surfaces integration problems early, when they are cheap.
+- Set up CI, configuration and deployment around the first slice.
+- Features come later, as flesh on working bones.
+
+=== A12.3
+@idea
+With the skeleton in place, build the core features as **vertical slices**: each slice delivers one user-visible capability through every layer (schema change, logic, API, page, tests) and is finished, merged and deployed before the next begins. "Reject overlapping shifts" is a slice; "write all the database models" is not. Slices keep the system working at all times, show steady visible progress, and expose problems while they are small.
+
+Work each slice the same way. Start from its **done criteria** in the spec and turn them into failing tests (acceptance tests at the API or browser level, unit tests for the rules), then implement until green, refactor, and open a **pull request** even if you work alone: the diff review and CI run catch mistakes, and the PR history documents your decisions for anyone evaluating the project.
+
+Keep a short **changelog** and a visible board (issues or a simple list: to do, doing, done). When a slice turns out bigger than expected, split it rather than letting it drag on; when something new comes up, write it down as a future slice instead of slipping it into the current one. Order slices by value and risk: the features that make the project worth showing come first.
+@how
+- One slice = one user-visible capability, through every layer, merged and deployed.
+- Done criteria → failing tests → code → refactor → PR → merge → deploy.
+- Small PRs with clear descriptions; CI must be green.
+- Split slices that grow; park new ideas as future slices.
+- Keep a changelog and a simple board.
+@example python: One slice, driven by its done criteria
+def minutes(t):
+    h, m = map(int, t.split(":"))
+    return h * 60 + m
+
+class ShiftBoard:
+    def __init__(self):
+        self.shifts = []
+
+    def add(self, employee, day, start, end):
+        if minutes(end) <= minutes(start):
+            return 400, "A shift must end after it starts."
+        for s in self.shifts:
+            if s[:2] == (employee, day) and minutes(start) < minutes(s[3]) and minutes(s[2]) < minutes(end):
+                return 409, f"{employee} already works then."
+        self.shifts.append((employee, day, start, end))
+        return 201, "saved"
+
+# The done criteria from the spec, written as acceptance checks before the code:
+criteria = [
+    ("first shift is saved", ("Ana", "Fri", "09:00", "17:00"), (201, "saved")),
+    ("overlap is refused", ("Ana", "Fri", "16:00", "20:00"), (409, "Ana already works then.")),
+    ("back-to-back is fine", ("Ana", "Fri", "17:00", "20:00"), (201, "saved")),
+    ("other people may overlap", ("Ben", "Fri", "16:00", "20:00"), (201, "saved")),
+    ("end before start is refused", ("Cy", "Sat", "12:00", "09:00"), (400, "A shift must end after it starts.")),
+]
+board = ShiftBoard()
+for name, args, expected in criteria:
+    got = board.add(*args)
+    print(f"{'PASS' if got == expected else 'FAIL'}  {name}: {got}")
+print("saved shifts:", len(board.shifts))
+@note
+Each done criterion from the spec became a check before the implementation existed, and the slice is finished when all of them pass. In the project these would be API tests and one browser test, merged in a single pull request with the code that makes them pass.
+@example text: A pull request description for one slice
+Title: Reject overlapping shifts for the same employee (#12)
+
+What
+- POST /api/shifts returns 409 with "<name> already works then."
+  when the new shift overlaps an existing one for that employee/day.
+- The board shows the message in a role="alert" box; nothing is saved.
+
+Why
+- Spec v1, must-have 2. Double-booking was the managers' #1 complaint.
+
+How
+- overlaps() uses strict comparisons, so back-to-back shifts are allowed.
+- Check runs inside the same transaction as the insert.
+
+Tests
+- Unit: 6 boundary cases for overlaps() (back-to-back, 1 min, nested...).
+- API: 409 status and message; other employees may overlap.
+- Browser: the error appears and the list is unchanged.
+
+Not in this PR
+- Editing existing shifts (tracked as #14).
+@note
+A good PR description tells a reviewer what changed, why, how it works and how it is tested, and names what was deliberately left out. Even on a solo project, these descriptions form a readable history that shows employers how you think.
+@mistakes
+- **Horizontal layers instead of slices.** Nothing works until everything works.
+- **Slices that never finish.** Split them; a slice should take days, not weeks.
+- **Sneaking extra features into a slice.** Write them down for later.
+@keys
+- Build vertical slices: one capability through every layer, merged and deployed.
+- Done criteria become tests before the code.
+- Small PRs with clear descriptions, even when working alone.
+- Split slices that grow; order by value and risk.
+
+=== A12.4
+@idea
+Polish turns a working project into one that strangers trust and use. The bar: someone who has never seen it can understand what it is in two minutes, install or run it in five, and see that it is maintained.
+
+**Documentation** comes first: a README with a one-sentence summary, a screenshot or demo GIF, installation, usage with real examples, configuration, how to run the tests, and the architecture in a short diagram; docstrings on the public code; and a CHANGELOG. **Packaging and release**: a clean version number following SemVer, a git tag, release notes summarising user-visible changes (grouped as Added, Changed, Fixed), and the artefacts people need (a wheel on PyPI, a Docker image, or a deployed URL).
+
+Then **review your own project as an outsider**. Clone it into a fresh folder and follow the README exactly; fix every step that fails or confuses. Check the CI badge is green, remove dead code and stray debug prints, make sure no secrets are in the history, and close or label open issues. Finally, write a short **retrospective**: what went well, what you would do differently, and what you would build next. It is valuable for interviews and for your own growth.
+@how
+- README: summary, screenshot, install, usage, configuration, tests, architecture, licence.
+- CHANGELOG with Added / Changed / Fixed per version; tag `v1.0.0`; GitHub release notes.
+- Clone fresh and follow your own README word for word.
+- Clean up: dead code, debug prints, TODOs, secrets (scan history), failing CI.
+- Write a short retrospective.
+@example python: Release notes generated from commit messages
+commits = [
+    "feat: split tips by hours worked",
+    "fix: back-to-back shifts were refused",
+    "docs: add architecture diagram",
+    "feat: reject overlapping shifts",
+    "chore: bump ruff",
+    "fix: tip split could lose a cent",
+    "feat!: shifts API now uses ISO times (breaking)",
+]
+sections = {"Breaking": [], "Added": [], "Fixed": [], "Docs": []}
+for message in commits:
+    kind, _, text = message.partition(": ")
+    if kind.endswith("!"):
+        sections["Breaking"].append(text)
+    elif kind == "feat":
+        sections["Added"].append(text)
+    elif kind == "fix":
+        sections["Fixed"].append(text)
+    elif kind == "docs":
+        sections["Docs"].append(text)
+
+bump = "major" if sections["Breaking"] else "minor" if sections["Added"] else "patch"
+print(f"## v1.0.0 ({bump} release)")
+for title, items in sections.items():
+    if items:
+        print(f"\n### {title}")
+        for item in items:
+            print(f"- {item[0].upper()}{item[1:]}")
+@note
+Commit messages written in the "Conventional Commits" style (`feat:`, `fix:`, a `!` for breaking changes) can be grouped into release notes automatically, and they even decide the SemVer bump. Chores are left out because users do not care about them.
+@example text: The fresh-clone checklist
+Fresh-clone review (do this in a new folder, as if you were a stranger)
+[ ] git clone ... && cd shiftboard
+[ ] Follow README "Install" exactly: every command works as written
+[ ] Follow README "Usage": the example output matches what you see
+[ ] Run the tests with the README's command: all green
+[ ] docker run with only the documented variables: app starts
+[ ] Screenshot in README matches the current UI
+[ ] No secrets in history:  git log -p | grep -iE "api_key|password|secret"
+[ ] No stray print()/breakpoint(), no dead modules, no commented-out code
+[ ] CI badge green on main; latest release tagged and noted
+[ ] Issues triaged: closed, labelled, or listed as "next steps"
+@note
+Following your own instructions in a clean folder finds the gaps your familiarity hides: a missing environment variable, a step done once months ago and forgotten, an outdated screenshot. Every failure is a fix to make before calling the release done.
+@mistakes
+- **A README written once and never checked.** Instructions rot. Follow them from a fresh clone.
+- **Releases without notes.** Users cannot tell what changed. Keep a changelog.
+- **Leaving secrets in git history.** Deleting the file is not enough. Rotate them and clean the history.
+@keys
+- Documentation, packaging and release notes make a project usable by strangers.
+- Version with SemVer, tag releases, keep a changelog.
+- Review as an outsider from a fresh clone; fix every rough step.
+- Finish with a short retrospective.
+
+=== A12.5
+@idea
+Technical interviews test two things: solving unfamiliar problems under time pressure, and explaining your own work. Both improve dramatically with deliberate practice.
+
+For **problem solving**, use a consistent process out loud. Restate the problem and ask clarifying questions (input sizes, edge cases, what to return when nothing matches). Work through a small example by hand. Describe a straightforward solution first, with its complexity, then improve it: most interview problems yield to a handful of patterns (a dictionary for lookups, two pointers on sorted data, a sliding window, a stack, breadth-first search, sorting first). Write clean code, then **test it yourself** with your example and the edge cases, before the interviewer does. Talking through your reasoning matters as much as the final answer.
+
+For **your own work**, prepare stories using **STAR**: Situation, Task, Action, Result. For each project (your capstone, past QA work), know the problem, your specific contribution, a hard decision and its trade-offs, something that went wrong and what you learned, and a measurable result. Practise explaining your capstone's architecture in two minutes with a diagram, and be ready to go deeper anywhere: "why SQLite?", "how did you test the tip split?", "what would break at ten times the load?".
+@how
+- Clarify → example by hand → brute force with complexity → optimise → code → test edge cases.
+- Know the patterns: hash map, two pointers, sliding window, stack, BFS/DFS, sort first, binary search.
+- Always state time and space complexity.
+- Prepare 4–6 STAR stories; include a failure and a trade-off.
+- Two-minute architecture explanation of your capstone, with a diagram.
+- Practise timed (30–45 minutes) and out loud.
+@example python: From brute force to a pattern: the two-sum problem
+def two_sum_brute(nums, target):
+    """O(n^2) time, O(1) space: try every pair."""
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            if nums[i] + nums[j] == target:
+                return i, j
+    return None
+
+def two_sum(nums, target):
+    """O(n) time, O(n) space: remember what we have seen."""
+    seen = {}
+    for i, x in enumerate(nums):
+        if target - x in seen:
+            return seen[target - x], i
+        seen[x] = i
+    return None
+
+cases = [([2, 7, 11, 15], 9), ([3, 3], 6), ([1, 2, 3], 100), ([], 0), ([-4, 10, 5, 9], 5)]
+for nums, target in cases:
+    assert two_sum(nums, target) == two_sum_brute(nums, target)
+    print(f"{str(nums):18} target {target:>3} -> {two_sum(nums, target)}")
+@note
+The interview narrative: state the brute force and its O(n²) cost, then notice that for each number you need to know whether its complement was seen before, which a dictionary answers in O(1). Testing both versions against each other on normal and edge cases (duplicates, no answer, an empty list, negatives) shows the interviewer you verify your own work.
+@example python: A sliding window, with the reasoning written down
+def longest_unique_run(text):
+    """Length of the longest substring without repeated characters.
+
+    Window [left, right] always holds unique characters. When text[right]
+    repeats inside the window, move left past its previous position.
+    Each index enters and leaves the window once: O(n) time, O(k) space.
+    """
+    last_seen, left, best, best_span = {}, 0, 0, (0, 0)
+    for right, ch in enumerate(text):
+        if ch in last_seen and last_seen[ch] >= left:
+            left = last_seen[ch] + 1
+        last_seen[ch] = right
+        if right - left + 1 > best:
+            best, best_span = right - left + 1, (left, right + 1)
+    return best, text[best_span[0]:best_span[1]]
+
+for s in ["abcabcbb", "bbbb", "pwwkew", "", "dvdf", "Montréal"]:
+    print(f"{s!r:12} -> {longest_unique_run(s)}")
+@note
+The docstring captures what you would say aloud: the invariant (the window holds unique characters), how it is maintained, and why the cost is linear. The test inputs cover the classic traps: all-same characters, the empty string, and "dvdf", where the left edge must jump correctly.
+@mistakes
+- **Coding immediately.** Clarify and work an example first; it prevents solving the wrong problem.
+- **Silence while thinking.** Interviewers grade your reasoning. Think out loud.
+- **Vague project stories.** Prepare specific STAR stories with your own actions and measurable results.
+@keys
+- A repeatable process: clarify, example, brute force, optimise, code, test.
+- A small set of patterns solves most problems; always state complexity.
+- Test your own code with edge cases before being asked.
+- STAR stories and a two-minute architecture pitch for your projects.

@@ -1,0 +1,610 @@
+=== A10B.1
+@idea
+Unit tests check functions; **end-to-end** (E2E) browser tests check what a user actually experiences: the page loads, the form accepts input, the button does the right thing, the error message appears. **Playwright** drives real browsers (Chromium, Firefox, WebKit) from Python, and the **pytest-playwright** plugin plugs it into pytest: a test simply asks for the `page` fixture and receives a fresh browser tab, isolated from every other test.
+
+The setup has three parts. Install the tools (`pip install pytest-playwright`, then `playwright install chromium` to download the browser). Make sure the **app under test** is running: rather than starting it by hand, a session-scoped fixture in `conftest.py` starts the server in a background thread, waits until it answers, yields its URL and shuts it down afterwards. Then write tests that navigate with `page.goto(url)`, act like a user (`fill`, `click`) and check results with `expect(...)`.
+
+Tests run **headless** (no visible window) by default, which is what CI needs. While writing a test, `pytest --headed --slowmo 500` shows the browser and slows each action so you can watch, and `playwright codegen URL` records your clicks as test code to get started.
+@how
+- `pip install pytest-playwright` then `playwright install chromium`.
+- A session fixture in `conftest.py` starts the app (a thread with `make_server`, or a subprocess) and yields its base URL.
+- `def test_x(page, live_server): page.goto(live_server)`.
+- Act: `page.get_by_label("Name").fill("Ada")`, `page.get_by_role("button", name="Sign").click()`.
+- Assert: `expect(page.get_by_role("heading")).to_have_text("...")`.
+- Watch: `pytest --headed --slowmo 500`; record: `playwright codegen http://127.0.0.1:5000`.
+@example python: A browser test from start to finish
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("teashop.py").write_text('''
+from flask import Flask, request, render_template_string
+app = Flask(__name__)
+ORDERS = []
+PAGE = """<!doctype html><title>Tea shop</title><h1>Order tea</h1>
+<form method="post"><label>Tea <select name="tea"><option>Sencha</option><option>Assam</option></select></label>
+<label>Cups <input name="cups" type="number"></label><button>Order</button></form>
+{% if msg %}<p role="status">{{ msg }}</p>{% endif %}"""
+@app.route("/", methods=["GET", "POST"])
+def home():
+    msg = None
+    if request.method == "POST":
+        ORDERS.append(request.form["tea"])
+        msg = f"{request.form['cups']} cups of {request.form['tea']} ordered."
+    return render_template_string(PAGE, msg=msg)
+''')
+Path("conftest.py").write_text('''
+import threading, pytest
+from werkzeug.serving import make_server
+from teashop import app
+
+@pytest.fixture(scope="session")
+def live_server():
+    server = make_server("127.0.0.1", 0, app)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.port}"
+    server.shutdown()
+''')
+Path("test_order.py").write_text('''
+from playwright.sync_api import Page, expect
+
+def test_page_loads(page: Page, live_server):
+    page.goto(live_server)
+    expect(page).to_have_title("Tea shop")
+    expect(page.get_by_role("heading", name="Order tea")).to_be_visible()
+
+def test_can_order(page: Page, live_server):
+    page.goto(live_server)
+    page.get_by_label("Tea").select_option("Assam")
+    page.get_by_label("Cups").fill("2")
+    page.get_by_role("button", name="Order").click()
+    expect(page.get_by_role("status")).to_have_text("2 cups of Assam ordered.")
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    code = pytest.main(["-v", "-p", "no:cacheprovider", "test_order.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]", "", line).replace("test_order.py::", ""))
+print("exit code:", code)
+@note
+The session fixture started the Flask app once in a background thread, and each test got a fresh browser page from pytest-playwright. The second test filled the form exactly as a person would, by label, and checked the confirmation by its role. pytest-playwright adds the browser name to each test id. Everything ran headless in a real Chromium.
+@example python: The same steps as a script, to explore a page
+from playwright.sync_api import sync_playwright
+
+HTML = """<title>Signup</title><h1>Join the club</h1>
+<label>Email <input id="email" type="email"></label>
+<button onclick="document.querySelector('#out').textContent =
+  document.querySelector('#email').value.includes('@') ? 'Welcome!' : 'Please enter a valid email.'">Join</button>
+<p id="out" role="status"></p>"""
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()               # headless by default
+    page = browser.new_page()
+    page.set_content(HTML)
+    print("title:", page.title())
+    for email in ["not-an-email", "ada@example.com"]:
+        page.get_by_label("Email").fill(email)
+        page.get_by_role("button", name="Join").click()
+        print(f"{email!r:20} -> {page.get_by_role('status').text_content()}")
+    page.screenshot(path="signup.png")
+    browser.close()
+print("screenshot saved:", __import__("pathlib").Path("signup.png").stat().st_size > 1000)
+@note
+Outside pytest, `sync_playwright` gives the same browser control in a plain script, which is handy for exploring a page before writing tests or for automating a chore. `set_content` loads HTML directly without a server. The screenshot shows what the headless browser saw.
+@mistakes
+- **Starting the app by hand before each test run.** Forgotten or stale servers cause confusing failures. Start it from a fixture.
+- **Forgetting `playwright install chromium`.** The tests fail with "Executable doesn't exist". Install the browser once per machine and in CI.
+- **Debugging headless failures blind.** Run with `--headed --slowmo 500` to watch.
+@keys
+- E2E tests check what users see, in a real browser.
+- pytest-playwright's `page` fixture gives each test a fresh tab.
+- Start the app under test from a session fixture in `conftest.py`.
+- Headless for CI; `--headed`, `--slowmo` and `codegen` while writing tests.
+
+=== A10B.2
+@idea
+How a test finds elements decides how fragile it is. CSS selectors like `#main > div:nth-child(3) button.btn-primary` break whenever the layout changes. Playwright's **user-facing locators** find elements the way a person would: `get_by_role("button", name="Save")` (the most robust, and it also checks accessibility), `get_by_label("Email")` for form fields, `get_by_text("Welcome back")`, `get_by_placeholder(...)`, and `get_by_test_id("cart-count")` for elements with no good text, using a `data-testid` attribute that exists only for tests.
+
+A locator is a **description**, not an element: it is resolved fresh each time you act on it, so it survives re-renders. Locators can be **chained and filtered** to scope a search: `page.get_by_role("listitem").filter(has_text="Sencha").get_by_role("button", name="Remove")` finds the Remove button in the Sencha row only. If a locator matches several elements when one was expected, Playwright raises a "strict mode violation" instead of clicking the wrong one.
+
+**Web-first assertions** wait for you. `expect(locator).to_have_text("3 items")` retries until the condition holds or a timeout (5 seconds by default) expires, so tests no longer need `time.sleep` for pages that update asynchronously. Never read a value once and compare it with plain `assert`; that checks a single moment and makes tests flaky.
+@how
+- Prefer `get_by_role(role, name=...)`, then `get_by_label`, `get_by_text`, `get_by_placeholder`, then `get_by_test_id`.
+- Scope: `locator.filter(has_text=...)`, chaining `parent.get_by_role(...)`, `.nth(i)` as a last resort.
+- `expect(loc).to_be_visible()`, `to_have_text`, `to_contain_text`, `to_have_count`, `to_have_value`, `to_be_disabled`.
+- `expect(page).to_have_url(...)`, `to_have_title(...)`.
+- No `time.sleep`; assertions auto-wait.
+@example python: Locators, filtering and strictness
+from playwright.sync_api import sync_playwright, Error
+
+HTML = """<h1>Your cart</h1>
+<ul>
+  <li>Sencha <span>6.50</span> <button>Remove</button></li>
+  <li>Assam <span>4.00</span> <button>Remove</button></li>
+  <li>Rooibos <span>5.25</span> <button>Remove</button></li>
+</ul>
+<p data-testid="total">Total: 15.75</p>
+<label>Promo code <input placeholder="e.g. TEA10"></label>"""
+
+with sync_playwright() as p:
+    page = p.chromium.launch().new_page()
+    page.set_content(HTML)
+    rows = page.get_by_role("listitem")
+    print("rows:", rows.count())
+    print("Assam row:", rows.filter(has_text="Assam").inner_text())
+    rows.filter(has_text="Assam").get_by_role("button", name="Remove").evaluate("b => b.closest('li').remove()")
+    print("after removing:", page.get_by_role("listitem").all_inner_texts())
+    print("by test id:", page.get_by_test_id("total").text_content())
+    print("by label = by placeholder:", page.get_by_label("Promo code").evaluate("e => e === document.querySelector('input')"))
+    try:
+        page.get_by_role("button", name="Remove").click(timeout=1000)
+    except Error as error:
+        print("strict mode:", "strict mode violation" in str(error))
+@note
+Filtering the list items by text scoped the search to one row, so only that row's Remove button was used. Asking to click "the" Remove button when two exist raised a strict mode violation instead of silently clicking the first one, which is the kind of mistake that makes tests pass for the wrong reason.
+@example python: Assertions that wait for slow pages
+import time
+from playwright.sync_api import sync_playwright, expect
+
+HTML = """<button onclick="
+  document.querySelector('#status').textContent = 'Saving...';
+  setTimeout(() => document.querySelector('#status').textContent = 'Saved 3 items', 1200);
+">Save</button>
+<p id="status" role="status">Idle</p>"""
+
+with sync_playwright() as p:
+    page = p.chromium.launch().new_page()
+    page.set_content(HTML)
+    status = page.get_by_role("status")
+    page.get_by_role("button", name="Save").click()
+
+    print("read once, immediately:", repr(status.text_content()))
+    start = time.perf_counter()
+    expect(status).to_have_text("Saved 3 items")            # retries until true (or 5 s)
+    print("expect waited about a second:", 0.8 < time.perf_counter() - start < 3)
+    try:
+        expect(status).to_have_text("Saved 4 items", timeout=800)
+    except AssertionError as error:
+        print("a real failure still fails:", str(error).splitlines()[0][:60])
+@note
+Reading the text once caught the page mid-save, so a plain `assert` would have failed or, worse, passed by luck. `expect` kept retrying until the text matched about 1.2 seconds later, with no sleep in the test. A genuinely wrong expectation still fails after its timeout, with a clear message.
+@mistakes
+- **Long CSS or XPath selectors.** They break with every layout change. Use roles, labels and text.
+- **`time.sleep` to wait for the page.** Slow and flaky. Use `expect`, which waits only as long as needed.
+- **`assert locator.text_content() == ...`.** Checks one instant. Use `expect(locator).to_have_text(...)`.
+@keys
+- Locate elements like a user: role, label, text; test ids when nothing else fits.
+- Locators are lazy descriptions; filter and chain them to scope searches.
+- Strict mode refuses ambiguous matches.
+- Web-first `expect` assertions retry, replacing sleeps.
+
+=== A10B.3
+@idea
+Browser tests become a maintenance burden quickly unless they are organised. Three habits keep a suite healthy.
+
+**Independent tests.** Every test must pass alone and in any order. The app's data therefore needs resetting before each test: an **autouse** fixture (`@pytest.fixture(autouse=True)`) that clears the in-memory store, truncates tables, or calls a test-only reset endpoint runs automatically for every test without being requested.
+
+**Page objects.** Instead of scattering locators through every test, a class represents a page: it holds the locators as attributes and offers actions in the language of the app (`order_page.order("Assam", cups=2)`). Tests then read like requirements, and when the layout changes, one class changes instead of fifty tests. Keep assertions in the tests, or offer simple query methods; a page object that hides assertions makes failures harder to read.
+
+**Data through the fastest door.** Arrange test data by calling the app's functions or API directly, and use the browser only for the behaviour under test. Clicking through three forms just to set up a fourth is slow and multiplies the places a test can break. Cover the important paths, not every combination: validation details belong in fast unit tests, and E2E tests prove the pieces work together.
+@how
+- `@pytest.fixture(autouse=True) def reset(): store.clear()` in `conftest.py`.
+- Page object: `__init__(self, page)` stores locators; methods for user actions; a `goto()` method.
+- A fixture that builds and opens the page object: `def order_page(page, live_server): ...`.
+- Seed data through code or the API; test the behaviour through the UI.
+- Unit-test the rules; E2E-test the journeys.
+@example python: A page object, a reset fixture and readable tests
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("todo_app.py").write_text('''
+from flask import Flask, request, render_template_string, redirect
+app = Flask(__name__)
+TODOS = []
+PAGE = """<title>Todos</title><h1>Todos</h1>
+<form method="post"><label>New task <input name="task"></label><button>Add</button></form>
+<p data-testid="count">{{ todos|length }} open</p>
+<ul>{% for t in todos %}<li>{{ t }}</li>{% endfor %}</ul>"""
+@app.route("/", methods=["GET", "POST"])
+def home():
+    if request.method == "POST" and request.form["task"].strip():
+        TODOS.append(request.form["task"].strip())
+        return redirect("/")
+    return render_template_string(PAGE, todos=TODOS)
+''')
+Path("conftest.py").write_text('''
+import threading, pytest
+from werkzeug.serving import make_server
+import todo_app
+
+@pytest.fixture(scope="session")
+def live_server():
+    server = make_server("127.0.0.1", 0, todo_app.app)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.port}"
+    server.shutdown()
+
+@pytest.fixture(autouse=True)
+def reset_data():
+    todo_app.TODOS.clear()
+''')
+Path("todo_page.py").write_text('''
+class TodoPage:
+    def __init__(self, page, base_url):
+        self.page, self.base_url = page, base_url
+        self.task_input = page.get_by_label("New task")
+        self.add_button = page.get_by_role("button", name="Add")
+        self.items = page.get_by_role("listitem")
+        self.count = page.get_by_test_id("count")
+
+    def goto(self):
+        self.page.goto(self.base_url)
+        return self
+
+    def add(self, *tasks):
+        for task in tasks:
+            self.task_input.fill(task)
+            self.add_button.click()
+        return self
+''')
+Path("test_todos.py").write_text('''
+import pytest
+from playwright.sync_api import expect
+from todo_page import TodoPage
+import todo_app
+
+@pytest.fixture
+def todos(page, live_server):
+    return TodoPage(page, live_server).goto()
+
+def test_starts_empty(todos):
+    expect(todos.count).to_have_text("0 open")
+
+def test_add_two_tasks(todos):
+    todos.add("buy tea", "call Ben")
+    expect(todos.items).to_have_text(["buy tea", "call Ben"])
+    expect(todos.count).to_have_text("2 open")
+
+def test_blank_task_is_ignored(todos):
+    todos.add("   ")
+    expect(todos.items).to_have_count(0)
+
+def test_seeded_data_shows_up(todos):
+    todo_app.TODOS.extend(["seeded 1", "seeded 2", "seeded 3"])
+    todos.goto()
+    expect(todos.count).to_have_text("3 open")
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-v", "-p", "no:cacheprovider", "test_todos.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]", "", line).replace("test_todos.py::", ""))
+@note
+The tests read like requirements because the page object hides how elements are found. The autouse fixture emptied the list before every test, so "starts empty" passes even though an earlier test added tasks. The last test seeded data directly in the app, the fast door, and used the browser only to check the result.
+@example python: A redesign breaks structural locators, not user-facing ones
+from playwright.sync_api import sync_playwright
+
+OLD = """<form id="checkout-form"><div class="actions"><button class="btn-primary">Pay now</button></div></form>"""
+NEW = """<form id="checkout-form"><section><p>Total 12.50</p></section>
+<footer><button class="btn btn-lg">Pay now</button></footer></form>"""
+
+class StructuralCheckout:
+    def __init__(self, page):
+        self.pay = page.locator("#checkout-form > div.actions > button.btn-primary")
+
+class CheckoutPage:
+    def __init__(self, page):
+        self.pay = page.get_by_role("button", name="Pay now")
+
+with sync_playwright() as p:
+    page = p.chromium.launch().new_page()
+    for label, html in [("old layout", OLD), ("new layout", NEW)]:
+        page.set_content(html)
+        print(f"{label}: structural finds {StructuralCheckout(page).pay.count()}, role-based finds {CheckoutPage(page).pay.count()}")
+@note
+After the redesign moved the button into a footer and changed its classes, the structural locator found nothing, so every test that copied it would fail. The role-based locator in the page object still found the button. And if the label itself changes one day, only `CheckoutPage` needs editing, not every test.
+@mistakes
+- **Tests that depend on each other's data.** They fail when run alone or in another order. Reset before each test.
+- **Locators copied into every test.** One UI change breaks them all. Use page objects.
+- **Setting up data through the UI.** Slow and fragile. Seed through code or the API.
+@keys
+- Reset state with an autouse fixture; every test stands alone.
+- Page objects hold locators and user actions; tests keep the assertions.
+- Seed data through the fastest door; test behaviour through the browser.
+- E2E for journeys, unit tests for detailed rules.
+
+=== A10B.4
+@idea
+Most web apps expose a **JSON API** next to their pages, and the same Playwright test suite can test it. `APIRequestContext` (the `playwright.request.new_context(base_url=...)` object, often wrapped in an `api` fixture) sends HTTP requests without a browser: `api.get("/api/items")`, `api.post("/api/items", data={...})`. Responses offer `status`, `ok`, `json()` and `text()`, and Playwright provides `expect(response).to_be_ok()`.
+
+API tests are fast and precise, so they are the right place to check **contracts**: status codes (201 on create, 400 or 422 on invalid input, 404 for unknown ids, 409 for conflicts), the shape of response bodies, and the wording of error messages that the UI will show. They also make excellent **setup**: seed data through the API, then open the page and check that the UI displays it, which tests the integration without clicking through forms.
+
+Combining the two catches a whole class of bugs that neither finds alone: the API accepts something the UI never sends, or the UI shows something the API never returned. A good rule: every API endpoint gets direct tests for success and each documented error, and each user journey gets one browser test.
+@how
+- Fixture: `ctx = playwright.request.new_context(base_url=live_server)`; `yield ctx`; `ctx.dispose()`.
+- `r = api.post("/api/x", data={...})` sends JSON; `r.status`, `r.json()`.
+- Test each documented status: success, validation errors, not found, conflict.
+- Seed data with the API, then verify the page in the browser.
+- Keep API tests separate from browser tests so they can run quickly on their own.
+@example python: API tests and API-seeded browser tests in one suite
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("tasks_app.py").write_text('''
+from flask import Flask, jsonify, request, render_template_string
+app = Flask(__name__)
+TASKS = []
+@app.post("/api/tasks")
+def add():
+    data = request.get_json(silent=True) or {}
+    title = str(data.get("title", "")).strip()
+    if not title:
+        return jsonify(error="title is required"), 400
+    if any(t["title"].lower() == title.lower() for t in TASKS):
+        return jsonify(error=f"{title!r} already exists"), 409
+    TASKS.append({"id": len(TASKS) + 1, "title": title})
+    return jsonify(TASKS[-1]), 201
+@app.get("/api/tasks/<int:tid>")
+def one(tid):
+    match = [t for t in TASKS if t["id"] == tid]
+    return (jsonify(match[0]), 200) if match else (jsonify(error="not found"), 404)
+@app.get("/")
+def page():
+    return render_template_string("<h1>Tasks</h1><ul>{% for t in tasks %}<li>{{ t.title }}</li>{% endfor %}</ul>", tasks=TASKS)
+''')
+Path("conftest.py").write_text('''
+import threading, pytest
+from werkzeug.serving import make_server
+import tasks_app
+
+@pytest.fixture(scope="session")
+def live_server():
+    server = make_server("127.0.0.1", 0, tasks_app.app)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.port}"
+    server.shutdown()
+
+@pytest.fixture(autouse=True)
+def reset():
+    tasks_app.TASKS.clear()
+
+@pytest.fixture
+def api(playwright, live_server):
+    ctx = playwright.request.new_context(base_url=live_server)
+    yield ctx
+    ctx.dispose()
+''')
+Path("test_tasks_api.py").write_text('''
+import pytest
+from playwright.sync_api import expect
+
+def test_create_returns_201_and_the_task(api):
+    r = api.post("/api/tasks", data={"title": "buy tea"})
+    assert r.status == 201
+    assert r.json() == {"id": 1, "title": "buy tea"}
+
+@pytest.mark.parametrize("body, status, error", [
+    ({}, 400, "title is required"),
+    ({"title": "   "}, 400, "title is required"),
+])
+def test_validation_errors(api, body, status, error):
+    r = api.post("/api/tasks", data=body)
+    assert (r.status, r.json()["error"]) == (status, error)
+
+def test_duplicate_is_a_conflict(api):
+    api.post("/api/tasks", data={"title": "Buy tea"})
+    r = api.post("/api/tasks", data={"title": "buy TEA"})
+    assert r.status == 409
+
+def test_unknown_id_is_404(api):
+    assert api.get("/api/tasks/42").status == 404
+
+def test_seeded_tasks_appear_on_the_page(api, page, live_server):
+    for title in ["first", "second"]:
+        expect(api.post("/api/tasks", data={"title": title})).to_be_ok()
+    page.goto(live_server)
+    expect(page.get_by_role("listitem")).to_have_text(["first", "second"])
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    pytest.main(["-v", "-p", "no:cacheprovider", "test_tasks_api.py"])
+for line in out.getvalue().splitlines():
+    if "PASSED" in line or "FAILED" in line:
+        print(re.sub(r"\s+\[\s*\d+%\]", "", line).replace("test_tasks_api.py::", ""))
+@note
+The API tests check every documented status: 201 with the created task, 400 with the exact error text, 409 for a case-insensitive duplicate and 404 for an unknown id, all in milliseconds without a browser. The last test seeds through the API and then confirms in the browser that the page shows the data.
+@example python: An API request and its response, step by step
+import threading
+from flask import Flask, jsonify, request
+from playwright.sync_api import sync_playwright
+from werkzeug.serving import make_server
+
+app = Flask(__name__)
+
+@app.post("/api/echo")
+def echo():
+    body = request.get_json()
+    return jsonify(received=body, length=len(body.get("text", ""))), 201
+
+server = make_server("127.0.0.1", 0, app)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+with sync_playwright() as p:
+    api = p.request.new_context(base_url=f"http://127.0.0.1:{server.port}")
+    r = api.post("/api/echo", data={"text": "hello"}, headers={"X-Test": "yes"})
+    print(r.status, r.ok, r.headers["content-type"])
+    print(r.json())
+    print(api.get("/missing").status)
+    api.dispose()
+server.shutdown()
+@note
+`data=` with a dictionary was sent as a JSON body, and the response object exposes the status, headers and parsed JSON. `ok` is True for any 2xx status. No browser was launched at all, which is why API tests are so much faster than page tests.
+@mistakes
+- **Testing every validation rule through the browser.** Slow. Test rules via the API or unit tests; keep one UI test for the error display.
+- **Checking only status codes.** Also check the body and error messages the UI depends on.
+- **Forgetting `dispose()` on request contexts.** Connections pile up. Clean up in the fixture.
+@keys
+- `APIRequestContext` tests JSON endpoints in the same suite, without a browser.
+- Check status codes, bodies and error messages for every documented case.
+- Seed data through the API, then verify the UI.
+- API tests for contracts, one browser test per journey.
+
+=== A10B.5
+@idea
+A failing browser test in CI is only useful if you can see what happened. Playwright can record a **trace** for each test: a zip with every action, a DOM snapshot before and after it, network requests, console messages and screenshots, which you replay in the **trace viewer** (`playwright show-trace trace.zip`), stepping through the test like a video you can inspect. pytest-playwright's options `--tracing retain-on-failure`, `--screenshot only-on-failure` and `--video retain-on-failure` keep these artefacts only for failures, in `test-results/`.
+
+Cross-browser coverage is one flag: `--browser chromium --browser firefox --browser webkit` runs every test in each engine (after `playwright install` for each). Flaky tests, ones that pass and fail without code changes, are bugs to fix, usually by replacing sleeps and one-off reads with web-first assertions or by isolating data; `--retries` (via the pytest-rerunfailures plugin) can hide them, so use it sparingly and track what it retries.
+
+In **CI**, the steps are: install dependencies, `playwright install --with-deps chromium` (which also installs the system libraries browsers need), run pytest headless, and **upload `test-results/` as an artefact** when the job fails, so anyone can download the trace and open it locally.
+@how
+- `pytest --tracing retain-on-failure --screenshot only-on-failure --video retain-on-failure`.
+- Put these in `pytest.ini` / `pyproject.toml` as `addopts` so every run uses them.
+- `playwright show-trace test-results/<test>/trace.zip` replays a failure.
+- `--browser firefox --browser webkit` for cross-browser runs.
+- CI: `playwright install --with-deps chromium`; upload `test-results/` on failure.
+@example python: A failing test leaves a trace and a screenshot behind
+import contextlib, io, re
+import pytest
+from pathlib import Path
+
+Path("test_broken.py").write_text('''
+from playwright.sync_api import Page, expect
+
+def test_price_shown(page: Page):
+    page.set_content("<h1>Basket</h1><p data-testid=total>Total: 12.50</p>")
+    expect(page.get_by_test_id("total")).to_have_text("Total: 13.00", timeout=1000)
+''')
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    code = pytest.main(["-q", "-p", "no:cacheprovider", "--tracing", "retain-on-failure",
+                        "--screenshot", "only-on-failure", "--output", "test-results", "test_broken.py"])
+report = out.getvalue()
+print("exit code:", code)
+for line in report.splitlines():
+    if line.startswith("E ") and ("expected to have text" in line or "Actual value" in line):
+        print(line[1:].strip())
+for f in sorted(Path("test-results").rglob("*")):
+    if f.is_file():
+        print(f.relative_to("test-results").as_posix().split("/", 1)[1], f.stat().st_size > 1000)
+@note
+The assertion failed with a message showing the expected and actual text, and pytest-playwright saved a trace zip and a screenshot for that test only. Opening the zip with `playwright show-trace` would show the page's DOM at each step, the console and the network, exactly as CI saw it.
+@example text: A CI job that keeps the evidence
+# .github/workflows/e2e.yml
+name: e2e
+on: [push, pull_request]
+
+jobs:
+  browser-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - run: >
+          pytest tests/e2e
+          --browser chromium
+          --tracing retain-on-failure
+          --screenshot only-on-failure
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7
+@note
+`--with-deps` installs the Linux libraries the browser needs on a fresh runner. The upload step only runs when something failed, attaching the traces and screenshots to the run; a teammate downloads them and replays the failure locally with `playwright show-trace`.
+@mistakes
+- **Recording traces for every passing test.** Slow and huge. Use `retain-on-failure`.
+- **Re-running flaky tests until green.** The flakiness is a bug. Find the sleep or shared state.
+- **CI that discards the evidence.** Upload `test-results/` on failure.
+@keys
+- Traces record actions, DOM snapshots, network and console; replay with `show-trace`.
+- Keep traces, screenshots and videos only on failure.
+- `--browser` runs the suite in other engines.
+- CI installs browsers with `--with-deps` and uploads results when tests fail.
+
+=== A10B.P
+@idea
+The project is a complete test suite for a small restaurant **shift board** app: managers add shifts (employee, day, start, end) and split the night's tips by hours worked. The app has real rules worth testing: an employee is required, the day must be valid, a shift must end after it starts, an employee cannot work two overlapping shifts (409 Conflict), and the tip split must **never lose or invent a cent**: the shares must add up exactly to the total.
+
+Plan before coding. List the **rules** and, for each one, choose the cheapest level that proves it: pure functions (overlap detection, tip split) get unit tests and a property-based test; the JSON API gets status-code and message tests; the browser gets the main **journeys** (add a shift and see it on the board, see the error for an overlap, split tips and see the shares). Write the plan as a table in the README: it shows a reviewer the thinking behind the suite.
+
+Then build it with everything from the module: a live-server fixture, an autouse reset, page objects, API seeding, traces on failure, and a CI workflow. Pay special attention to the **boundaries**: back-to-back shifts (one ends at 17:00, the next starts at 17:00) must be allowed, while one minute of overlap must be refused; a tip of one cent among three people must still sum exactly.
+@how
+- Rules table: rule → level (unit, API, UI) → test names.
+- Unit and property tests for `overlaps()` and `split_tips()`.
+- API tests: 201, 400 messages, 409 overlap; boundary cases in a parametrize table.
+- UI journeys through a `ShiftBoardPage` page object; seed through the API.
+- Traces on failure, CI workflow, README with the plan and how to run it.
+@example python: The rules that need the sharpest tests
+from decimal import Decimal, ROUND_DOWN
+
+def minutes(hhmm):
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+def overlaps(a, b):
+    return a["day"] == b["day"] and minutes(a["start"]) < minutes(b["end"]) and minutes(b["start"]) < minutes(a["end"])
+
+def split_tips(total, hours):
+    cents = int(Decimal(total) * 100)
+    all_hours = sum(hours.values())
+    shares = {p: int(Decimal(cents) * h / all_hours) for p, h in hours.items()}
+    leftover = cents - sum(shares.values())
+    for p in sorted(hours, key=lambda p: (-hours[p], p))[:leftover]:
+        shares[p] += 1
+    return {p: (Decimal(c) / 100).quantize(Decimal("0.01")) for p, c in shares.items()}
+
+base = {"day": "Fri", "start": "09:00", "end": "17:00"}
+for start, end, label in [("17:00", "22:00", "back-to-back"), ("16:59", "22:00", "one minute overlap"), ("06:00", "09:00", "ends as it starts")]:
+    print(f"{label:20} overlaps: {overlaps(base, {'day': 'Fri', 'start': start, 'end': end})}")
+
+for total, hours in [("100.00", {"ana": 3, "ben": 3, "cy": 3}), ("0.01", {"ana": 4, "ben": 2, "cy": 2}), ("57.35", {"ana": 7.5, "ben": 4, "cy": 1})]:
+    shares = split_tips(total, {k: Decimal(str(v)) for k, v in hours.items()})
+    print(total, {p: str(s) for p, s in shares.items()}, "sums exactly:", sum(shares.values()) == Decimal(total))
+@note
+The overlap rule uses strict comparisons, so back-to-back shifts are allowed while a single minute of overlap is caught: exactly the boundaries a test table should pin down. The tip split works in whole cents and hands out leftover cents by hours worked, so even 0.01 among three people sums exactly.
+@example python: A property test that guards the money rule
+from decimal import Decimal
+from hypothesis import given, settings, strategies as st
+
+def split_tips(cents, hours):
+    all_hours = sum(hours)
+    shares = [cents * h // all_hours for h in hours]
+    for i in sorted(range(len(hours)), key=lambda i: -hours[i])[: cents - sum(shares)]:
+        shares[i] += 1
+    return shares
+
+checked = 0
+
+@settings(max_examples=300, database=None, derandomize=True)
+@given(cents=st.integers(min_value=0, max_value=500_000),
+       hours=st.lists(st.integers(min_value=1, max_value=40), min_size=1, max_size=12))
+def test_never_loses_or_invents_a_cent(cents, hours):
+    global checked
+    shares = split_tips(cents, hours)
+    checked += 1
+    assert sum(shares) == cents
+    assert all(s >= 0 for s in shares)
+    assert max(shares) - min(shares) <= cents   # nobody gets more than the whole pot
+
+test_never_loses_or_invents_a_cent()
+print(f"{checked} generated nights checked: every split summed exactly")
+@note
+Instead of a handful of hand-picked amounts, Hypothesis generated 300 combinations of totals and staff hours, including one person, a zero total and twelve people with awkward hours. The money invariant held for all of them; in the project this test sits beside the API and browser tests as the strongest guarantee.
+@mistakes
+- **Testing everything through the browser.** The suite becomes slow and flaky. Push rules down to unit and API tests.
+- **Missing boundary cases.** Back-to-back shifts and one-cent tips are where real bugs hide.
+- **No written plan.** Reviewers cannot see what is covered. Put the rules table in the README.
+@keys
+- Plan: each rule tested at the cheapest level that proves it.
+- Pin down boundaries with parametrized tables; guard money with property tests.
+- Journeys in the browser with page objects and API-seeded data.
+- Traces, CI and a README with the plan make it portfolio-ready.

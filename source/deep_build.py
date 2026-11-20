@@ -28,6 +28,13 @@ Authoring format (one file per module, any number of lessons):
 """
 import ast, builtins, contextlib, glob, importlib, io, json, linecache, os, re, signal, sys, tempfile, traceback, types, warnings
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+try:
+    import matplotlib, matplotlib.units
+    matplotlib.use("Agg")
+    import matplotlib.pyplot, matplotlib.dates, matplotlib.category   # register the default converters
+    _MPL_UNITS = dict(matplotlib.units.registry)
+except ImportError:
+    _MPL_UNITS = {}
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -155,6 +162,13 @@ def run_python(code, stdin):
                 sys.modules.pop(m, None)
         import logging
         logging.getLogger().handlers.clear()
+        if "matplotlib.pyplot" in sys.modules:       # no figure may leak into the next example
+            sys.modules["matplotlib.pyplot"].close("all")
+        if "matplotlib.units" in sys.modules:
+            reg = sys.modules["matplotlib.units"].registry
+            for k in [k for k in reg if k not in _MPL_UNITS]:
+                del reg[k]
+            reg.update(_MPL_UNITS)
     return buf.getvalue().rstrip("\n")
 
 
