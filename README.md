@@ -5,6 +5,8 @@ Python curriculum style application for studying. Runs as a standalone app on my
 - **Track 1** follows *Beginning Python* by Magnus Lie Hetland
 - **Track 2** follows [roadmap.sh/python](https://roadmap.sh/python)
 - **Track 3** is portfolio projects
+- **PY295 Career toolkit**: Git and pull requests, portfolio READMEs, and QA automation
+  interview drills (pytest fixtures, waits instead of sleeps, flaky-test diagnosis, STAR answers)
 
 Includes worked examples, hints, solutions, an in-browser Python editor with autograded
 tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP practice exams.
@@ -16,6 +18,14 @@ tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP p
 - **Errors point to the line**: after a failed run or submission the line is marked in red,
   with a *Go to line* button (also for answers split into several files).
 - **Compare with model answer**: side-by-side view once you pass or open the solution.
+- **Failure details**: a failed test shows what was typed, what your code gave, and what was
+  expected, instead of just "failed".
+- **Style notes** (not graded) beside the test results: unused imports, `== None`, shadowed
+  built-ins, mutable defaults, very long functions and similar.
+- **Points** per module: one per test passed, two per finished exercise without tests, one per
+  quick check answered correctly.
+- **Practice problem sets**: an extra autograded exercise in every Track 1 lesson, written as a
+  specification with examples and edge cases.
 - **Quick checks**: short questions after many worked examples; the example's output stays hidden
   until you answer.
 - **Checklists and basic checks** for projects and other exercises without full tests.
@@ -58,6 +68,12 @@ different result), and `deep_merge.py` puts both into the page:
     python3 deep_build.py                            # writes deep.json
     python3 checks_build.py checks deep.json         # adds the quick checks
     python3 deep_merge.py ../index.html deep.json    # updates the app
+
+The autograder's Python side is `grader_src.py` (embedded in `py-worker.js`). The practice
+problem sets and the career module's tests are in `specs/`, each with model solutions and wrong
+answers that must fail; `harness.py specs/<file>.py` checks both. `practice_add.py` and
+`career_add.py` merge them into the course. These are authoring scripts: they expect the
+course page (`course.html`) and its content file (`pycontent.json`) next to them.
 
 ## What's different from the online version
 

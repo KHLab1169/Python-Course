@@ -1,0 +1,347 @@
+=== A13.1
+@idea
+To a hiring manager, your Git history is part of your portfolio. They open the commits and pull requests to see how you work: small, focused commits with messages that explain why, work done on branches and merged through reviewed pull requests, and tagged releases someone can actually install. A single commit called "final version" with 3,000 changed lines tells them the opposite.
+
+**Conventional Commits** is a widely used message format: a type (`feat`, `fix`, `docs`, `test`, `refactor`, `ci`...), an optional scope in brackets, an optional `!` for breaking changes, a colon and a short summary, then a blank line and a body explaining why. Tools read it to generate changelogs and decide version numbers, and reviewers read it to understand the history at a glance. A **commit-msg hook** (or a CI check) can enforce it automatically.
+
+The everyday flow is the same in every team: create a branch for one change, commit in small steps, push, open a pull request whose description says what changed, why and how it was tested, let CI run, merge, and delete the branch. A **.gitignore** keeps caches, virtual environments, build output and secrets out of the repository, and a **tag** such as `v0.1.0` marks the exact commit of a release.
+@how
+- `git switch -c feature/name` for each change; small commits; push and open a pull request.
+- Messages: `type(scope): summary` (lower case, no full stop, 72 characters max), blank line, body explaining why.
+- Pull request description: what, why, how it was tested, screenshots if visual.
+- `.gitignore`: `__pycache__/`, `.venv/`, `.pytest_cache/`, `.env`, `dist/`, build output.
+- Releases: `git tag -a v0.1.0 -m "First release"`, `git push --tags`, then a GitHub release with notes.
+@example bash: The everyday branch, commit and release flow
+git switch -c feature/tip-split
+# ... edit code and tests ...
+git add src/shiftboard/tips.py tests/test_tips.py
+git commit -m "feat(tips): split tips by hours worked" -m "Leftover cents go to the longest shifts so the total always matches."
+git push -u origin feature/tip-split
+gh pr create --title "Split tips by hours worked" --body "What: ... Why: ... Tested: 12 unit tests, 1 property test"
+# after review and green CI
+git switch main && git pull
+git tag -a v0.2.0 -m "Tip splitting"
+git push --tags
+gh release create v0.2.0 --generate-notes
+@output
+Switched to a new branch 'feature/tip-split'
+[feature/tip-split 4c1e9a2] feat(tips): split tips by hours worked
+ 2 files changed, 86 insertions(+)
+branch 'feature/tip-split' set up to track 'origin/feature/tip-split'.
+https://github.com/you/shiftboard/pull/7
+https://github.com/you/shiftboard/releases/tag/v0.2.0
+@note
+Every step leaves a trace a reviewer can read: a branch named after the change, a commit whose header and body explain it, a pull request with what, why and how it was tested, and a tagged release with notes generated from the merged pull requests. `gh` is GitHub's command-line tool; the same steps work in the web interface.
+@example python: Grouping a commit log into release notes by type
+log = """a1f3c2e feat(tips): split tips by hours worked
+9b2d7e1 fix(shifts): allow back-to-back shifts
+77c0e4a docs: add architecture diagram
+5e9a113 test(tips): property test that shares sum to the total
+c2d8f90 feat(api)!: times are now ISO 8601 strings
+0d4b6aa chore: bump dependencies"""
+
+sections = {"Breaking changes": [], "Features": [], "Fixes": []}
+for line in log.splitlines():
+    sha, message = line.split(" ", 1)
+    kind, summary = message.split(": ", 1)
+    if kind.endswith("!"):
+        sections["Breaking changes"].append(summary)
+    elif kind.startswith("feat"):
+        sections["Features"].append(summary)
+    elif kind.startswith("fix"):
+        sections["Fixes"].append(summary)
+
+for title, items in sections.items():
+    if items:
+        print(f"## {title}")
+        print("\n".join(f"- {s}" for s in items))
+bump = "major" if sections["Breaking changes"] else "minor" if sections["Features"] else "patch"
+print(f"\nnext version: {bump} bump")
+@note
+Because every message starts with a type, a few lines of code turn the history into release notes and choose the next version number: a breaking change means a major bump. Docs, tests and chores are left out of user-facing notes. This is what tools like release-please and semantic-release do at scale.
+@mistakes
+- **One giant commit per project.** Reviewers cannot follow it. Commit each logical step with a message that says why.
+- **Committing secrets or `.venv/`.** Add the `.gitignore` before the first commit; a leaked key must be rotated, not just deleted.
+- **Pull requests with no description.** Say what changed, why, and how you tested it.
+@keys
+- Your history, pull requests and releases are part of your portfolio.
+- Conventional Commits make history readable by people and tools.
+- Branch, small commits, pull request, review, merge, tag.
+- A `.gitignore` from day one keeps the repository clean.
+
+=== A13.2
+@idea
+Reviewers spend well under a minute on a repository before deciding whether to look deeper, and they read the README, not the code. A README that works answers their questions in order: **what is this and why would I use it** (one or two sentences, ideally with a screenshot or short GIF), **how do I install and run it** (copy-paste commands), **what does using it look like** (real example output), **how is it tested** (one command, plus what the tests cover), and **what are its limits**. Honest limitations read as maturity, not weakness.
+
+For a portfolio, add the evidence a hiring manager is looking for: a results table (coverage, mutation score, benchmark numbers, false positive rate), a short design section explaining one decision you made and why, and badges only when they mean something (CI passing, coverage). Every claim should be checkable by running a command.
+
+Your **GitHub profile** is the page behind the link on your CV. A profile README (a repository named exactly like your username) of under 150 words, stating the roles you want, three featured projects with a measurable result each, and your daily tools, plus six **pinned repositories** chosen for the jobs you apply to, turns a list of repositories into a story.
+@how
+- README order: pitch, screenshot, install, usage with real output, tests, design notes, limitations.
+- Commands must be copy-paste ready; outputs must be real.
+- Add a results table with the numbers that prove the project works.
+- Profile README: target roles first, three projects with results, tools, contact.
+- Pin six repositories that match the jobs you apply for, best first.
+@example python: Checking a README the way a reviewer skims it
+readme = """# shiftboard
+
+Plan restaurant shifts and split tips fairly.
+
+## Install
+```bash
+pip install shiftboard
+```
+
+## Usage
+TODO
+
+## Design notes
+"""
+
+lines = readme.splitlines()
+headings = [l.lstrip("#").strip().lower() for l in lines if l.startswith("## ")]
+wanted = {"install": ["install"], "usage": ["usage", "example"], "tests": ["test"]}
+missing = [name for name, words in wanted.items() if not any(w in h for h in headings for w in words)]
+print("title first:", lines[0].startswith("# "))
+print("sections:", headings)
+print("missing:", missing)
+print("unfinished:", [i + 1 for i, l in enumerate(lines) if "TODO" in l])
+@note
+In a few lines, the check finds what a reviewer notices in seconds: there is no tests section, and the usage section is an unfinished TODO. You will build a stricter version in this lesson's exercise, which also ignores headings inside code blocks. Running such a check in CI keeps documentation from drifting.
+@example text: A README skeleton for a test-automation project
+# api-contract-checker
+
+Checks that a REST API still matches its OpenAPI contract, and fails CI when it does not.
+
+![Report screenshot](docs/report.png)
+
+## Install
+    pip install api-contract-checker
+
+## Usage
+    contract-check https://staging.example.com --spec openapi.yaml
+    23 endpoints checked, 2 failures:
+      POST /orders  201 expected, got 200
+      GET /orders/{id}  field "total" missing from response
+
+## Tests
+    pytest            # 140 tests, 96% line coverage, mutation score 0.88
+
+## Design notes
+Responses are validated with JSON Schema generated from the spec, so new endpoints need no code.
+
+## Limitations
+Does not test authentication flows; GraphQL is not supported.
+@note
+Each section answers one reviewer question, and every claim can be checked: the install command, a real run with real failures, the test command with its numbers, one design decision with its reason, and honest limits. A test-automation project is especially convincing when the README shows the tool catching real problems.
+@mistakes
+- **READMEs that start with a history of the project.** Lead with what it does and who it is for.
+- **Usage sections without output.** Show a real run; it is the most persuasive part.
+- **Pinning every repository.** Six relevant projects beat thirty course exercises.
+@keys
+- Reviewers read READMEs, in under a minute.
+- Pitch, install, real usage, tests, design, limitations.
+- Numbers and screenshots turn claims into evidence.
+- The profile README and pinned repositories frame your whole GitHub.
+
+=== A13.3
+@idea
+QA automation interviews test judgement more than syntax. Expect questions like "how would you test this function?", "what is a good test?", "fixture or setup method?", "mock or fake?" and "how do you know your tests are good?". The strongest answers follow a method and show it with an example.
+
+To design tests for a function or feature, start from the specification: split inputs into **equivalence classes** (values the code should treat the same), then test the **boundaries** between them, where off-by-one bugs live, plus error cases and one or two representative values. For a parcel price that changes above 1 kg, the interesting values are 1, just above 1, a partial kilogram, the maximum and just beyond it. In pytest, `@pytest.mark.parametrize` turns that table into readable test cases, fixtures provide shared setup with cleanup, and `pytest.raises` checks errors.
+
+"How do you know your tests are good?" has a better answer than coverage: **mutation testing**. Introduce a small bug (change `>=` to `>`, `ceil` to `floor`, double to add) and check that at least one test fails. A surviving mutant points at a missing test. Tools like mutmut automate it; doing it by hand for a few critical functions is a strong interview story.
+@how
+- Equivalence classes from the specification, then boundaries, errors and representative values.
+- `@pytest.mark.parametrize` for tables of cases with readable ids.
+- Fixtures for shared setup (with `yield` for cleanup); fakes over mocks where possible.
+- `pytest.raises(ValueError, match="...")` for error cases.
+- Check tests against deliberate bugs (mutation testing) for critical code.
+@example python: A boundary table, as parametrize would run it
+import math
+
+
+def shipping_cost(weight_kg, express=False):
+    if weight_kg <= 0 or weight_kg > 30:
+        raise ValueError("weight must be more than 0 and at most 30 kg")
+    cost = 500 + 200 * max(0, math.ceil(weight_kg - 1))
+    return cost * 2 if express else cost
+
+
+cases = [  # (id, weight, express, expected)  -- a parametrize table
+    ("one kg is the base", 1, False, 500),
+    ("just over one kg", 1.01, False, 700),
+    ("whole second kg", 2, False, 700),
+    ("third kg started", 2.01, False, 900),
+    ("maximum weight", 30, False, 6300),
+    ("express doubles", 3, True, 1800),
+]
+for case_id, w, express, want in cases:
+    got = shipping_cost(w, express)
+    print(f"{'PASS' if got == want else 'FAIL'}  {case_id:20} {got}")
+for bad in (0, -1, 30.01):
+    try:
+        shipping_cost(bad)
+        print(f"FAIL  {bad} should raise")
+    except ValueError:
+        print(f"PASS  {bad} raises ValueError")
+@note
+Each row tests one idea at one boundary, and the id says which. In a real suite this table becomes `@pytest.mark.parametrize("weight, express, expected", [...], ids=[...])`, so a failure names the exact case. Notice "express doubles" uses 3 kg: with a 1 kg parcel, doubling and adding 500 give the same answer, so that test could not tell them apart.
+@example python: A fixture, a fake and a mock, side by side
+from unittest.mock import Mock
+
+
+class FakeRepo:                          # a fake: a real, simple implementation
+    def __init__(self):
+        self.rows = {}
+    def save(self, key, value):
+        self.rows[key] = value
+    def get(self, key):
+        return self.rows.get(key)
+
+
+def register(repo, mailer, email):
+    if repo.get(email):
+        return "already registered"
+    repo.save(email, {"email": email})
+    mailer.send(email, "Welcome!")
+    return "ok"
+
+
+def fresh_repo():                        # what a pytest fixture would provide for each test
+    repo = FakeRepo()
+    repo.save("old@example.com", {"email": "old@example.com"})
+    return repo
+
+
+repo, mailer = fresh_repo(), Mock()
+print(register(repo, mailer, "ada@example.com"), "| stored:", repo.get("ada@example.com") is not None)
+mailer.send.assert_called_once_with("ada@example.com", "Welcome!")
+print("mock recorded:", mailer.send.call_args)
+print(register(fresh_repo(), Mock(), "old@example.com"))
+@note
+The fake repository really stores data, so the test checks an outcome (the user exists). The mock mailer records calls, which is right here because sending the email is the behaviour being tested. `fresh_repo` plays the role of a fixture: each test gets a new, known starting state. That three-way distinction is a classic interview question.
+@mistakes
+- **Testing only typical values.** Bugs hide at boundaries; test both sides of every limit.
+- **Mocking everything.** Tests then check implementation details and break on refactors; prefer fakes and outcomes.
+- **Equating coverage with quality.** Lines that ran were not necessarily checked; mutation testing tells you.
+@keys
+- Classes, boundaries, errors, representative values.
+- parametrize for tables, fixtures for setup, raises for errors.
+- Fakes check outcomes; mocks check interactions.
+- A test suite is good if it fails when the code is broken.
+
+=== A13.4
+@idea
+Two topics come up in almost every automation interview: **waiting** and **flakiness**. A test that sleeps for a fixed time before acting is wrong twice: too short when the system is slow (it fails), too long when it is fast (it wastes time). The correct approach is to **wait for a condition** with a timeout: poll until the element is visible, the response arrives or the row exists. Playwright's locators and web-first assertions (`expect(locator).to_have_text(...)`) do this automatically, which is why they are so much more reliable than `sleep`.
+
+A **flaky** test passes and fails without any code change. The causes fall into a few families: timing (races with the page or with background work), shared state and test order, environment (shared staging, network, CPU), time and time zones, and test data that changes. A senior answer is a method: confirm by rerunning, isolate (alone, in random order, frozen clock, fresh data), prove the cause, fix it; and if it cannot be fixed at once, quarantine it with an owner rather than retrying silently.
+
+For **API testing**, interviewers expect you to go beyond the happy path: check the status code, the response body against a contract (schema), headers such as Location, and every error the API documents (400 or 422 for bad input, 401 without credentials, 403 or 404 for someone else's data, 409 for duplicates), plus idempotency for retried requests.
+@how
+- Never sleep for a fixed time; wait for a condition with a timeout.
+- Playwright: locator actions and `expect(...)` assertions auto-wait.
+- Flaky tests: confirm, isolate, prove the cause, fix or quarantine with an owner.
+- Inject the clock to make time-dependent code testable.
+- API tests: status, schema, headers, every documented error, idempotency.
+@example python: Checking an API response against a small contract
+contract = {"id": int, "title": str, "done": bool, "due": (str, type(None))}
+
+
+def check_response(status, body, expected_status=201):
+    problems = []
+    if status != expected_status:
+        problems.append(f"status {status}, expected {expected_status}")
+    for field, kinds in contract.items():
+        if field not in body:
+            problems.append(f"missing field '{field}'")
+        elif not isinstance(body[field], kinds):
+            problems.append(f"'{field}' is {type(body[field]).__name__}")
+    extra = set(body) - set(contract)
+    if extra:
+        problems.append(f"unexpected fields {sorted(extra)}")
+    return problems or ["ok"]
+
+
+print(check_response(201, {"id": 7, "title": "Write tests", "done": False, "due": None}))
+print(check_response(200, {"id": "7", "title": "Write tests", "done": False}))
+print(check_response(201, {"id": 8, "title": "x", "done": "no", "due": None, "debug": True}))
+@note
+The second response has three problems a happy-path test would miss: the wrong status (200 instead of 201 Created), an id sent as a string, and a missing field. The third leaks an internal debug field. Real projects use JSON Schema or Pydantic models generated from an OpenAPI spec, but the questions asked are the same.
+@example python: Making a time-dependent check testable with an injected clock
+from datetime import datetime, timezone, timedelta
+
+
+def is_overdue(due_date, now=None):
+    now = now or datetime.now(timezone.utc)
+    return now.date() > due_date
+
+
+due = datetime(2026, 11, 20, tzinfo=timezone.utc).date()
+evening_toronto = datetime(2026, 11, 20, 21, 30, tzinfo=timezone(timedelta(hours=-5)))
+print("21:30 in Toronto, compared in local time:", evening_toronto.date() > due)
+print("same moment in UTC:", is_overdue(due, now=evening_toronto.astimezone(timezone.utc)))
+print("test with a fixed clock, next day:", is_overdue(due, now=datetime(2026, 11, 21, 12, tzinfo=timezone.utc)))
+@note
+At 21:30 in Toronto it is already 02:30 the next day in UTC, so a check that mixes local and UTC dates flips its answer every evening: the classic "fails only at night" flaky test. Passing `now` in makes each case testable at a fixed moment, and comparing in one time zone removes the bug.
+@mistakes
+- **`sleep()` in tests.** It is both flaky and slow; wait for conditions instead.
+- **Retrying flaky tests silently.** It hides real bugs; quarantine with an owner and fix the cause.
+- **Happy-path-only API tests.** Most production bugs are in error handling and edge cases.
+@keys
+- Wait for conditions, never for fixed times.
+- Flakiness has a few causes; diagnose with a method.
+- Inject clocks and data to make tests deterministic.
+- Test APIs against their contract, including every error.
+
+=== A13.5
+@idea
+Leadership interviews (QA lead, manager, head of quality) ask different questions: "how would you set up testing for a new product?", "what metrics do you report?", "tell me about a time you...". They are looking for **judgement**: risk-based priorities, clear trade-offs and decisions backed by data.
+
+A **one-page test strategy** shows that judgement quickly: scope and what is out of scope, the riskiest areas and why they come first, the test levels with rough proportions (many fast unit tests, fewer API tests, a few end-to-end journeys), what runs on every pull request and what runs nightly, environments and test data, the metrics you will report, and the conditions that would stop a release. Agreeing on stop-the-release criteria before the deadline pressure starts is one of the most valuable things a QA lead does.
+
+Choose **metrics that drive decisions**: defect escape rate (found after release versus before), time to fix escaped defects, flaky-run rate (can we trust the pipeline?), feedback time on pull requests, and mutation score on critical code. Counts of test cases or hours spent are activity, not quality. Finally, prepare **STAR stories** (Situation, Task, Action, Result) for the recurring themes: an automation win, an incident you led, growing people, a disagreement, a failure you learned from. Keep situation and task short, spend the time on what you did, and end with a number.
+@how
+- Strategy on one page: scope, risks, levels, pipeline, environments, metrics, stop criteria.
+- Metrics: escape rate, time to fix escapes, flaky rate, feedback time, mutation score.
+- Every metric should lead to a decision or a question.
+- STAR: short situation and task, detailed action, measurable result.
+- Prepare one story per theme and practise them out loud.
+@example python: Turning a STAR story into an answer outline
+story = {
+    "situation": "Regression testing took two testers three days before every release.",
+    "task": "Cut it to under a day without losing coverage of the risky flows.",
+    "action": ["Ranked 300 manual cases by risk and frequency",
+               "Automated the top 40 as API and browser tests in CI",
+               "Kept exploratory sessions for new features"],
+    "result": "Regression went from 3 days to half a day; releases moved from monthly to every two weeks.",
+}
+words = sum(len(str(v).split()) for v in story.values())
+print(f"about {words} words, roughly {words / 130:.1f} minutes spoken")
+for part in ("situation", "task", "action", "result"):
+    value = story[part]
+    lines = value if isinstance(value, list) else [value]
+    print(f"{part.upper():9} " + "\n          ".join(lines))
+has_number = any(ch.isdigit() for ch in story["result"])
+print("result has a number:", has_number)
+@note
+Laid out like this, the story is easy to rehearse: two short framing lines, three concrete actions in the first person, and a result with numbers. The bare outline takes about half a minute to say; told with a little context and detail, it grows to the 90 seconds to two minutes interviewers expect, leaving room for follow-up questions.
+@example text: Release criteria that end the "can we ship?" debate
+Release 2.5 ships when ALL of these hold:
+  - every P1 and P2 bug is fixed or explicitly accepted by the product owner
+  - money, login and data-loss test suites: 100% passing, no quarantined tests
+  - full regression on the release candidate: at least 98% passing, each failure triaged
+  - flaky-run rate over the last 7 days under 2% (otherwise results cannot be trusted)
+  - performance smoke: p95 response time within 10% of release 2.4
+It does NOT ship if a new crash appears in the top 3 user journeys, whatever the deadline.
+@note
+Written before the deadline, criteria like these turn a tense judgement call into a checklist everyone already agreed to. Notice they combine bug severity, test results, trust in the pipeline and performance, and that they name an absolute blocker. Interviewers for QA leadership roles often ask for exactly this.
+@mistakes
+- **Reporting activity as quality.** Test counts and hours do not show whether users are protected.
+- **Strategies that try to test everything equally.** Prioritise by risk and say what you will not test.
+- **Stories without a result.** End every STAR story with a measurable outcome.
+@keys
+- Leadership interviews test judgement and trade-offs.
+- One page: scope, risks, levels, pipeline, metrics, stop criteria.
+- Metrics should drive decisions, not decorate reports.
+- STAR stories with numbers, practised out loud.

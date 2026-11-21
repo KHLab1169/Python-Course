@@ -1,0 +1,75 @@
+=== A13.1/2
+Q: What should a pull request description contain?
++ What changed, why, and how it was tested.
+- Only the ticket number.
+- The full diff, pasted as text.
+- A list of every file touched.
+WHY: Reviewers can see the diff already; the description explains intent and evidence, and it stays in the history for whoever reads it later.
+
+=== A13.1/3 predict
+Q: The log contains a commit `feat(api)!: times are now ISO 8601 strings`. What version bump does the script choose?
++ `next version: major bump`
+- `next version: minor bump`
+- `next version: patch bump`
+WHY: The `!` marks a breaking change, which always means a major bump under semantic versioning, even though there are also features and fixes.
+
+=== A13.2/2 predict
+Q: The README has Install, Usage and Design notes sections, and the usage section only says TODO. What does the check report as missing?
++ `missing: ['tests']`
+- `missing: []`
+- `missing: ['usage', 'tests']`
+WHY: A Usage heading exists, so usage counts as present even though it's unfinished; the TODO is reported separately. Only a tests section is missing.
+
+=== A13.2/3
+Q: Why does the skeleton include a Limitations section?
++ Stating what the tool doesn't do shows maturity and makes the rest of the claims more believable.
+- GitHub requires it.
+- It lowers the number of issues people open.
+- It's where the licence goes.
+WHY: Hiring managers trust candidates who know where their work falls short. Honest limits read as engineering judgement.
+
+=== A13.3/2
+Q: Why does the express test use a 3 kg parcel instead of 1 kg?
++ For 1 kg, doubling (1000) and adding 500 (1000) give the same price, so the test couldn't catch that bug.
+- 1 kg parcels can't be sent express.
+- 3 kg is the most common weight.
+- Express pricing starts at 3 kg.
+WHY: Choose test values where correct and plausible-wrong implementations disagree. That's the core idea behind mutation testing.
+
+=== A13.3/3 pick
+Q: `register` is called for "old@example.com", which `fresh_repo()` already contains. What does the last line print?
++ `already registered`
+- `ok | stored: True`
+- `ok`
+WHY: Each call to `fresh_repo()` gives a new fake repository with the existing user, so registering the same email again is refused, which is the second behaviour the test checks.
+
+=== A13.4/2 pick
+Q: The second response comes back with status 200, id "7" as text, and no due field. Which line reports it?
++ `['status 200, expected 201', "'id' is str", "missing field 'due'"]`
+- `['ok']`
+- `["'done' is str", "unexpected fields ['debug']"]`
+WHY: A contract check catches the wrong status, the wrong type and the missing field all at once, which a happy-path test would miss.
+
+=== A13.4/3
+Q: A date test fails every evening between 19:00 and midnight in Toronto. What's the most likely cause?
++ Local and UTC dates are mixed: in the evening, UTC is already the next day.
+- The CI servers are slower in the evening.
+- Python's datetime is unreliable after 19:00.
+- Someone runs a cron job at 19:00.
+WHY: Toronto is UTC−5 in winter, so from 19:00 local time the UTC date has moved on. Inject the clock and compare in one time zone.
+
+=== A13.5/2
+Q: In a STAR story, which part should take the most time?
++ Action: what you did and why.
+- Situation: background about the company.
+- Task: the job description.
+- Result: what the team achieved without you.
+WHY: Interviewers are assessing your judgement and skills, which show in your actions. Keep the setup short and end with a measurable result.
+
+=== A13.5/3
+Q: Why agree on release criteria at the start of a release cycle rather than at the end?
++ Under deadline pressure, a pre-agreed checklist settles "can we ship?" instead of a tense debate.
+- Criteria written early are shorter.
+- Testers can stop testing once the criteria exist.
+- It's required by Agile.
+WHY: Decisions made calmly, before the pressure, are better and easier to defend; the criteria also show leadership the quality bar in advance.
