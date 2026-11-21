@@ -1,0 +1,276 @@
+=== A10B.1/2
+Q: How did the test find the form fields and the confirmation message?
++ By label and by role, the way a person perceives the page.
+- By CSS class names.
+- By the order of elements in the HTML.
+- By pixel coordinates.
+WHY: User-facing locators survive redesigns and also check that the page is accessible.
+
+=== A10B.1/3 pick
+Q: The email field receives "not-an-email". What message appears?
++ `'not-an-email'       -> Please enter a valid email.`
+- `'ada@example.com'    -> Welcome!`
+- `title: Signup`
+WHY: The script fills the form like a user would and reads back the message the page shows.
+
+=== A10B.2/2
+Q: The page has two Remove buttons, and the test clicks `page.get_by_role("button", name="Remove")`. What happens?
++ Playwright raises a strict mode violation instead of clicking either one.
+- It clicks the first button.
+- It clicks both buttons.
+- It waits until only one button remains.
+WHY: Strictness stops a test from passing for the wrong reason. Filter to the right row first, then click its button.
+
+=== A10B.2/3
+Q: Why use `expect(locator).to_have_text("Saved")` instead of reading the text once and asserting?
++ `expect` retries until the text matches or a timeout passes, so slow pages don't cause flaky failures.
+- `expect` is faster than `assert`.
+- `assert` doesn't work with strings.
+- `expect` skips the check if the element is missing.
+WHY: Pages update asynchronously. Auto-waiting assertions remove the need for `sleep` and still fail clearly when the text is really wrong.
+
+=== A10B.3/2
+Q: Why does the test "starts empty" pass even though an earlier test added tasks?
++ An autouse fixture resets the app's data before every test.
+- Tests run in reverse order.
+- The browser cache is cleared between tests.
+- Tasks expire after one second.
+WHY: Independent tests start from a known state, so their order doesn't matter.
+
+=== A10B.3/3 predict
+Q: After a redesign moves the checkout button into a footer with new classes, how many buttons does each locator find?
++ `new layout: structural finds 0, role-based finds 1`
+- `new layout: structural finds 1, role-based finds 1`
+- `new layout: structural finds 1, role-based finds 0`
+WHY: Structural locators depend on layout and classes, which redesigns change. The button's role and name stayed the same.
+
+=== A10B.4/2
+Q: Why seed test data through the API instead of clicking through the UI?
++ It's much faster and keeps the browser test focused on what it's checking.
+- The UI can't create data.
+- API data is more realistic.
+- Browsers can't run after API calls.
+WHY: Use the fast door to set up state, and the browser only for the behaviour under test.
+
+=== A10B.4/3 pick
+Q: The request context POSTs JSON to an endpoint that exists, then GETs one that doesn't. What is the last line?
++ `404`
+- `201 True application/json`
+- `200`
+WHY: The API request context exposes status, headers and JSON without launching a browser, so API tests run in milliseconds.
+
+=== A10B.5/2
+Q: How would you replay a failed CI test's trace locally?
++ `playwright show-trace trace.zip`
+- `pytest --replay trace.zip`
+- Unzip it and open index.html.
+- `python trace.zip`
+WHY: The trace viewer shows the DOM, console and network at every step, exactly as CI saw it.
+
+=== A10B.5/3
+Q: Why does the upload step in the CI job run only `if: failure()`?
++ Traces and screenshots are only needed when a test failed, so successful runs don't waste storage.
+- Uploads are slow on success.
+- GitHub forbids uploads on success.
+- Failed runs can't be re-run otherwise.
+WHY: The evidence is kept exactly when someone needs to investigate.
+
+=== A10B.P/2 pick
+Q: Shifts 09:00–12:00 and 12:00–15:00 for the same person are checked. What does the overlap rule say?
++ `back-to-back         overlaps: False`
+- `one minute overlap   overlaps: True`
+- `ends as it starts    overlaps: False`
+WHY: Strict comparisons (`start < other_end and other_start < end`) allow a shift to begin exactly when the previous one ends.
+
+=== A10B.P/3
+Q: What does the property test check over 300 generated nights?
++ That every tip split sums exactly to the total, for any amount and any staff hours.
+- That the split is the same for everyone.
+- That no one gets zero.
+- That the code runs in under a second.
+WHY: An invariant tested over many generated inputs is stronger than a handful of hand-picked amounts.
+
+=== I1.1/2
+Q: Why validate each JSONL case with a Pydantic model when loading?
++ A malformed case is reported with its line number instead of silently producing a meaningless score.
+- JSONL can't be read without Pydantic.
+- It makes the evaluation run faster.
+- It removes duplicate cases.
+WHY: An evaluation is only as trustworthy as its dataset. Validating on load catches mistakes before they distort results.
+
+=== I1.1/3
+Q: What does the fake provider let the tests do?
++ Run the whole harness without network calls or cost, and check the prompts it builds.
+- Get better answers than the real model.
+- Measure the real model's accuracy.
+- Avoid writing any assertions.
+WHY: Both providers share one `complete` interface, so the harness can't tell them apart.
+
+=== I1.2/2 pick
+Q: An answer says "Returns are accepted for 3 days." The check requires "30 days|thirty days" with word boundaries. What is the result?
++ `Returns are accepted for 3 days.                ['missing: 30 days|thirty days']`
+- `You have thirty days to return unused items.    ['pass']`
+- `Within 30 days, but only for store credit onl   ['forbidden: store credit only']`
+WHY: Word boundaries stop "3 days" from matching "30 days", so the required fact is reported missing.
+
+=== I1.2/3
+Q: The judge's reply wraps JSON in prose and scores 9 on a 1–5 rubric. What does the harness do?
++ It extracts the JSON, fails schema validation, and asks again with the error message.
+- It accepts the score of 9.
+- It clamps the score to 5.
+- It gives up and marks the case as passed.
+WHY: A schema plus one corrective retry turns a chatty model into a dependable component.
+
+=== I1.3/2
+Q: The pass rate stayed at 71%, yet the report names a regression. How?
++ One case broke while another was fixed, so the average hid the change.
+- The report is wrong.
+- The pass rate is rounded.
+- Regressions are counted separately from failures.
+WHY: Comparing per case with the baseline reveals what averages hide, which is why must-pass cases get strict checks.
+
+=== I1.3/3
+Q: Why build the cache key from canonical JSON with sorted keys?
++ The same request always gets the same key, regardless of argument order.
+- Sorted keys are shorter.
+- JSON is required by the API.
+- It encrypts the request.
+WHY: Any change that affects the output, like the system prompt, still produces a new key, while irrelevant ordering doesn't.
+
+=== I1.4/2
+Q: Why can't a larger k help the "headphones broke" question?
++ TF-IDF retrieved nothing at all, because the question shares no words with the right chunk.
+- k is limited to 3.
+- The question is out of scope.
+- The right chunk was deleted.
+WHY: Keyword retrieval needs shared words. Synonyms and rephrasing call for embeddings or query expansion.
+
+=== I1.4/3 predict
+Q: Retrieval and answers are scored per tag. The returns tag had one wrong chunk retrieved. What does its row show?
++ `returns           50%      50%`
+- `returns          100%      50%`
+- `returns           50%     100%`
+WHY: When retrieval fails, the answer fails too. Scoring both separately shows it's a retrieval problem, not a prompt problem.
+
+=== I2.1/2
+Q: Where does the GitHub API put the URL of the next page?
++ In the `Link` response header, with `rel="next"`.
+- In the JSON body under `next_page`.
+- In a cookie.
+- It must be computed from the page number.
+WHY: The loop follows `next` links until none remain, which works even if the API changes how pages are numbered.
+
+=== I2.1/3
+Q: Why split the reports into train and test by creation date rather than at random?
++ The test set then contains only reports newer than everything the system learned from, as in real use.
+- Random splits are slower.
+- Dates are easier to sort.
+- GitHub requires it.
+WHY: A random split would let the system "see the future", making results look better than they will be.
+
+=== I2.2/2
+Q: The sign-in report matched its original only through the word "password". What does that reveal?
++ TF-IDF depends on lucky shared words; rewordings with no overlap would be missed.
+- The reports were identical.
+- Passwords are weighted more heavily.
+- The test set was too small.
+WHY: Perfect recall here was partly luck. Meaning-based vectors catch duplicates that share ideas rather than words.
+
+=== I2.2/3 predict
+Q: Two reworded reports are compared, first on exact words, then with synonyms mapped to shared concepts. What is the meaning-aware similarity?
++ `meaning-aware: similarity 0.89`
+- `meaning-aware: similarity 0.22`
+- `meaning-aware: similarity 1.00`
+WHY: Mapping "sync"/"synchronisation" and "wake"/"resume" to the same concepts reveals that the reports describe the same thing.
+
+=== I2.3/2
+Q: What does the labeller return when the model's reply fails validation twice?
++ An explicit "needs human triage" result with the reasons.
+- The invalid reply as is.
+- A random component and severity.
+- It raises an exception that crashes the endpoint.
+WHY: Passing nonsense downstream is worse than admitting uncertainty. An explicit fallback keeps the system trustworthy.
+
+=== I2.3/3
+Q: Why does the confusion matrix matter beyond the accuracy number?
++ It shows which levels get mixed up and how far off the mistakes are; calling S1 "S4" is far worse than "S2".
+- It makes the accuracy higher.
+- It replaces the need for a test set.
+- It counts the number of reports.
+WHY: Not all errors are equal. The matrix guides better label definitions where confusion is concentrated.
+
+=== I2.4/2 pick
+Q: The triage endpoint receives a report with a title that's too short. What does it return?
++ `422 - title too short`
+- `200`
+- `500`
+WHY: Pydantic rejects invalid input with a 422 before any index lookup or model call happens.
+
+=== I2.4/3
+Q: What turns "I built an AI triage tool" into a measured claim in the README?
++ A results table on a fixed, time-split test set, with a baseline, latency and cost.
+- A screenshot of the UI.
+- A list of the libraries used.
+- The number of commits.
+WHY: Numbers against a baseline show what the system actually adds, and stated limitations show good judgement.
+
+=== I3.1/2 pick
+Q: The generated code runs an infinite loop. What does the sandbox report?
++ `timeout: killed after 2s`
+- `exit 0: 45`
+- `exit 1: assertion failed`
+WHY: Each run is a separate process with a time limit, so a runaway program is killed instead of hanging the agent.
+
+=== I3.1/3
+Q: The model asks `write_test` to save `../secrets.py`. What happens?
++ Validation rejects the path because it doesn't match `^tests/test_[a-z0-9_]+\.py$`, and the error goes back to the model.
+- The file is written.
+- The agent crashes.
+- The path is silently rewritten to `tests/`.
+WHY: Every tool call is validated against its schema before it runs, which keeps the agent inside its scratch folder.
+
+=== I3.2/2 pick
+Q: The second step's `write_test` contains a syntax error. What is logged for it?
++ `2 write_test ERROR SyntaxError line 1: invalid syntax`
+- `3 write_test saved`
+- `4 stop target 90% reached`
+WHY: Tool errors are returned to the model as results instead of crashing the loop, so the model can fix them on the next step.
+
+=== I3.2/3
+Q: Why send a compact summary of pytest results instead of the full output?
++ It keeps the model's context short and focused on failures and missing lines.
+- The model can't read pytest output.
+- Full output contains secrets.
+- Summaries are required by pytest.
+WHY: Concise, structured feedback (counts, failure locations, uncovered lines) tells the model exactly what to do next.
+
+=== I3.3/2 pick
+Q: A generated test contains only `assert True`. What does the checker decide?
++ `REJECT test_always                no meaningful assertion`
+- `keep   test_total_adds_prices`
+- `REJECT test_sleepy_but_real       forbidden call time.sleep`
+WHY: A test that can't fail adds coverage without checking anything, so the `ast` checker rejects it.
+
+=== I3.3/3
+Q: A suite has full line coverage, yet two mutants survive. What does that mean?
++ The tests run the code but don't check behaviour precisely enough, here the boundary at 50.
+- The mutants are broken.
+- Coverage was measured wrongly.
+- The code has no bugs.
+WHY: Mutation testing measures whether tests notice bugs. Boundary tests at 50 and 49 kill the surviving mutants.
+
+=== I3.4/2
+Q: Why does the benchmark table show medians with ranges?
++ Agent runs vary, so the median shows typical results and the range shows their variability.
+- Ranges make the numbers look better.
+- Medians are faster to compute than averages.
+- The table can't hold more columns.
+WHY: Honest reporting of variability, plus a one-shot baseline, shows what the loop really adds.
+
+=== I3.4/3
+Q: What does the example transcript in the README show a reviewer?
++ The mechanism working step by step: reading missing lines, writing a guarded test, and using a surviving mutant.
+- The full source code of the agent.
+- Only the final coverage number.
+- The model's private reasoning.
+WHY: A concrete transcript makes an abstract design easy to follow and to believe.

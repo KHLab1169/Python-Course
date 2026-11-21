@@ -1,0 +1,296 @@
+=== 1.1/2
+Q: Using the same rules, what does `(10 - 4) * 2 ** 3` give?
++ `48`
+- `216`
+- `64`
+- `1728`
+RUN: (10 - 4) * 2 ** 3
+WHY: Brackets first (6), then the power (2 ** 3 = 8), then the multiplication: 6 × 8 = 48.
+
+=== 1.1/3
+Q: Which line of an error message tells you what went wrong?
++ The last line, such as `ZeroDivisionError: division by zero`.
+- The first line, `Traceback (most recent call last):`.
+- The line with `...`.
+- There is no such line; you have to guess.
+WHY: Python lists where the error happened first and ends with the error's type and a message. Read error messages from the bottom up.
+
+=== 1.2/2
+Q: 100 eggs are packed in boxes of 12. What does `100 // 12, 100 % 12` give?
++ `(8, 4)`
+- `(8.333333333333334, 4)`
+- `(8, 0)`
+- `(9, 4)`
+RUN: 100 // 12, 100 % 12
+WHY: `//` counts full boxes (8 × 12 = 96) and `%` gives the leftover (100 − 96 = 4).
+
+=== 1.2/3
+Q: What does `-3 ** 2` give?
++ `-9`
+- `9`
+- `-6`
+- `6`
+RUN: -3 ** 2
+WHY: `**` binds tighter than the minus sign, so this is `-(3 ** 2)`. Write `(-3) ** 2` to get 9.
+
+=== 1.3/2 predict
+Q: The user types Ada and 36. What does the last line print?
++ `That is 444 months old.`
+- `That is 432 months old.`
+- `That is 36 months old.`
+- `That is 3612 months old.`
+WHY: `age` was converted with `int()`, so `(age + 1) * 12` is arithmetic: 37 × 12 = 444. Without `int()`, the text "36" would have been repeated instead.
+
+=== 1.3/3
+Q: With `answer = "4"`, what does `answer * 2 + "!"` give?
++ `'44!'`
+- `'8!'`
+- `9`
+- `'4 4!'`
+RUN: answer = "4"; answer * 2 + "!"
+WHY: Multiplying a string repeats it, so `"4" * 2` is `"44"`, and `+` joins text. To do arithmetic, convert first with `int(answer)`.
+
+=== 1.4/2
+Q: What does `round(6.5), round(9.5)` give?
++ `(6, 10)`
+- `(7, 10)`
+- `(6, 9)`
+- `(7, 9)`
+RUN: round(6.5), round(9.5)
+WHY: Python rounds halves to the nearest even number ("banker's rounding"), so 6.5 goes down to 6 and 9.5 goes up to 10.
+
+=== 1.4/3 predict
+Q: The wall needs 2.18 litres, and a tin holds 2.5 litres. How many tins does `math.ceil` say to buy?
++ `Tins to buy: 1`
+- `Tins to buy: 0`
+- `Tins to buy: 2`
+- `Tins to buy: 0.87`
+WHY: 2.18 / 2.5 is 0.87 of a tin, and `math.ceil` rounds up to the next whole number, so one tin.
+
+=== 1.5/2 predict
+Q: The bill is $86.40 with a 15% tip, shared by 3 people. What does the last line print?
++ `Each person pays: 33.12`
+- `Each person pays: 28.80`
+- `Each person pays: 99.36`
+- `Each person pays: 33.1`
+WHY: The tip is 12.96, the total 99.36, and 99.36 / 3 is 33.12. The two-decimal format keeps it looking like money.
+
+=== 1.5/3
+Q: Why is the constant written `SECONDS_PER_DAY` in capitals?
++ It's the usual way to mark a value that never changes.
+- Python requires constants to be in capitals.
+- Capital names run faster.
+- It makes the value impossible to change.
+WHY: The capitals are a convention for readers. Python doesn't stop you from reassigning it, but everyone knows not to.
+
+=== 1.6/2
+Q: What does `len("a\tb")` give?
++ `3`
+- `4`
+- `5`
+- `2`
+RUN: len("a\tb")
+WHY: `\t` is a single character, a tab. The string holds "a", the tab and "b".
+
+=== 1.6/3
+Q: How many characters does `len("naïve")` report?
++ `5`
+- `6`
+- `4`
+- `7`
+RUN: len("naïve")
+WHY: `len` counts characters, not bytes. "ï" is one character, even though it takes two bytes in UTF-8.
+
+=== 2.1/2
+Q: With `week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]`, what is `week[-2]`?
++ `'Sat'`
+- `'Fri'`
+- `'Tue'`
+- `'Sun'`
+RUN: week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; week[-2]
+WHY: Negative indexes count from the end: -1 is the last item (Sun), so -2 is Saturday.
+
+=== 2.1/3
+Q: With `grid = [[1, 2, 3], [4, 5, 6]]`, what is `grid[0][-1]`?
++ `3`
+- `1`
+- `6`
+- `[1, 2, 3]`
+RUN: grid = [[1, 2, 3], [4, 5, 6]]; grid[0][-1]
+WHY: `grid[0]` is the first inner list, `[1, 2, 3]`, and `[-1]` takes its last item.
+
+=== 2.2/2
+Q: With `date = "2026-11-20"`, what does `date[5:]` give?
++ `'11-20'`
+- `'-11-20'`
+- `'11'`
+- `'2026-'`
+RUN: date = "2026-11-20"; date[5:]
+WHY: Position 5 is the first "1" of the month (positions 0 to 3 hold the year, 4 is the dash), and leaving the end out means "to the end".
+
+=== 2.2/3
+Q: With `nums = [10, 20, 30, 40, 50]`, what is `nums[3:1:-1]`?
++ `[40, 30]`
+- `[]`
+- `[40, 30, 20]`
+- `[20, 30]`
+RUN: nums = [10, 20, 30, 40, 50]; nums[3:1:-1]
+WHY: A negative step walks backwards from the start (index 3) and stops before the end (index 1), so it takes indexes 3 and 2.
+
+=== 2.3/2
+Q: What does `"ss" in ["Mississippi", "ss"]` give?
++ `True`
+- `False`
+- `2`
+- `'ss'`
+RUN: "ss" in ["Mississippi", "ss"]
+WHY: For a list, `in` looks for an item equal to the value. The list does contain an item exactly equal to "ss".
+
+=== 2.3/3
+Q: What does `bool(""), bool(" ")` give?
++ `(False, True)`
+- `(False, False)`
+- `(True, True)`
+- `(True, False)`
+RUN: bool(""), bool(" ")
+WHY: Only empty sequences are false. A string holding a single space isn't empty, so it counts as true.
+
+=== 2.4/2
+Q: With `todo = ["a", "b", "c"]`, what is `todo` after `todo[1:2] = []`?
++ `['a', 'c']`
+- `['a', [], 'c']`
+- `['a', 'b', 'c']`
+- `['b']`
+RUN: todo = ["a", "b", "c"]; todo[1:2] = []; todo
+WHY: Assigning an empty list to a slice removes the items in that slice, like `del todo[1]`.
+
+=== 2.4/3
+Q: `a = [1, 2]`, `b = a`, `c = a[:]`, then `a.append(3)`. What is `(b, c)`?
++ `([1, 2, 3], [1, 2])`
+- `([1, 2], [1, 2])`
+- `([1, 2, 3], [1, 2, 3])`
+- `([1, 2], [1, 2, 3])`
+RUN: a = [1, 2]; b = a; c = a[:]; a.append(3); (b, c)
+WHY: `b` is a second name for the same list, so it sees the change. `c` is a copy made before the append.
+
+=== 2.5/2
+Q: `queue = ["Ada", "Ben", "Cy"]`. What does `queue.pop()` return?
++ `'Cy'`
+- `'Ada'`
+- `'Ben'`
+- `None`
+RUN: queue = ["Ada", "Ben", "Cy"]; queue.pop()
+WHY: Without an argument, `pop` removes and returns the last item. Use `pop(0)` to serve the front of a queue.
+
+=== 2.5/3
+Q: What does `sorted(["b", "C", "a"])` give?
++ `['C', 'a', 'b']`
+- `['a', 'b', 'C']`
+- `['a', 'C', 'b']`
+- `['C', 'b', 'a']`
+RUN: sorted(["b", "C", "a"])
+WHY: Plain sorting compares character codes, and capital letters come before lower case. Use `key=str.lower` for alphabetical order.
+
+=== 2.6/2
+Q: With `point = (6, 8)`, what does `(point[0] ** 2 + point[1] ** 2) ** 0.5` give?
++ `10.0`
+- `14.0`
+- `100`
+- `10`
+RUN: point = (6, 8); (point[0] ** 2 + point[1] ** 2) ** 0.5
+WHY: 36 + 64 = 100, and raising to the power 0.5 takes the square root. Powers with a float exponent give a float, 10.0.
+
+=== 2.6/3
+Q: What is `type(("Ada"))`?
++ `<class 'str'>`
+- `<class 'tuple'>`
+- `<class 'list'>`
+- `<class 'NoneType'>`
+RUN: type(("Ada"))
+WHY: Brackets alone only group. It's the comma that makes a tuple: `("Ada",)`.
+
+=== 3.1/2
+Q: With `email = "kev@example.org"`, what does `email[email.index("@") + 1:]` give?
++ `'example.org'`
+- `'@example.org'`
+- `'kev'`
+- `'example'`
+RUN: email = "kev@example.org"; email[email.index("@") + 1:]
+WHY: `index` finds the @ at position 3; starting one past it skips the @ and slices to the end.
+
+=== 3.1/3
+Q: With `name = "ada"`, what is `name` after `name.upper()` on its own line?
++ `'ada'`
+- `'ADA'`
+- `None`
+- `'Ada'`
+RUN: name = "ada"; name.upper(); name
+WHY: Strings never change. `upper()` returns a new string, which is lost unless you assign it: `name = name.upper()`.
+
+=== 3.2/2 predict
+Q: Four notebooks at $3.50 each cost $14.00. What does `print(f"{total=}")` show?
++ `total=14.0`
+- `total=14.00`
+- `total`
+- `14.0`
+WHY: `{total=}` prints the expression, an equals sign and the value's repr. The float 14.0 shows as `14.0`, without the two-decimal formatting.
+
+=== 3.2/3
+Q: What does `"{} has {} items".format("cart", 3)` give?
++ `'cart has 3 items'`
+- `'{} has {} items'`
+- `'3 has cart items'`
+- `'cart has items'`
+RUN: "{} has {} items".format("cart", 3)
+WHY: Empty braces are filled in order by the arguments to `format`.
+
+=== 3.3/2 predict
+Q: Each row uses `f"{item:<15}{price:>8.2f}"`. The total is 3.50 + 2.25 + 4.75. What is the last line?
++ `Total             10.50`
+- `Total 10.5`
+- `Total             10.5`
+- `           Total 10.50`
+WHY: The label is left-aligned in its column and the number right-aligned with two decimals, so the total lines up under the prices.
+
+=== 3.3/3
+Q: What does `f"{42:05}"` give?
++ `'00042'`
+- `'42000'`
+- `'   42'`
+- `'42   '`
+RUN: f"{42:05}"
+WHY: A leading 0 in the width pads with zeros instead of spaces, to a total width of 5.
+
+=== 3.4/2
+Q: What does `"a,b,,c".split(",")` give?
++ `['a', 'b', '', 'c']`
+- `['a', 'b', 'c']`
+- `['a,b,,c']`
+- `['a', 'b', ',', 'c']`
+RUN: "a,b,,c".split(",")
+WHY: With an explicit separator, two separators in a row produce an empty string between them. Only `split()` with no argument drops empty pieces.
+
+=== 3.4/3
+Q: What does `"banana".replace("an", "AN", 1)` give?
++ `'bANana'`
+- `'bANANa'`
+- `'banana'`
+- `'bAN'`
+RUN: "banana".replace("an", "AN", 1)
+WHY: The third argument limits the number of replacements, so only the first "an" changes.
+
+=== 3.5/2 predict
+Q: Each answer goes through `strip().lower()` and is compared with "yes" and "y". What happens to `'YES'`?
++ `'YES' -> agreed`
+- `'YES' -> not understood`
+- `'YES' -> declined`
+WHY: After `lower()`, "YES" becomes "yes", which matches. Cleaning input before comparing makes every variant behave the same way.
+
+=== 3.5/3
+Q: What does `"--note--".strip("-")` give?
++ `'note'`
+- `'note--'`
+- `'--note'`
+- `'-note-'`
+RUN: "--note--".strip("-")
+WHY: `strip` with an argument removes any of those characters from both ends, as many as there are.

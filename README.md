@@ -47,6 +47,18 @@ Your browser opens at **http://127.0.0.1:8765**. Keep the small window open whil
   between computers or browsers, or between this app and the online page.
 - To back up progress to GitHub: export, save the file over `progress.json`, commit and push.
 
+## Source
+
+The expanded lessons (the idea, worked examples 2 and 3, common mistakes, key points) are in
+`source/lessons/*.txt`, and the quick check for each new example is in `source/checks/*.txt`.
+`deep_build.py` runs every example for its real output, `checks_build.py` attaches the quick
+checks (failing if a "predict" answer isn't really in the output, or if a `RUN:` line gives a
+different result), and `deep_merge.py` puts both into the page:
+
+    python3 deep_build.py                            # writes deep.json
+    python3 checks_build.py checks deep.json         # adds the quick checks
+    python3 deep_merge.py ../index.html deep.json    # updates the app
+
 ## What's different from the online version
 
 - No cloud sync: progress lives in the browser on this computer (use Export/Import).

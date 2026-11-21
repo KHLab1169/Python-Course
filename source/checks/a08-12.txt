@@ -1,0 +1,413 @@
+=== A8.1/2 predict
+Q: Four tests run: three parametrized slug cases and one error test. The accented title fails. What is the summary line?
++ `1 failed, 3 passed`
+- `4 passed`
+- `3 failed, 1 passed`
+- `1 failed, 0 passed`
+WHY: Each row of a parametrize table is its own test, so one failing row doesn't hide or stop the others.
+
+=== A8.1/3
+Q: Why can a plain `assert result == expected` produce a detailed diff in pytest?
++ pytest rewrites assert statements before running them, so it can show both values and their differences.
+- `assert` always prints both values in Python.
+- The test used `assertEqual` behind the scenes.
+- Dictionaries print their differences automatically.
+WHY: Assertion rewriting is why pytest tests can use the plain `assert` keyword instead of special assertion methods.
+
+=== A8.2/2
+Q: Where does a fixture defined in `conftest.py` become available?
++ To every test in that folder and its subfolders, without importing it.
+- Only in `conftest.py` itself.
+- Only to tests that import `conftest`.
+- To every Python file on the computer.
+WHY: pytest discovers `conftest.py` files and makes their fixtures available by name to nearby tests.
+
+=== A8.2/3 predict
+Q: A session-scoped fixture and a function-scoped fixture are used by four tests. How many times did each run?
++ `....session fixture ran 1x, function fixture ran 4x`
+- `....session fixture ran 4x, function fixture ran 4x`
+- `....session fixture ran 1x, function fixture ran 1x`
+WHY: A session fixture is created once for the whole run; a function fixture is created fresh for every test that uses it.
+
+=== A8.3/2
+Q: What does `Mock(side_effect=[receipt, PaymentError()])` do on its second call?
++ It raises the PaymentError.
+- It returns the receipt again.
+- It returns None.
+- It returns the PaymentError object.
+WHY: A list of side effects is consumed one per call; an exception in the list is raised instead of returned.
+
+=== A8.3/3
+Q: `shop.py` does `from clock import now`. Which target should `patch` replace?
++ `"shop.now"`, where the name is looked up.
+- `"clock.now"`, where it is defined.
+- `"now"`.
+- `"datetime.now"`.
+WHY: `from clock import now` copies the reference into `shop`. Patching `clock.now` doesn't change `shop`'s copy. Injecting the clock avoids patching altogether.
+
+=== A8.4/2 predict
+Q: The tests exercise grades A and B, but never the validation error or grade C. What does the coverage line say?
++ `coverage: 5/7 lines`
+- `coverage: 7/7 lines`
+- `coverage: 2/7 lines`
+WHY: Two lines (the error and the C branch) never ran, which is exactly where the next tests should go.
+
+=== A8.4/3 predict
+Q: Hypothesis tests "the shares always add up to the total" and finds a failure. What minimal example does it report?
++ `property failed; minimal example: (1, 2)`
+- `property failed; minimal example: (100, 3)`
+- `property failed; minimal example: (0, 1)`
+WHY: Hypothesis shrinks failures to the simplest case: 1 cent split between 2 people, which loses a cent with naive division.
+
+=== A8.5/2
+Q: In test-driven development, what is the refactor step?
++ Improving the code's structure while all tests stay green.
+- Writing a new failing test.
+- Deleting tests that pass.
+- Making a failing test pass with the simplest code.
+WHY: Red (a failing test), green (simplest code to pass), refactor (clean up safely). The tests make the clean-up safe.
+
+=== A8.5/3 pick
+Q: Version 1 of `add` only handles a single number. Which result appears for `add('1,2')` with v1?
++ `add('1,2') == 3: RED (error: invalid literal for int() with base 10: '1,2')`
+- `add('1,2') == 3: green`
+- `add('4') == 4: green`
+WHY: v1 calls `int()` on the whole string, which fails for "1,2". The red test then drives the next version.
+
+=== A8.P/2
+Q: Why test 0, 1, 2 and exactly 3 loans when the limit is 3?
++ Boundaries are where off-by-one bugs live, such as `<` written instead of `<=`.
+- Larger numbers are too slow to test.
+- pytest requires at least four cases.
+- Members can't have more than 3 loans in the database.
+WHY: Testing just below, at and just above a limit catches the most common mistakes in comparisons.
+
+=== A8.P/3
+Q: What does a `matrix` with two Python versions do in a GitHub Actions workflow?
++ Runs the same job twice in parallel, once per Python version.
+- Runs the job with both versions at once in one environment.
+- Chooses one of the versions at random.
+- Runs only the newest version.
+WHY: A matrix multiplies jobs, so code is tested on every version you support.
+
+=== A9.1/2 predict
+Q: The profiler sorts by cumulative time, but which function does most of the work, with 20,000 calls?
++ `is_known  calls= 20000  share of total time: most`
+- `main      calls=     1  share of total time: most`
+- `parse     calls=     1  share of total time: most`
+WHY: `main` has the largest cumulative time only because it calls everything. `is_known` does a list search 20,000 times; a set would remove almost all of it.
+
+=== A9.1/3
+Q: Why keep the minimum of several `timeit.repeat` runs?
++ It's the most reliable estimate of the true cost; slower runs include interference from other programs.
+- The minimum is always the first run.
+- It rounds the result.
+- It removes the cost of the function call.
+WHY: Noise only ever adds time, so the fastest repeat is closest to what the code itself costs.
+
+=== A9.2/2 pick
+Q: Results are collected with `as_completed`. One job raises an error. When does that error surface?
++ `failed: broken did not answer`
+- `news: ok`
+- `about as long as the slowest job, not the sum: True`
+WHY: The error is stored in its future and raised when `result()` is called, without disturbing the other jobs.
+
+=== A9.2/3 pick
+Q: Four threads each add 1,000 to a shared counter with a lock. What is the final value?
++ `with a lock: 4000`
+- `expected: 4000`
+- `no sharing at all: 10`
+WHY: The lock makes read-modify-write one indivisible step, so no update is lost.
+
+=== A9.3/2
+Q: Why must the worker function live in an importable module and the pool start under `if __name__ == "__main__":`?
++ Worker processes import the module to find the function, and the guard stops them from starting pools of their own.
+- Functions in the main file run too slowly.
+- The guard makes processes share memory.
+- It's needed only on Linux.
+WHY: Each process is a fresh Python interpreter. It must be able to import the code it runs, without re-running the program's start-up.
+
+=== A9.3/3
+Q: Why can't a lambda be sent to a process pool?
++ Functions are pickled by name, and a lambda has no importable name.
+- Lambdas are too large to pickle.
+- Lambdas can't take arguments.
+- Process pools only accept built-in functions.
+WHY: Workers rebuild a function by importing its module and looking up its name. Use a top-level `def` instead.
+
+=== A9.4/2 predict
+Q: Nine fetches of 0.1 seconds each run under `asyncio.Semaphore(3)`. What is the highest concurrency observed?
++ `never more than 3 at once: 3 | took about 3 rounds: True`
+- `never more than 3 at once: 9 | took about 3 rounds: True`
+- `never more than 3 at once: 3 | took about 3 rounds: False`
+WHY: Only three tasks hold the semaphore at once, so nine tasks finish in three rounds of 0.1 seconds.
+
+=== A9.4/3
+Q: What happens to the other tasks in a TaskGroup when one of them fails?
++ They are cancelled, and the error comes out as an exception group, handled with `except*`.
+- They keep running and the error is ignored.
+- The program exits immediately.
+- The failed task is retried automatically.
+WHY: TaskGroups guarantee that no task outlives the block; a failure cancels the rest so nothing runs unsupervised.
+
+=== A9.5/2
+Q: A task's CPU time is far below its wall-clock time. What kind of task is it?
++ I/O-bound: threads or asyncio will help.
+- CPU-bound: use processes.
+- Memory-bound: add more RAM.
+- Broken: it should be restarted.
+WHY: Low CPU use means the task is mostly waiting. CPU-bound work keeps the processor busy and needs processes for parallelism.
+
+=== A9.5/3
+Q: How does async code run a blocking library call without freezing the event loop?
++ With `await asyncio.to_thread(func, ...)` or `loop.run_in_executor`.
+- By calling the function directly inside `async def`.
+- By wrapping it in `asyncio.sleep(0)`.
+- By marking the function `async`.
+WHY: The blocking call runs in a worker thread, and the event loop awaits its result while serving other tasks.
+
+=== A9.P/2
+Q: Why does the benchmark first check that all three versions return the same results?
++ A comparison is only fair if each version does exactly the same work, including the 404.
+- To warm up the server.
+- Because asyncio results are random.
+- To make the program longer.
+WHY: A faster version that returns different results isn't faster, it's wrong. Agreement makes the timing comparison meaningful.
+
+=== A9.P/3
+Q: What does the benchmark table show as the concurrency limit increases?
++ Time falls until there are no more requests to overlap.
+- Time keeps falling forever.
+- Time rises with more concurrency.
+- Concurrency has no effect.
+WHY: With 10 URLs, a limit of 20 can't do better than 10 at once. Gains stop when every request already runs in parallel.
+
+=== A10.1/2
+Q: Why wasn't the 404 response retried?
++ A 404 means the resource doesn't exist; asking again can't help, unlike a temporary 503.
+- The client only retries once.
+- 404 responses can't be read.
+- The server closed the connection.
+WHY: Retry transient failures (timeouts, 429, 5xx) with backoff. Client errors like 404 should be reported immediately.
+
+=== A10.1/3
+Q: A caller of the paginating generator stops after the first matching order. What happens to the remaining pages?
++ They're never fetched, because the generator is lazy.
+- They're fetched in the background.
+- They're fetched and discarded.
+- The generator raises an error.
+WHY: A generator only runs when asked for the next item, so stopping early saves the remaining requests.
+
+=== A10.2/2
+Q: What's the difference between WHERE and HAVING in a grouped query?
++ WHERE filters rows before grouping; HAVING filters groups after aggregation.
+- They're interchangeable.
+- HAVING filters rows before grouping.
+- WHERE only works with numbers.
+WHY: HAVING can refer to aggregates like `SUM(total)`, which don't exist until rows are grouped.
+
+=== A10.2/3 predict
+Q: A transfer would make Ben's balance negative, which a CHECK constraint forbids. What do the balances show afterwards?
++ `rolled back (CHECK constraint failed: balance >= 0) {'ada': 70, 'ben': 50}`
+- `rolled back (CHECK constraint failed: balance >= 0) {'ada': 120, 'ben': 50}`
+- `ok {'ada': 120, 'ben': 0}`
+WHY: The transaction rolled back both updates, so the credit to Ada was undone too and no money appeared from nowhere.
+
+=== A10.3/2 pick
+Q: A POST to create a tea has an empty name and a negative price. What does the API return?
++ `422 [('name', 'String should have at least 1 character'), ('price', 'Input should be greater than 0')]`
+- `404 {'detail': 'tea 9 not found'}`
+- `201`
+WHY: Pydantic validates the body before the route function runs and reports every problem with a 422.
+
+=== A10.3/3
+Q: How did the test replace the real store without touching a database?
++ With `app.dependency_overrides[get_store] = lambda: fake_store`.
+- By editing the route function.
+- By setting an environment variable.
+- By mocking the database driver.
+WHY: Routes ask for dependencies instead of creating them, so tests can swap any dependency with one line.
+
+=== A10.4/2
+Q: What does `book.author` give with a SQLAlchemy relationship configured?
++ The related Author object, loaded for you.
+- The author's id number.
+- A SQL string.
+- A list of all authors.
+WHY: Relationships let you navigate between objects without writing join conditions; SQLAlchemy issues the query.
+
+=== A10.4/3 predict
+Q: 20 authors with 60 books are loaded, and the code touches `a.books` for each author lazily. How many queries run?
++ `lazy          60 books loaded with 21 queries`
+- `lazy          60 books loaded with 2 queries`
+- `lazy          60 books loaded with 61 queries`
+WHY: One query for the authors, then one per author: the N+1 problem. `selectinload` brings it down to two.
+
+=== A10.5/2
+Q: Why does the settings class store the API key as a `SecretStr`?
++ It prints as asterisks, so the secret can't leak into logs by accident.
+- It encrypts the key on disk.
+- It makes the key immutable.
+- It validates the key with the provider.
+WHY: The real value is available only on request with `get_secret_value()`, which makes accidental exposure much harder.
+
+=== A10.5/3
+Q: Why copy `requirements.txt` and install dependencies before copying the source code in a Dockerfile?
++ Editing source files then reuses the cached dependency layer, so rebuilds take seconds.
+- Docker requires that order.
+- It makes the image smaller.
+- Source files can't be copied first.
+WHY: Each instruction is a cached layer. Putting rarely changing steps first means everyday edits only rebuild the last layers.
+
+=== A10.P/2 pick
+Q: Ben requests Ada's private note. What status does he get?
++ `404 another user gets not found`
+- `200 owner reads it`
+- `401 no token`
+WHY: Returning 404 instead of 403 means Ben can't even learn that the note exists.
+
+=== A10.P/3
+Q: Why are "no token", "forged token" and "someone else's note" tested deliberately?
++ They're exactly what attackers try, so each access rule needs its own test.
+- They are the most common user mistakes.
+- pytest requires negative tests.
+- They make the test suite faster.
+WHY: Security rules that aren't tested tend to break silently. A table of every rule with its reason keeps them visible.
+
+=== A11.1/2 predict
+Q: The array has shape (3, 7): 3 cities by 7 days. `(temps > 0).sum(axis=1)` counts the days above zero per city. What is printed?
++ `days above zero per city: [2 5 7]`
+- `days above zero per city: [14]`
+- `days above zero per city: [1 1 2 1 2 2 1]`
+WHY: Summing a boolean array counts the Trues, and `axis=1` sums along each row (city).
+
+=== A11.1/3
+Q: After `s = a[:3]` on a NumPy array, what does `s[0] = 99` do to `a`?
++ It changes `a[0]` too, because a slice is a view of the same data.
+- Nothing: slices are copies.
+- It raises an error.
+- It appends 99 to `a`.
+WHY: NumPy slices are views for speed. Use `.copy()` when you need an independent array.
+
+=== A11.2/2
+Q: Why was the `qty` column read as text?
++ One value was "two", so pandas couldn't parse the whole column as numbers.
+- Quantities are always text in CSV files.
+- The column name was misspelled.
+- pandas reads every column as text by default.
+WHY: One bad value makes the whole column an object (text) column. `pd.to_numeric(..., errors="coerce")` turns unparseable values into NaN.
+
+=== A11.2/3
+Q: What does `validate="many_to_one"` add to a pandas merge?
++ It raises an error if a key appears more than once in the lookup table, preventing duplicated rows.
+- It sorts the result.
+- It drops rows with missing values.
+- It renames duplicate columns.
+WHY: A duplicate key in the lookup table would silently duplicate rows and inflate totals; validation catches it.
+
+=== A11.3/2
+Q: What should a chart's title state, according to the lesson?
++ The finding, such as "Sales doubled after the April price cut".
+- The name of the data file.
+- The chart type.
+- The date it was made.
+WHY: A title that states the conclusion tells readers what to see, and the chart shows the evidence.
+
+=== A11.3/3
+Q: What does `DataFrame.plot()` return?
++ A matplotlib Axes, so you can add labels and save the figure as usual.
+- A PNG file.
+- Nothing: it only shows the chart.
+- A new DataFrame.
+WHY: pandas plotting is a convenience layer over matplotlib, so everything you know about Axes still applies.
+
+=== A11.P/2 predict
+Q: The pipeline runs twice on the same raw file. What does the last line confirm?
++ `rerun gives identical results: True`
+- `rerun gives identical results: False`
+- `rerun gives identical results: only with a fixed seed`
+WHY: Each stage is a pure function and the raw file is never modified, so the analysis is reproducible.
+
+=== A11.P/3
+Q: Why does the report README state its cleaning decisions and limitations?
++ Readers can judge how dropped data affects the answers, which makes the rest more trustworthy.
+- It's required by pandas.
+- To make the README longer.
+- Because the data is public.
+WHY: Hidden decisions undermine trust. Stating them, including how they bias a figure, lets readers decide for themselves.
+
+=== A12.1/2 pick
+Q: The budget is 12 of 24 days, and a mobile app would take 13. How is it planned?
++ `  OUT mobile app (13 days) -> non-goal for v1`
+- `  IN  split tips by hours`
+- `  IN  CI with lint, types and tests`
+WHY: Filling only half the time with must-haves leaves room for surprises, and everything else becomes an explicit non-goal.
+
+=== A12.1/3
+Q: What makes each must-have in the spec useful?
++ A checkable "done" statement, which can double as an acceptance test.
+- A detailed design diagram.
+- An estimate in hours.
+- A list of libraries to use.
+WHY: "Done" written as something you can check stops arguments about whether a feature is finished.
+
+=== A12.2/2
+Q: What is a walking skeleton?
++ The thinnest feature that crosses every layer (database, API, page, tests, deployment) end to end.
+- A complete design with no code.
+- The first feature, fully polished.
+- A list of every planned feature.
+WHY: Connecting all the pieces early exposes integration problems while they're cheap; features then extend parts that already work.
+
+=== A12.2/3
+Q: When is the walking skeleton finished?
++ When the slice works end to end and is deployed.
+- When every feature is planned.
+- When all tests are written.
+- When the UI looks polished.
+WHY: The point is proving the pipeline works. New features wait for the next milestone.
+
+=== A12.3/2 pick
+Q: Ana already works 09:00 to 17:00, and a new overlapping shift is submitted for her. What does the check report?
++ `PASS  overlap is refused: (409, 'Ana already works then.')`
+- `PASS  back-to-back is fine: (201, 'saved')`
+- `PASS  other people may overlap: (201, 'saved')`
+WHY: The rule is per person, so an overlapping shift for Ana gets 409 Conflict while someone else may overlap freely.
+
+=== A12.3/3
+Q: What should a good pull request description include?
++ What changed, why, how it works, how it's tested, and what was deliberately left out.
+- Only the list of files changed.
+- The full source code.
+- Just "fixes bugs".
+WHY: Reviewers (and future you) understand the change quickly, and the history shows employers how you think.
+
+=== A12.4/2
+Q: With Conventional Commits, what does `feat!: ISO times in the shifts API` signal?
++ A new feature with a breaking change, which calls for a major version bump.
+- A bug fix.
+- A documentation change.
+- A chore that users don't see.
+WHY: The `!` marks a breaking change. Tools group commits by type to write release notes and choose the SemVer bump.
+
+=== A12.4/3
+Q: Why follow your own README in a fresh clone before a release?
++ It reveals steps your familiarity hides, like a missing environment variable or a forgotten setup step.
+- To make the repository larger.
+- GitHub requires it.
+- To reset the git history.
+WHY: Every failure in the fresh clone is a fix to make before someone else hits it.
+
+=== A12.5/2 predict
+Q: Two-sum with a dictionary on `[-4, 10, 5, 9]` and target 5. Which pair of indexes is returned?
++ `[-4, 10, 5, 9]     target   5 -> (0, 3)`
+- `[-4, 10, 5, 9]     target   5 -> (2, 3)`
+- `[-4, 10, 5, 9]     target   5 -> None`
+WHY: −4 + 9 = 5. When 9 is reached, its complement −4 was already seen at index 0. One pass, O(n).
+
+=== A12.5/3 pick
+Q: The longest substring without repeats is computed for "dvdf". What is printed?
++ `'dvdf'       -> (3, 'vdf')`
+- `'pwwkew'     -> (3, 'wke')`
+- `'bbbb'       -> (1, 'b')`
+WHY: When the second "d" arrives, the window's left edge jumps just past the first "d", leaving "vd", then grows to "vdf".

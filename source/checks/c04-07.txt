@@ -1,0 +1,344 @@
+=== 4.1/2
+Q: With `phones = {"Ada": "555-0101"}`, what does `"555-0101" in phones` give?
++ `False`
+- `True`
+- `'Ada'`
+- `KeyError`
+RUN: phones = {"Ada": "555-0101"}; "555-0101" in phones
+WHY: `in` on a dictionary checks keys only. To search the values, use `"555-0101" in phones.values()`.
+
+=== 4.1/3
+Q: After counting "a b a c a b" with `counts[w] = counts.get(w, 0) + 1`, what is `counts`?
++ `{'a': 3, 'b': 2, 'c': 1}`
+- `{'a': 1, 'b': 1, 'c': 1}`
+- `{'a': 2, 'b': 2, 'c': 1}`
+- `{'c': 1, 'b': 2, 'a': 3}`
+RUN: counts = {}; [counts.__setitem__(w, counts.get(w, 0) + 1) for w in "a b a c a b".split()]; counts
+WHY: `get(w, 0)` gives the count so far (0 the first time), and one is added. Dictionaries keep keys in insertion order, so "a" comes first.
+
+=== 4.2/2 predict
+Q: Each record is formatted with `"{name:<8} owes ${amount:7.2f}  (due {due})".format_map(record)`. What is Ben's line?
++ `Ben      owes $   9.99  (due Nov 25)`
+- `Ben owes $9.99 (due Nov 25)`
+- `Ben      owes $   9.99  (due Nov 25) note`
+- `Ben      owes $9.990000  (due Nov 25)`
+WHY: The width 8 pads the name, `7.2f` right-aligns the amount with two decimals, and Ben's extra "note" key is ignored because the template never asks for it.
+
+=== 4.2/3
+Q: With `book = {"title": "Dune", "year": 1965}`, what does `"{title} ({year})".format(**book)` give?
++ `'Dune (1965)'`
+- `'{title} ({year})'`
+- `"{'title': 'Dune'} (1965)"`
+- `KeyError`
+RUN: book = {"title": "Dune", "year": 1965}; "{title} ({year})".format(**book)
+WHY: `**book` passes each key as a named argument, which fills the matching named placeholders.
+
+=== 4.3/2 predict
+Q: Orders are grouped with `setdefault(person, []).append(item)`. Ada ordered tea and a scone, Ben coffee and a muffin, Cy tea. What is the first line?
++ `Ada: tea, scone`
+- `Ada: scone`
+- `Ada: tea`
+- `Ada: ['tea', 'scone']`
+WHY: `setdefault` returns Ada's existing list the second time, so both items end up in it. `", ".join(...)` prints them as text.
+
+=== 4.3/3
+Q: With `base = {"size": 12, "theme": "light"}` and `mine = {"size": 14}`, what is `base | mine`?
++ `{'size': 14, 'theme': 'light'}`
+- `{'size': 12, 'theme': 'light'}`
+- `{'size': [12, 14], 'theme': 'light'}`
+- `{'size': 14}`
+RUN: base = {"size": 12, "theme": "light"}; mine = {"size": 14}; base | mine
+WHY: When both dictionaries have a key, the right-hand one wins. Keys keep their original position.
+
+=== 5.1/2 predict
+Q: `print("Loading", end="")` is followed by three `print(".", end="")` calls and then `print(" done")`. What line appears?
++ `Loading... done`
+- `Loading`
+- `Loading . . . done`
+- `. done`
+WHY: `end=""` replaces the usual newline with nothing, so everything stays on one line until the final print ends it.
+
+=== 5.1/3
+Q: After `from math import sqrt as square_root`, which call works?
++ `square_root(50)`
+- `sqrt(50)`
+- `math.sqrt(50)`
+- `math.square_root(50)`
+WHY: `as` gives the imported function a new name in your file. Only that name exists; neither `sqrt` nor `math` was imported.
+
+=== 5.2/2
+Q: What happens with `a, b, c = "hi"`?
++ `ERROR: ValueError: not enough values to unpack (expected 3, got 2)`
+- `('h', 'i', '')`
+- `('h', 'i', None)`
+- `('hi', '', '')`
+RUN: a, b, c = "hi"; (a, b, c)
+WHY: Unpacking needs exactly as many values as names. A two-character string gives two values, so Python raises a ValueError.
+
+=== 5.2/3
+Q: With `first, *rest = [5]`, what is `rest`?
++ `[]`
+- `None`
+- `[5]`
+- `ERROR: ValueError`
+RUN: first, *rest = [5]; rest
+WHY: The starred name collects whatever is left, which can be nothing. It is always a list.
+
+=== 5.3/2 predict
+Q: The checks run `>= 90`, then `>= 80`, then `>= 70`. What does a score of 84 get?
++ `84 B`
+- `84 C`
+- `84 A`
+- `84 needs work`
+WHY: Only the first true branch runs: 84 fails the first check and passes the second. The order of `elif` branches matters.
+
+=== 5.3/3 predict
+Q: `name = "   "` goes through `name.strip()` before `if name:`. What is printed?
++ `You didn't type a name.`
+- `Hello,    !`
+- `Hello, !`
+WHY: Stripping a string of spaces leaves an empty string, which is falsy, so the `else` branch runs.
+
+=== 5.4/2
+Q: With `nickname = ""`, what does `nickname or "guest"` give?
++ `'guest'`
+- `''`
+- `True`
+- `False`
+RUN: nickname = ""; nickname or "guest"
+WHY: `or` returns the first truthy value, or the last value if none are truthy. An empty string is falsy.
+
+=== 5.4/3
+Q: With `a = [1]` and `b = [1]`, what is `(a == b, a is b)`?
++ `(True, False)`
+- `(True, True)`
+- `(False, False)`
+- `(False, True)`
+RUN: a = [1]; b = [1]; (a == b, a is b)
+WHY: `==` compares values, which are equal. `is` asks whether both names refer to the same object, and two separate lists are different objects.
+
+=== 5.5/2 predict
+Q: A while loop multiplies a $1,000 balance by 1.05 each year until it has doubled. What does the first line say?
++ `Doubled after 15 years: $2,078.93`
+- `Doubled after 20 years: $2,653.30`
+- `Doubled after 14 years: $1,979.93`
+WHY: At 5% per year, the balance first passes double in year 15. `while` suits this because the number of years isn't known in advance.
+
+=== 5.5/3
+Q: What does `list(range(10, 0, -3))` give?
++ `[10, 7, 4, 1]`
+- `[10, 7, 4, 1, -2]`
+- `[10, 7, 4]`
+- `[]`
+RUN: list(range(10, 0, -3))
+WHY: The range starts at 10, steps by -3 and stops before reaching 0.
+
+=== 5.6/2
+Q: What does `list(zip("ab", [1, 2, 3]))` give?
++ `[('a', 1), ('b', 2)]`
+- `[('a', 1), ('b', 2), (None, 3)]`
+- `[('a', 'b'), (1, 2)]`
+- `ERROR: ValueError`
+RUN: list(zip("ab", [1, 2, 3]))
+WHY: `zip` stops at the shortest input, so the 3 has no partner and is dropped.
+
+=== 5.6/3 pick
+Q: The second loop searches `[1, 3, 5]` for an even number and never hits `break`. What does it print?
++ `no even numbers`
+- `ok 12`
+- `Alarm at reading 999`
+WHY: A loop's `else` runs only when the loop finishes without `break`. No even number was found, so the `else` reports it.
+
+=== 5.7/2
+Q: What does `[x * x for x in range(6) if x % 2 == 0]` give?
++ `[0, 4, 16]`
+- `[0, 1, 4, 9, 16, 25]`
+- `[4, 16]`
+- `[1, 9, 25]`
+RUN: [x * x for x in range(6) if x % 2 == 0]
+WHY: The `if` keeps even numbers (0, 2, 4), and each is squared.
+
+=== 5.7/3
+Q: Why use `ast.literal_eval` rather than `eval` to read `"[1, 2, {'a': 3}]"` from a file?
++ `literal_eval` only accepts plain data and refuses anything that would run code.
+- `literal_eval` is the only one that can read lists.
+- `eval` can't read dictionaries.
+- `literal_eval` is faster.
+WHY: `eval` runs any Python expression, so text from a file could delete files or worse. `literal_eval` parses numbers, strings, lists, dicts and similar, nothing else.
+
+=== 6.1/2 predict
+Q: `show_fahrenheit` prints its answer but has no `return`. What does `print("show_fahrenheit returned", show_fahrenheit(30))` end with?
++ `show_fahrenheit returned None`
+- `show_fahrenheit returned 86.0`
+- `show_fahrenheit returned`
+WHY: A function without `return` gives back `None`. It printed 86.0 itself, but the caller receives nothing it can use.
+
+=== 6.1/3
+Q: What does `(lambda n: n % 2 == 0)(7)` return?
++ `False`
+- `True`
+- `1`
+- `None`
+RUN: (lambda n: n % 2 == 0)(7)
+WHY: A function can return the result of a condition directly. 7 % 2 is 1, so the comparison is False.
+
+=== 6.2/2 predict
+Q: `mutate(shopping)` runs `items.append("added")` on the list it receives. What does the second line show?
++ `['milk', 'added']`
+- `['milk']`
+- `['added']`
+WHY: Both names refer to the same list, so a method that changes the list in place is visible to the caller. Reassigning the parameter would not be.
+
+=== 6.2/3 pick
+Q: `def add_bad(item, bag=[])` appends to `bag` and returns it. It's called with "a", then "b". What does the line for these calls show?
++ `['a', 'b'] ['a', 'b']`
+- `['a'] ['b']`
+- `['a'] ['a', 'b']`
+WHY: The default list is created once, when `def` runs, and shared by every call. Both results are the same list. Use `bag=None` and create the list inside.
+
+=== 6.3/2 predict
+Q: `money(15, symbol="£", per="month")` uses the defaults for everything else, including 2 decimals. What is printed?
++ `£15.00 per month`
+- `$15.00 per month`
+- `£15 per month`
+- `£15.00`
+WHY: Keyword arguments change only the options you name, in any order, and every other parameter keeps its default.
+
+=== 6.3/3
+Q: Given `def connect(host, port=80, *, timeout=5)`, which call is valid?
++ `connect("example.com", 443, timeout=10)`
+- `connect("example.com", 443, 10)`
+- `connect(port=443, "example.com")`
+- `connect(timeout=10)`
+WHY: Parameters after `*` must be named, positional arguments can't follow keyword ones, and `host` is required.
+
+=== 6.4/2
+Q: With `def total(*values): return sum(values)`, what does `total()` return?
++ `0`
+- `None`
+- `ERROR: TypeError`
+- `()`
+RUN: total = lambda *values: sum(values); total()
+WHY: With no arguments, `values` is an empty tuple, and the sum of nothing is 0.
+
+=== 6.4/3
+Q: With `box = (2, 3, 4)`, what does `(lambda w, h, d: w * h * d)(*box)` give?
++ `24`
+- `(2, 3, 4)`
+- `ERROR: TypeError`
+- `9`
+RUN: box = (2, 3, 4); (lambda w, h, d: w * h * d)(*box)
+WHY: `*box` spreads the tuple into three separate arguments.
+
+=== 6.5/2
+Q: Why does `counter += 1` inside a function fail when `counter` is a global?
++ Assigning makes `counter` local to the function, so reading it first fails with an UnboundLocalError.
+- Globals can never be read inside functions.
+- `+=` doesn't work on integers.
+- The function needs a `return` statement.
+WHY: Python decides at compile time that any name assigned in a function is local. Passing the value in and returning the result avoids `global` entirely.
+
+=== 6.5/3 predict
+Q: Two counters are made by `make_counter()`. `a` is stepped three times, then `b` once. What is printed?
++ `1 2 3 1`
+- `1 2 3 4`
+- `1 1 1 1`
+- `3 3 3 1`
+WHY: Each call to `make_counter` creates its own `count`, which the inner function remembers and updates with `nonlocal`.
+
+=== 6.6/2 predict
+Q: Binary search returns the index, or -1 when the item isn't found. The first search finds its item at index 7; the second looks for a number that isn't in the list. What is printed?
++ `7 -1`
+- `-1 7`
+- `-1 -1`
+WHY: Each call halves the range; when `low` passes `high` the item isn't there, which is the base case returning -1.
+
+=== 6.6/3
+Q: What does `list(map(str.upper, ["a", "b"]))` give?
++ `['A', 'B']`
+- `'AB'`
+- `['a', 'b']`
+- `<map object>`
+RUN: list(map(str.upper, ["a", "b"]))
+WHY: `map` applies the function to each item. Wrapping it in `list` collects the results.
+
+=== 7.1/2
+Q: What does `len({"a": 1, "b": 2, "c": 3})` give?
++ `3`
+- `6`
+- `2`
+- `ERROR: TypeError`
+RUN: len({"a": 1, "b": 2, "c": 3})
+WHY: Each type decides what its length means. For a dictionary, it's the number of keys.
+
+=== 7.1/3
+Q: What does duck typing mean for `introduce_all(things)`?
++ Any object with a `speak` method works, whatever its class.
+- Every object must inherit from a `Duck` class.
+- Objects must be checked with `isinstance` first.
+- Only objects of the same class can be passed together.
+WHY: Python cares whether an object can do what's asked, not what it is. New classes with a `speak` method work without changing the function.
+
+=== 7.2/2 predict
+Q: Ben has 20. Then `Account.deposit(ben, 5)` runs, and the program prints Ben's balance. What is the last line?
++ `25`
+- `20`
+- `5`
+- `150`
+WHY: `Account.deposit(ben, 5)` is exactly what `ben.deposit(5)` does behind the scenes: the class's function is called with `ben` as `self`, so the balance becomes 25.
+
+=== 7.2/3 pick
+Q: `Rectangle(3, 4).scaled(2).describe()` returns a new rectangle twice the size. What is the second line?
++ `6x8 rectangle, area 48`
+- `3x4 rectangle, area 12`
+- `6x8 rectangle, area 24`
+- `6x4 rectangle, area 24`
+WHY: `scaled` returns a new Rectangle with both sides doubled, so its area is four times larger. The original keeps its size.
+
+=== 7.3/2 predict
+Q: `b.club = "Go"` is set on one member, while the class attribute `club` is "Chess". What does the second line show for `a.club, b.club, Member.club`?
++ `Chess Go Chess`
+- `Go Go Go`
+- `Chess Go Go`
+- `Go Go Chess`
+WHY: Assigning through an instance creates an attribute on that instance only, hiding the shared class attribute for `b`.
+
+=== 7.3/3
+Q: What is the actual attribute name behind `self.__calibration` in class `Thermostat`?
++ `_Thermostat__calibration`
+- `__calibration`
+- `calibration`
+- `_calibration`
+WHY: Double-underscore names are mangled with the class name to avoid clashes in subclasses. It isn't truly private; it's renamed.
+
+=== 7.4/2 pick
+Q: `Manager.yearly_cost()` adds a bonus to Employee's, and `describe` (inherited) calls `self.yearly_cost()`. Grace is a Manager. What is her line?
++ `Grace costs 95,000 a year`
+- `Grace costs 60,000 a year`
+- `Ada costs 60,000 a year`
+WHY: `self` is a Manager, so the inherited `describe` calls Manager's version of `yearly_cost`. That's why overriding one method changes behaviour everywhere it's used.
+
+=== 7.4/3
+Q: What does `getattr(obj, "colour", "no colour set")` return when `obj` has no `colour` attribute?
++ `'no colour set'`
+- `None`
+- `ERROR: AttributeError`
+- `''`
+RUN: getattr(object(), "colour", "no colour set")
+WHY: The third argument is a default for missing attributes. Without it, `getattr` raises an AttributeError.
+
+=== 7.5/2
+Q: What happens when you create an instance of a subclass that doesn't implement an `@abstractmethod`?
++ A TypeError, naming the missing method.
+- It works, and the method returns None.
+- A warning is printed but it works.
+- The subclass inherits an empty method automatically.
+WHY: An abstract base class enforces its contract when you try to create an object, so a forgotten method is caught immediately.
+
+=== 7.5/3
+Q: Why does `is_overdue` live on `Loan` rather than on `Member` or `Book`?
++ It uses the loan's own data, its due date.
+- Methods must go on the last class defined.
+- Members and books can't have methods.
+- It's the shortest class.
+WHY: A method belongs with the data it uses. Nouns become classes, and each verb goes on the class whose data it needs.

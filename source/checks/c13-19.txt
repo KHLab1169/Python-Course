@@ -1,0 +1,274 @@
+=== 13.1/2
+Q: What does `with conn:` do around the inserts?
++ It commits the changes if the block succeeds, and rolls them back if an error occurs.
+- It closes the connection at the end of the block.
+- It locks the database file forever.
+- It creates the table if it doesn't exist.
+WHY: A sqlite3 connection used as a context manager manages the transaction. It does not close the connection; call `conn.close()` for that.
+
+=== 13.1/3 predict
+Q: The typed name is `' OR '1'='1`. What does the query with a `?` placeholder find?
++ `safe query finds:   []`
+- `safe query finds:   [('ada',), ('ben',), ("o'brien",)]`
+- `safe query finds:   [("' OR '1'='1",)]`
+WHY: With a placeholder, the input is only a value to compare, never part of the SQL, so it matches no user. Pasting it into the string rewrote the query instead.
+
+=== 13.2/2 pick
+Q: Sales are summed with `GROUP BY shop`. Which line shows Montreal's total?
++ `  Montreal    91.50`
+- `  Toronto     60.50`
+- `  Montreal   152.00`
+WHY: `GROUP BY` produces one row per shop, with `SUM` adding up that shop's sales, so each shop gets a single total.
+
+=== 13.2/3
+Q: Why does the menu use a dictionary of functions with `.get(choice, unknown)`?
++ It maps each choice to a function without a long if/elif chain, and the default handles unknown choices.
+- Dictionaries run SQL faster.
+- Functions can't be called from `if` statements.
+- `get` caches query results.
+WHY: Functions are values, so a dictionary can dispatch to them. Adding a menu entry is one new line.
+
+=== 14.1/2 predict
+Q: The server upper-cases what it receives, and the client sends "hello" first. What is the first line?
++ `echo: HELLO`
+- `echo: hello`
+- `echo: b'HELLO'`
+WHY: The client encodes the text to bytes, the server upper-cases and sends them back, and the client decodes the reply into a string.
+
+=== 14.1/3 predict
+Q: `handle` knows the commands ADD and UPPER. What does it reply to `PING`?
++ `'PING' -> ERROR unknown command 'PING'`
+- `'PING' -> PONG`
+- `'PING' -> 42`
+WHY: The protocol only defines ADD and UPPER, so anything else gets an error reply. Keeping the logic in `handle` lets it be tested without sockets.
+
+=== 14.2/2
+Q: How does `urllib.request.urlopen` report a page that doesn't exist?
++ It raises an `HTTPError` whose `code` is 404.
+- It returns a response with an empty body.
+- It returns `None`.
+- It prints a warning and continues.
+WHY: Error statuses become exceptions. The error object still has the status code and the response body.
+
+=== 14.2/3
+Q: Why is `HTTPError` caught before `URLError`?
++ HTTPError is a kind of URLError, so a URLError handler listed first would catch it too.
+- URLError handlers must always come last by Python's rules.
+- HTTPError can't be caught after URLError.
+- It makes the download faster.
+WHY: `except` clauses are tried in order, and a parent class matches its subclasses. Specific handlers go first.
+
+=== 14.3/2 predict
+Q: Each request sleeps 0.3 seconds, and three clients connect to a ThreadingTCPServer. What does the second line say?
++ `three slow clients served together: True`
+- `three slow clients served together: False`
+- `three slow clients served together: only on Linux`
+WHY: Each connection gets its own thread, so the three waits overlap and finish in well under 0.9 seconds.
+
+=== 14.3/3
+Q: How do three asyncio clients overlap their 0.3-second waits in a single thread?
++ Each `await` lets the event loop switch to another coroutine while one is waiting.
+- asyncio starts a hidden thread per client.
+- The waits are skipped.
+- Each coroutine runs on a different CPU core.
+WHY: Coroutines cooperate: at each `await`, control returns to the event loop, which runs whichever coroutine is ready.
+
+=== 15.1/2
+Q: Why is `<a name="top">` skipped when collecting links?
++ It has no `href` attribute, so there's no address to collect.
+- The parser ignores the first link on a page.
+- Its text is empty.
+- `name` attributes make the parser stop.
+WHY: The parser records a link only when the `<a>` tag has an `href`, using `dict(attrs).get("href")`.
+
+=== 15.1/3 predict
+Q: The prices are Sencha 12.5, Assam 9.0 and Rooibos 7.25. What is the cheapest?
++ `cheapest: Rooibos`
+- `cheapest: Assam`
+- `cheapest: Sencha`
+WHY: `min(prices, key=prices.get)` compares the values and returns the key with the smallest one.
+
+=== 15.2/2
+Q: What happened to the `<script>` tag sent in the query string?
++ The template escaped it into harmless text, `&lt;script&gt;`, so a browser shows it instead of running it.
+- Flask removed it entirely.
+- It ran in the test client.
+- The request was rejected with a 400.
+WHY: Jinja templates escape variables by default, which blocks cross-site scripting.
+
+=== 15.2/3 predict
+Q: A form is POSTed and the view answers with `redirect("/")`. What does the first line show?
++ `302 /`
+- `200 /`
+- `404 /`
+- `302 /sign`
+WHY: A 302 redirect sends the browser back to the page, so refreshing doesn't submit the form twice (the Post/Redirect/Get pattern).
+
+=== 15.3/2 predict
+Q: The weather service returns 404 for an unknown city, and the code calls `raise_for_status()`. What is printed for Atlantis?
++ `Atlantis: HTTP 404, unknown city 'Atlantis'`
+- `Atlantis: -3 °C, snow`
+- `Atlantis: None`
+WHY: `raise_for_status` turns the 404 into an exception, and the error body is still readable JSON with the service's message.
+
+=== 15.3/3
+Q: Why should a requests call always pass `timeout=`?
++ Without it, a server that never answers can make the program wait forever.
+- Without it, requests uses HTTP instead of HTTPS.
+- It makes responses smaller.
+- requests refuses to run without one.
+WHY: requests has no default timeout. A few seconds is a sensible value for most APIs.
+
+=== 16.1/2 predict
+Q: The docstring holds three examples and all of them pass. What does `doctest.testmod()` return?
++ `TestResults(failed=0, attempted=3)`
+- `TestResults(failed=3, attempted=3)`
+- `TestResults(failed=0, attempted=0)`
+WHY: doctest runs every `>>>` example it finds and compares the printed result with the expected text.
+
+=== 16.1/3
+Q: `average([2, 4, 6])` returns 4, but the docstring expects 4.0. Why does doctest report a failure?
++ It compares the printed text exactly, and `4` isn't `4.0`.
+- 4 and 4.0 are different numbers.
+- doctest only accepts floats.
+- The function raised an error.
+WHY: The bug is `//` instead of `/`, but even without it, doctest compares text, so the output must match character for character.
+
+=== 16.2/2
+Q: Why does each test in the class start with a fresh account from `setUp`?
++ `setUp` runs before every test, so one test's changes can't affect another.
+- Accounts can only be used once.
+- unittest runs tests in random order and needs new objects.
+- It makes the tests run faster.
+WHY: Independent tests give reliable results in any order and point at the real cause when one fails.
+
+=== 16.2/3 predict
+Q: The word counter uses `split(" ")`, and the test sentence has three words with extra spaces between them. What does the failing assertion report?
++ `AssertionError: 6 != 3`
+- `AssertionError: 3 != 6`
+- `AssertionError: 5 != 3`
+WHY: `split(" ")` creates an empty string for each extra space, giving 6 pieces. Plain `split()` would give 3.
+
+=== 16.3/2
+Q: What does a linter like ruff do that running the tests doesn't?
++ It finds problems by reading the code, including in branches the tests never run.
+- It executes every line to find errors.
+- It measures how fast the code runs.
+- It fixes logic bugs automatically.
+WHY: Static analysis catches typos, unused imports and risky patterns without running anything, which complements testing.
+
+=== 16.3/3 predict
+Q: The profiler compares `slow_unique` (list lookups) with a set version. What does it identify?
++ `function using the most time: slow_unique`
+- `function using the most time: fast_unique`
+- `function using the most time: main`
+WHY: `x not in seen` scans a growing list each time, which dominates the run. Measuring first shows where to optimise.
+
+=== 17.1/2
+Q: Why is the set version thousands of times faster than comparing every pair?
++ It looks at each item once, while pair-by-pair does millions of comparisons.
+- Sets are written in a faster language than lists.
+- The set version skips half the data.
+- It uses several CPU cores.
+WHY: Improving the algorithm (from O(n²) to O(n)) beats any constant-factor speed-up from rewriting the code in another language.
+
+=== 17.1/3
+Q: What does `"".join(["a", "b", "c"])` give?
++ `'abc'`
+- `'a b c'`
+- `['abc']`
+- `'a,b,c'`
+RUN: "".join(["a", "b", "c"])
+WHY: `join` puts its separator (here empty) between the pieces. It's done in C, so it's much faster than `+=` in a loop.
+
+=== 17.2/2 predict
+Q: C's `strlen` is called on "café" encoded as UTF-8. What does the second line say?
++ `5 bytes for 4 characters`
+- `4 bytes for 4 characters`
+- `5 bytes for 5 characters`
+WHY: C counts bytes until the terminating zero, and "é" takes two bytes. Python's `len` counts characters.
+
+=== 17.2/3
+Q: What does declaring `argtypes` for a ctypes function give you?
++ Python values are converted to the right C types, and wrong types are refused with an ArgumentError.
+- The C function runs faster.
+- The function becomes a Python built-in.
+- Return values are printed automatically.
+WHY: Without declared types, ctypes guesses, and a wrong guess passes garbage to C. Declaring them makes the boundary safe.
+
+=== 18.1/2
+Q: In `pyproject.toml`, what does `teatime = "teatime.cli:main"` under `[project.scripts]` do?
++ Installing the package creates a `teatime` command that calls `main` in `teatime/cli.py`.
+- It runs `main` every time Python starts.
+- It names the package on PyPI.
+- It imports `main` into every module.
+WHY: Entry points let pip generate a small launcher script, so users type `teatime` instead of `python -m teatime.cli`.
+
+=== 18.1/3 predict
+Q: `main(["rooibos"])` is called, and rooibos isn't a known tea. What exit status is reported?
++ `$ teatime rooibos -> exit 1`
+- `$ teatime rooibos -> exit 0`
+- `$ teatime rooibos -> exit 2`
+WHY: `main` returns 1 for an unknown tea, which becomes the program's exit status: non-zero means something went wrong.
+
+=== 18.2/2
+Q: What does `py3-none-any` in a wheel's file name mean?
++ Any Python 3, no compiled code, any operating system.
+- Python 3 only on Linux.
+- No Python version required.
+- The wheel has no dependencies.
+WHY: The tags record which interpreter, ABI and platform the wheel supports. Pure-Python packages work everywhere.
+
+=== 18.2/3
+Q: What kind of file is a wheel (`.whl`)?
++ A ZIP archive with the package files and a `dist-info` folder of metadata.
+- A compiled executable.
+- A tar archive of the source code.
+- A Python script that installs the package.
+WHY: Installing a wheel is mostly unzipping it into site-packages, which is why it's fast.
+
+=== 19.1/2
+Q: Why do "The" and "the" appear as separate words in the prototype's counts?
++ The prototype doesn't lower-case words, so they count as different strings.
+- Counter is case-insensitive only for nouns.
+- One of them has a trailing space.
+- Python sorts capitals separately.
+WHY: The first version works but its answer is muddled, which shows exactly what to fix next: lower-casing and removing punctuation.
+
+=== 19.1/3
+Q: What is the main idea of growing the program in small versions?
++ Each step is small and leaves a working program, so mistakes are easy to find.
+- Write everything at once, then test.
+- Rewrite the program from scratch for each feature.
+- Only the final version needs to work.
+WHY: Small, tested steps keep you close to a working state and make the cause of any new problem obvious.
+
+=== 19.2/2 predict
+Q: The settings file sets `minutes`, `sound` and `title`, and a second file doesn't exist. What does the first line show?
++ `files read: ['timer.ini']`
+- `files read: ['timer.ini', 'missing.ini']`
+- `files read: []`
+WHY: `ConfigParser.read` skips missing files silently and returns the list of files it actually read.
+
+=== 19.2/3 pick
+Q: The settings file says `minutes = 40`, but the allowed range is 1 to 15. Which line is printed?
++ `settings error: minutes must be 1 to 15, got 40`
+- `settings error: invalid literal for int() with base 10: 'five'`
+- `{'minutes': 5, 'volume': 70}`
+WHY: The value parses as a number, so the range check catches it with a message naming the setting and the bad value.
+
+=== 19.3/2
+Q: Why doesn't the DEBUG message appear while the threshold is INFO?
++ Messages below the logger's level are skipped.
+- DEBUG messages only appear in files.
+- `log.debug` is disabled in Python 3.
+- The message has a typo.
+WHY: Levels let you leave detailed messages in the code and switch them on by lowering the threshold, without editing `brew`.
+
+=== 19.3/3
+Q: What does `log.exception("...")` add compared with `log.error("...")`?
++ The full traceback of the exception being handled.
+- A louder log level.
+- An email to the administrator.
+- It re-raises the exception.
+WHY: Called inside an `except` block, `exception` logs at ERROR level and appends the traceback, which is what you need to investigate later.

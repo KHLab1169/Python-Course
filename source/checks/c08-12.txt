@@ -1,0 +1,351 @@
+=== 8.1/2 pick
+Q: The function is called with a string instead of a number. Which line does that call produce?
++ `TypeError: level must be a whole number, not str`
+- `ValueError: level must be between 0 and 100, got 150`
+- `volume set to 40`
+WHY: The wrong type gets a TypeError and an out-of-range number gets a ValueError. Choosing the most fitting exception tells callers what kind of mistake they made.
+
+=== 8.1/3
+Q: Why give your own exception class, like `OutOfStock`, instead of raising a plain `Exception`?
++ Callers can catch exactly that problem without also catching unrelated errors.
+- Custom exceptions run faster.
+- Plain `Exception` can't carry a message.
+- Python requires a new class for every error.
+WHY: `except OutOfStock:` handles only that case. Inheriting from Exception keeps it working like any built-in exception.
+
+=== 8.2/2 predict
+Q: The simulated answers are "twelve", "-3", "" and "7". What is the final line?
++ `You chose 7`
+- `You chose -3`
+- `You chose twelve`
+WHY: "twelve" and the empty answer fail `int()`, and -3 fails the "greater than zero" check, so the loop keeps asking until 7.
+
+=== 8.2/3 pick
+Q: The value for "pears" is the text "lots". Which line is printed for it?
++ `bad number for pears (invalid literal for int() with base 10: 'lots')`
+- `no data for kiwis`
+- `cannot split into zero boxes`
+WHY: `int("lots")` raises a ValueError, caught by its own `except ValueError` branch, which includes the original message.
+
+=== 8.3/2 pick
+Q: For the input "abc", the `except` block returns 10. Which line is printed right before the caller prints that 10?
++ `  done with 'abc'`
+- `  not a number, using 10`
+- `  ok`
+WHY: `finally` runs on the way out, even after a `return` in the `except` block, so its message comes just before the caller prints 10.
+
+=== 8.3/3 pick
+Q: `parse_price("free")` raises a ValueError deep in the call chain, and only `checkout` catches it. What is the last line?
++ `could not check out: could not convert string to float: 'free'`
+- `total $6.75`
+- `ValueError: could not convert string to float: 'free'`
+WHY: The exception travels up through `order_total` untouched and is handled in `checkout`, the level that knows what to tell the user.
+
+=== 8.4/2
+Q: What does `int(" 8 ")` give?
++ `8`
+- `ERROR: ValueError: invalid literal for int() with base 10: ' 8 '`
+- `' 8 '`
+- `None`
+RUN: int(" 8 ")
+WHY: `int()` ignores surrounding whitespace, while `" 8 ".isdigit()` is False. Trying the conversion lets the real rules decide.
+
+=== 8.4/3
+Q: How do test suites turn a DeprecationWarning into a failure?
++ With a warnings filter set to "error", which makes the warning raise an exception.
+- By deleting the deprecated function.
+- Warnings always fail tests automatically.
+- By running Python with `-O`.
+WHY: `warnings.simplefilter("error")` (or pytest's `-W error`) converts warnings into exceptions, so uses of deprecated code are caught early.
+
+=== 9.1/2
+Q: Why does `BrokenTimer().describe()` raise an AttributeError for `label`?
++ Its `__init__` replaced the parent's without calling `super().__init__()`, so `label` was never set.
+- `describe` is private.
+- Subclasses can't use attributes from the parent.
+- `label` is a reserved word.
+WHY: Defining `__init__` in a subclass replaces the parent's entirely. Call `super().__init__(...)` to keep the parent's setup.
+
+=== 9.1/3
+Q: Why does `__repr__` use `type(self).__name__` rather than writing "Book"?
++ So subclasses like Ebook show their own class name automatically.
+- `type()` is faster than a string.
+- "Book" would cause a recursion error.
+- `__repr__` can't contain literal text.
+WHY: The same method then works correctly for every subclass, which can extend the text with `super().__repr__()`.
+
+=== 9.2/2
+Q: Which special method makes `len(playlist)` work?
++ `__len__`
+- `__length__`
+- `__size__`
+- `__count__`
+WHY: Built-in functions call special methods: `len` calls `__len__`, `[]` calls `__getitem__`, `del x[i]` calls `__delitem__`.
+
+=== 9.2/3
+Q: Why would `50 in Squares()` loop forever?
++ Without `__contains__`, `in` tries index 0, 1, 2... and the sequence is endless, so it never runs out.
+- 50 is too large for an integer.
+- `in` only works on lists.
+- Squares has no `__len__`, which makes Python crash.
+WHY: For a value that is a square, the search stops when it finds it. For any other value it keeps going. Defining `__contains__` would fix this.
+
+=== 9.3/2 pick
+Q: The code assigns a new value to `area`, a property without a setter. Which line results?
++ `AttributeError: property 'area' of 'Rectangle' object has no setter`
+- `ValueError: width must be positive, got -2`
+- `40`
+WHY: A property defined with only a getter is read-only. Its value is computed from the width and height each time.
+
+=== 9.3/3
+Q: `Temperature.from_fahrenheit` is a classmethod. What does `LabTemperature.from_fahrenheit(32)` create?
++ A `LabTemperature`, because the method builds the object through `cls`.
+- A plain `Temperature`.
+- An error, since classmethods can't be inherited.
+- A float.
+WHY: `cls` is whichever class the method was called on, so alternative constructors work for subclasses too.
+
+=== 9.4/2
+Q: With `it = iter([1, 2])`, what does `next(it); next(it); next(it, "done")` give?
++ `'done'`
+- `2`
+- `ERROR: StopIteration`
+- `None`
+RUN: it = iter([1, 2]); next(it); next(it); next(it, "done")
+WHY: The iterator is exhausted after two values. With a default, `next` returns it instead of raising StopIteration.
+
+=== 9.4/3 predict
+Q: The Fibonacci loop breaks after printing 89, when it reaches 144. What does `next(fib)` give afterwards?
++ `next after the loop: 233`
+- `next after the loop: 144`
+- `next after the loop: 0`
+WHY: The iterator keeps its state. The loop already took 144 (the value that triggered `break`), so the next value is 233.
+
+=== 9.5/2 pick
+Q: A generator function prints "(starting)" at the top of its body. After `g = gen()`, what is printed first?
++ `created, nothing has run yet`
+- `  (starting)`
+- `3`
+WHY: Calling a generator function only creates the generator. Its body runs when the first `next` asks for a value.
+
+=== 9.5/3
+Q: What does `yield from flatten(item)` do inside a recursive generator?
++ It passes along every value produced by the recursive call, one by one.
+- It returns the whole nested list at once.
+- It stops the generator.
+- It yields a generator object.
+WHY: `yield from` delegates to another iterable, so nested lists of any depth come out flat.
+
+=== 9.6/2 predict
+Q: Queens sit at row 0, column 1 and row 1, column 3. Which square in row 2 is safe?
++ `row 2, column 0: safe`
+- `row 2, column 2: safe`
+- `row 2, column 1: safe`
+- `row 2, column 3: safe`
+WHY: Column 1 and 3 are taken, and column 2 is on a diagonal with the queen at row 1, column 3. Only column 0 is safe.
+
+=== 9.6/3
+Q: How does `sum(1 for _ in queens(8))` count the solutions?
++ It adds 1 for each solution the generator yields, without storing them in a list.
+- It sums the column numbers of all queens.
+- It counts the queens on the board.
+- It returns the first solution.
+WHY: A generator expression produces one value per solution, and `sum` adds them up as they arrive. That gives 92 for the full board.
+
+=== 10.1/2
+Q: Why doesn't the module's test block run when it is imported?
++ On import, `__name__` is the module's name, not `"__main__"`, so `if __name__ == "__main__":` is false.
+- Test blocks never run.
+- Imports skip all `if` statements.
+- The module is imported in read-only mode.
+WHY: `__name__` is `"__main__"` only when the file is run directly. That lets a file be both a script and an importable module.
+
+=== 10.1/3
+Q: What makes `circle_area` available directly as `shapes.circle_area`?
++ The package's `__init__.py` imports it, so it becomes a name in the package.
+- Every function in a package is available at the top level automatically.
+- `circle_area` is a built-in.
+- Python searches every module in the folder.
+WHY: `__init__.py` runs when the package is imported and can re-export handy names from its modules.
+
+=== 10.2/2
+Q: What's a quick way to list the functions in a module you haven't used?
++ `dir(module)`, filtered for names that interest you
+- `module.list()`
+- `help(dir)`
+- `print(module)`
+WHY: `dir()` returns all names in the module. Docstrings (`module.function.__doc__`) then explain each one.
+
+=== 10.2/3
+Q: A module sets `__all__ = ["greet"]` and also defines `helper`. Can you still write `from mod import helper`?
++ Yes: `__all__` only controls what `from mod import *` brings in.
+- No: `helper` is private.
+- Only with `import mod.helper`.
+- Only if `helper` starts with an underscore.
+WHY: `__all__` describes the public part for star imports. Importing a name explicitly still works.
+
+=== 10.3/2
+Q: With `sys.argv = ["total.py", "4.50", "12"]`, what is `sys.argv[1] + sys.argv[2]`?
++ `'4.5012'`
+- `16.5`
+- `'16.50'`
+- `ERROR: TypeError`
+RUN: import sys; sys.argv = ["total.py", "4.50", "12"]; sys.argv[1] + sys.argv[2]
+WHY: Command-line arguments are always strings, so `+` joins them. Convert with `float()` before doing arithmetic.
+
+=== 10.3/3
+Q: With `from pathlib import Path`, what is `Path("data/feb.csv").stem`?
++ `'feb'`
+- `'feb.csv'`
+- `'.csv'`
+- `'data'`
+RUN: from pathlib import Path; Path("data/feb.csv").stem
+WHY: `stem` is the file name without its suffix. `suffix` is ".csv" and `parent` is the folder.
+
+=== 10.4/2
+Q: What does `sorted({"a", "b", "c"} ^ {"b", "d"})` give?
++ `['a', 'c', 'd']`
+- `['b']`
+- `['a', 'b', 'c', 'd']`
+- `['a', 'c']`
+RUN: sorted({"a", "b", "c"} ^ {"b", "d"})
+WHY: `^` keeps the items that are in exactly one of the two sets, dropping the shared "b".
+
+=== 10.4/3
+Q: With `from collections import deque`, what is `list(d)` after `d = deque([1, 2, 3], maxlen=3); d.append(4)`?
++ `[2, 3, 4]`
+- `[1, 2, 3, 4]`
+- `[1, 2, 3]`
+- `[4, 2, 3]`
+RUN: from collections import deque; d = deque([1, 2, 3], maxlen=3); d.append(4); list(d)
+WHY: A full deque with `maxlen` drops an item from the opposite end when a new one is added.
+
+=== 10.5/2
+Q: With `from datetime import date, timedelta`, what is `date(2026, 11, 20) + timedelta(days=14)`?
++ `datetime.date(2026, 12, 4)`
+- `datetime.date(2026, 11, 34)`
+- `datetime.date(2026, 12, 3)`
+- `ERROR: ValueError`
+RUN: from datetime import date, timedelta; date(2026, 11, 20) + timedelta(days=14)
+WHY: Adding a timedelta handles month lengths for you: November has 30 days, so 14 days after the 20th is December 4th.
+
+=== 10.5/3
+Q: What does `json.dumps({"done": False, "n": None})` give?
++ `'{"done": false, "n": null}'`
+- `"{'done': False, 'n': None}"`
+- `'{"done": False, "n": None}'`
+- `'{done: false, n: null}'`
+RUN: import json; json.dumps({"done": False, "n": None})
+WHY: JSON has its own spellings: `false`, `true` and `null`, with keys always in double quotes.
+
+=== 10.6/2
+Q: What does `re.findall(r"\d+", "3 cats, 12 dogs")` give?
++ `['3', '12']`
+- `[3, 12]`
+- `['3', '1', '2']`
+- `'312'`
+RUN: import re; re.findall(r"\d+", "3 cats, 12 dogs")
+WHY: `\d+` matches one or more digits as a single match. `findall` returns the matched text, always as strings.
+
+=== 10.6/3
+Q: What does `re.sub(r"\s+", " ", "a   b \t c")` give?
++ `'a b c'`
+- `'a   b \t c'`
+- `'abc'`
+- `'a b \t c'`
+RUN: import re; re.sub(r"\s+", " ", "a   b \t c")
+WHY: `\s+` matches any run of whitespace, spaces and tabs together, and each run is replaced by a single space.
+
+=== 10.7/2
+Q: With `from collections import Counter`, what is `Counter("banana").most_common(1)`?
++ `[('a', 3)]`
+- `[('b', 1)]`
+- `('a', 3)`
+- `[('n', 2)]`
+RUN: from collections import Counter; Counter("banana").most_common(1)
+WHY: `most_common(n)` returns a list of the n most frequent items with their counts. "a" appears three times.
+
+=== 10.7/3
+Q: How does argparse name the value of an option called `--pass-mark`?
++ `args.pass_mark`
+- `args.pass-mark`
+- `args["pass-mark"]`
+- `args.passmark`
+WHY: Dashes aren't allowed in Python names, so argparse converts them to underscores for the attribute.
+
+=== 11.1/2 pick
+Q: The diary is opened with `"w"` and closed without writing anything. What does reading it show?
++ `after reopening with 'w': ''`
+- `after reopening with 'w': 'Mon: started the Python course\nTue: finished chapter 2 ✔\n'`
+- `'x' mode refused: the file already exists`
+WHY: Opening a file in `"w"` mode empties it immediately, even if you never write. Use `"a"` to add, or `"x"` to refuse overwriting.
+
+=== 11.1/3
+Q: How many bytes does `"café\n".encode("utf-8")` contain?
++ `6`
+- `5`
+- `4`
+- `8`
+RUN: len("café\n".encode("utf-8"))
+WHY: The text has 5 characters, but "é" takes two bytes in UTF-8, so the encoded form is 6 bytes.
+
+=== 11.2/2
+Q: What does `readline()` return once the end of the file has been reached?
++ An empty string `''`
+- `None`
+- `'\n'`
+- It raises an EOFError.
+WHY: A blank line in the file is `'\n'`, so an empty string can only mean the end. That's how a `while` loop knows when to stop.
+
+=== 11.2/3
+Q: An error happens inside a `with open(...) as f:` block. What happens to the file?
++ It is closed on the way out, before the error continues upward.
+- It stays open until the program ends.
+- It is deleted.
+- Its contents are rolled back.
+WHY: `with` guarantees cleanup however the block is left, including by an exception.
+
+=== 11.3/2 predict
+Q: The poem's words are lower-cased and stripped of punctuation before counting. What does `most_common(3)` show?
++ `[('the', 4), ('rain', 3), ('in', 1)]`
+- `[('The', 2), ('the', 2), ('rain', 2)]`
+- `[('the', 3), ('rain,', 2), ('rain', 1)]`
+WHY: Normalising makes "The", "the" and "rain," count as the same words, so the counts merge.
+
+=== 11.3/3
+Q: What does `f.read(256)` return when the file has no data left?
++ An empty result (`b''` in binary mode), which ends the chunk loop.
+- `None`
+- The last 256 bytes again.
+- It raises an EOFError.
+WHY: Like `readline`, `read` signals the end by returning nothing, so `while chunk := f.read(256):` stops cleanly.
+
+=== 12.1/2
+Q: Why does the tip calculation live in a plain `tip_text` function instead of inside the button handler?
++ So it can be tested and reused without a window; the handler just moves text between widgets and the function.
+- tkinter can't do arithmetic.
+- Handlers can't return values.
+- It makes the window open faster.
+WHY: Separating logic from the GUI keeps the interesting code testable on any machine, including one with no screen.
+
+=== 12.1/3 predict
+Q: `tip_text("forty")` can't parse the amount. What does it return?
++ `'forty' -> Type the bill amount, like 42.50`
+- `'forty' -> Tip 0.00, total 0.00`
+- `'forty' -> ValueError`
+WHY: The function catches the conversion error and returns a helpful message, which the GUI shows in its label.
+
+=== 12.2/2
+Q: Why do the editor's handlers take an optional `event=None` parameter?
++ Key bindings pass an event and buttons don't, so the same function can serve both.
+- tkinter requires every function to have a default argument.
+- To store the last event for undo.
+- Events are always None in tkinter.
+WHY: `bind` calls the handler with an event object; a button's `command` calls it with no arguments. A default covers both.
+
+=== 12.2/3 pick
+Q: Loading a file that doesn't exist returns an empty document. What is the first line printed?
++ `''`
+- `Buy tea`
+- `2 lines`
+WHY: Catching `FileNotFoundError` and returning `""` lets the editor start with a blank page instead of crashing.

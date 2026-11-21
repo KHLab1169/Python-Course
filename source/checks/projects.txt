@@ -1,0 +1,656 @@
+=== P1.1/2
+Q: Why does the block generator yield one last block after the loop ends?
++ The final block has no blank line after it, so it would otherwise be lost.
+- To add an empty block at the end.
+- Generators must always yield after a loop.
+- To repeat the first block.
+WHY: Blocks are emitted when a blank line ends them. The text's last block is ended by the end of the input instead.
+
+=== P1.1/3
+Q: With `import re`, what does `re.sub(r"\*(.+?)\*", r"<em>\1</em>", "*a* and *b*")` give?
++ `'<em>a</em> and <em>b</em>'`
+- `'<em>a* and *b</em>'`
+- `'*a* and *b*'`
+- `'<em>a and b</em>'`
+RUN: import re; re.sub(r"\*(.+?)\*", r"<em>\1</em>", "*a* and *b*")
+WHY: The lazy `.+?` stops at the first closing star, so each emphasis is separate. The greedy `.+` would swallow " and " into one.
+
+=== P1.2/2 predict
+Q: The text "Tea & cake are served at <4pm>." becomes a paragraph. What HTML is produced?
++ `<p>Tea &amp; cake are served at &lt;4pm&gt;.</p>`
+- `<p>Tea & cake are served at <4pm>.</p>`
+- `<p>Tea &amp; cake are served at <4pm>.</p>`
+WHY: Escaping first turns `&`, `<` and `>` into entities, so the text can't be mistaken for HTML tags.
+
+=== P1.2/3
+Q: How would you run the counting program on a file from a real terminal?
++ `python count.py < notes.txt`
+- `python count.py notes.txt > stdin`
+- `python < count.py notes.txt`
+- `stdin count.py notes.txt`
+WHY: `<` redirects the file into the program's standard input, which `sys.stdin.read()` then reads.
+
+=== P1.3/2
+Q: What does `getattr(handler, "start_quote", None)` return if the handler has no such method?
++ `None`, so the caller can skip that kind of block.
+- An empty function.
+- It raises an AttributeError.
+- The string "start_quote".
+WHY: The default argument avoids an error, which lets new block types be added before every handler supports them.
+
+=== P1.3/3
+Q: Why do the rules only decide "does this apply?" while handlers decide "how do I write it?"
++ The same rules can drive different output formats, like HTML or Markdown, by swapping the handler.
+- Rules can't produce text.
+- Handlers run faster than rules.
+- It makes the parser use less memory.
+WHY: Separating recognition from output means adding a format is one new handler class, with no change to the rules.
+
+=== P2.1/2 predict
+Q: The daily counts are 6200, 8450, 4100, 9900 and 7300. What average is printed?
++ `[6200, 8450, 4100, 9900, 7300] average 7190`
+- `[6200, 8450, 4100, 9900, 7300] average 35950`
+- `[6200, 8450, 4100, 9900, 7300] average 7300`
+WHY: The total is 35,950 over 5 days, which averages 7,190. `int()` turned the CSV text into numbers first.
+
+=== P2.1/3
+Q: Why does the script use matplotlib's `Agg` backend?
++ It writes image files without opening a window, which suits scripts and servers.
+- It makes the chart more colourful.
+- It's required for bar charts.
+- It speeds up CSV reading.
+WHY: On your own computer, `plt.show()` opens an interactive window instead; for files, Agg needs no display at all.
+
+=== P2.2/2
+Q: Why convert the date strings to real `date` objects before plotting?
++ A real time axis spaces points by the actual gaps between dates.
+- Text labels can't be plotted.
+- Dates take less memory.
+- matplotlib only accepts dates.
+WHY: With text labels, a missing day would be invisible; with dates, the gap shows.
+
+=== P2.2/3
+Q: What does `(date(2026, 11, 10) - date(2026, 11, 1)).days` give?
++ `9`
+- `10`
+- `datetime.timedelta(days=9)`
+- `'9 days'`
+RUN: from datetime import date; (date(2026, 11, 10) - date(2026, 11, 1)).days
+WHY: Subtracting dates gives a timedelta, and `.days` reads the whole number of days.
+
+=== P2.3/2
+Q: What happens when the download succeeds?
++ The new data is returned and also refreshes the cache, so the fallback is always the latest good copy.
+- The cache is deleted.
+- The cached copy is used anyway.
+- Both copies are merged.
+WHY: A cache that updates on every success makes the offline fallback as fresh as possible.
+
+=== P2.3/3
+Q: Why are all bars a muted colour except the wettest month?
++ So the reader's eye goes straight to the point the chart is making.
+- Coloured bars are harder to print.
+- matplotlib only allows one colour.
+- To save ink.
+WHY: Highlighting and an annotation tell the reader exactly where to look, which makes the chart's message obvious.
+
+=== P3.1/2
+Q: What's the difference between `root.iter("page")` and looping over `root`?
++ `iter` searches the whole tree; looping over an element only sees its direct children.
+- They're the same.
+- `iter` only returns the first page.
+- Looping over `root` searches the whole tree.
+WHY: Choose `iter` to find every matching element at any depth, and direct iteration (or recursion) to follow the nesting.
+
+=== P3.1/3
+Q: What advantage does SAX have over ElementTree for very large files?
++ It never builds a tree; it calls handler methods as it reads, so memory use stays small.
+- It's easier to write.
+- It can modify the XML.
+- It validates the XML automatically.
+WHY: Event-based parsing processes the document as a stream, which works for files far bigger than memory.
+
+=== P3.2/2
+Q: How does the generator decide the folder structure of the output site?
++ Each `directory` element becomes a folder, mirroring the nesting in the XML.
+- All pages go into one folder.
+- Folders are named after page titles.
+- It asks the user for each folder.
+WHY: The recursion follows the XML's nesting, so the file tree matches the site description.
+
+=== P3.2/3 predict
+Q: The site XML has a duplicate page `/a` and a directory without a name. What does validation report?
++ `['duplicate page /a', '/: a <directory> has no name']`
+- `[]`
+- `['duplicate page /a']`
+WHY: Validating before generating catches every mistake with a clear message, before any files are written.
+
+=== P3.3/2
+Q: How does the SAX handler know each page's folder?
++ It keeps a stack of folder names: push on `<directory>`, pop on `</directory>`.
+- It reads the folder from each page's attributes.
+- SAX passes the full path to every handler.
+- It scans the file twice.
+WHY: The stack mirrors the current depth in the document, which gives each page its path.
+
+=== P3.3/3
+Q: Why do links on pages inside `recipes/` start with `../`?
++ They must climb back up one folder to reach pages at the top level.
+- `../` makes links open in a new tab.
+- It's required by HTML.
+- To hide the folder name.
+WHY: Relative links are resolved from the current page's folder, so the menu must adjust for depth.
+
+=== P4.1/2
+Q: What does `item.findtext("title")` return?
++ The text of the item's `<title>` child, or None if there isn't one.
+- The whole `<title>` element.
+- A list of all titles.
+- The attribute named title.
+WHY: `findtext` combines finding a child and reading its text, which is the common case with RSS.
+
+=== P4.1/3
+Q: Why give every headline the same dataclass shape, whatever its source?
++ Items from RSS and APIs can be sorted and displayed together in one timeline.
+- Dataclasses download feeds faster.
+- RSS requires dataclasses.
+- To make the program longer.
+WHY: Converting each source into one item type at the edge keeps the rest of the program simple.
+
+=== P4.2/2
+Q: Why does the example start a local test server?
++ So the program can be run repeatedly while developing, without depending on a real news site.
+- Real news sites forbid Python.
+- Local servers are faster to parse.
+- urllib only works with localhost.
+WHY: A local stand-in makes runs reproducible and offline, which is ideal for development and tests.
+
+=== P4.2/3 pick
+Q: One feed contains broken XML. What is reported for it?
++ `Broken XML: could not read the feed (mismatched tag: line 1, column 33)`
+- `Good feed: ['All fine']`
+- `Empty feed: no items`
+WHY: The ParseError is caught and reported with the feed's name, and the loop carries on with the next feed.
+
+=== P4.3/2
+Q: What does adding an email destination require in the agent design?
++ One more small destination class with the same method; the agent and sources don't change.
+- Rewriting the agent.
+- A new source class.
+- Changing every existing destination.
+WHY: Sources and destinations are interchangeable parts behind small interfaces.
+
+=== P4.3/3
+Q: How are duplicate stories from two feeds detected?
++ Links are normalised (lower case, no trailing slash) before comparing.
+- By comparing the publication time.
+- By counting words in the title.
+- Duplicates can't be detected.
+WHY: The same story often appears with slightly different addresses; normalising makes them equal.
+
+=== P5.1/2 pick
+Q: Tea, coffee and soup start together with asyncio; tea waits the longest and coffee the shortest. Which is ready first?
++ `coffee ready`
+- `tea ready`
+- `soup ready`
+WHY: All three wait concurrently, so they finish in order of their waits. The total is about the longest wait.
+
+=== P5.1/3
+Q: Sam connects first but types slowly; Quinn connects second. Who is answered first?
++ Quinn, because the server never waits on one client while others are ready.
+- Sam, because he connected first.
+- Neither until both have typed.
+- They're answered at exactly the same moment.
+WHY: Each client is a separate coroutine; while Sam's waits for input, Quinn's can run.
+
+=== P5.2/2
+Q: Where does "* Ben left" come from?
++ The `finally` block in Ben's handler, which runs when his connection closes.
+- Ben sends it himself.
+- The server prints it every minute.
+- Ada's client generates it.
+WHY: `finally` runs however the handler ends, which makes it the right place to announce departures and clean up.
+
+=== P5.2/3 predict
+Q: What does `readline` return once the other side closes the connection?
++ `readline returned b'' so the loop ended`
+- `readline returned None so the loop ended`
+- `readline returned b'\n' so the loop ended`
+WHY: An empty bytes object signals end of stream. A blank line would be `b'\n'`.
+
+=== P5.3/2
+Q: What does `"/who"[1:].partition(" ")` give?
++ `('who', '', '')`
+- `('who',)`
+- `('/who', '', '')`
+- `ERROR: ValueError`
+RUN: "/who"[1:].partition(" ")
+WHY: `partition` always returns three parts, so `command, _, arg = ...` never fails even without an argument.
+
+=== P5.3/3
+Q: Why is the command logic tested without any sockets?
++ It's plain Python that writes to an inbox list, so it can be checked quickly and deterministically.
+- Sockets can't be used in tests.
+- The commands don't work over a network.
+- asyncio forbids testing.
+WHY: In the real server `inbox.append` becomes `writer.write`; the logic itself doesn't care.
+
+=== P6.1/2 pick
+Q: A browser GETs `/order`, which only accepts POST. What status is returned?
++ `405 - GET is not allowed on /order`
+- `2 cups of oolong coming up`
+- `Hello, stranger!`
+WHY: 405 Method Not Allowed tells the client the route exists but doesn't accept that method.
+
+=== P6.1/3
+Q: Why does the template show `&lt;b&gt;bold?&lt;/b&gt;` instead of bold text?
++ It escapes what people type, so their input is shown as text and never runs as HTML.
+- The browser doesn't support `<b>`.
+- The form stripped the tags.
+- Flask converts all text to entities.
+WHY: Automatic escaping in templates is what stops cross-site scripting.
+
+=== P6.2/2 pick
+Q: A request tries to edit a file outside the editor's folder. What happens?
++ `403 for a path outside the folder`
+- `302 redirect to /edit?file=notes.txt`
+- `'buy tea\nbuy scones\n'`
+WHY: `safe_path` resolves the path and refuses anything outside the base folder before reading or writing.
+
+=== P6.2/3
+Q: With `from pathlib import Path`, what is `(Path("/srv/files") / "../secret.txt").resolve().is_relative_to(Path("/srv/files"))`?
++ `False`
+- `True`
+- `PosixPath('/srv/secret.txt')`
+- `ERROR: ValueError`
+RUN: from pathlib import Path; (Path("/srv/files") / "../secret.txt").resolve().is_relative_to(Path("/srv/files"))
+WHY: `..` climbs out of the folder. Only the resolved path shows where it really leads, which is why the check resolves first.
+
+=== P6.3/2
+Q: Why does hashing the same password twice give different results?
++ Each hash includes a random salt, which defeats precomputed tables.
+- The hash function is broken.
+- The time of day is included.
+- Passwords are encrypted, not hashed.
+WHY: The salt is stored inside the hash string, so `check_password_hash` can still verify the password.
+
+=== P6.3/3 predict
+Q: Two saves happen after logging in, each copying the previous version first. What does the final state show?
++ `'version 3\n' | backups: ['version 1', 'version 2']`
+- `'version 3\n' | backups: []`
+- `'version 1\n' | backups: ['version 2', 'version 3']`
+WHY: Every save backs up the current file before overwriting it, so earlier versions stay recoverable.
+
+=== P7.1/2
+Q: Why does `WHERE reply_to = NULL` find no rows?
++ In SQL, comparing with NULL using `=` is never true; you must write `IS NULL`.
+- NULL values are deleted automatically.
+- `reply_to` is never NULL.
+- SQLite doesn't support NULL.
+WHY: NULL means "unknown", so `= NULL` is unknown rather than true. `IS NULL` tests for it explicitly.
+
+=== P7.1/3
+Q: How does the program print replies nested under their parents?
++ It groups messages by `reply_to`, then a recursive function prints each message and its replies one level deeper.
+- The database returns them nested.
+- It sorts messages by length.
+- It uses a separate table per level.
+WHY: A lookup from parent to children plus recursion handles any depth of nesting.
+
+=== P7.2/2
+Q: What does Jinja's `recursive` loop modifier allow?
++ Calling `loop(m.replies)` to render replies to replies at any depth with the same lines.
+- Repeating the loop forever.
+- Looping in reverse.
+- Skipping empty items.
+WHY: A recursive loop draws tree-shaped data without writing a separate template per level.
+
+=== P7.2/3
+Q: A subject of `Robert'); DROP TABLE messages;--` is posted. Why does the table survive?
++ The `?` placeholders store the text as plain data, never as SQL.
+- SQLite ignores DROP TABLE.
+- The subject is too long to run.
+- Flask strips semicolons.
+WHY: Parameters keep data and code separate, which makes SQL injection impossible.
+
+=== P7.3/2
+Q: 47 threads are shown 20 per page. How many rows does page 3 skip?
++ `40`
+- `60`
+- `20`
+- `47`
+RUN: (3 - 1) * 20
+WHY: The offset is `(page - 1) * per_page`, so page 3 starts after 40 rows and shows the last 7.
+
+=== P7.3/3
+Q: Why does validation return all problems at once?
++ So the person can fix everything in one go instead of one error at a time.
+- Python can only raise one error.
+- It's faster to check everything.
+- Forms only accept lists.
+WHY: Reporting every problem together is friendlier and avoids repeated round trips.
+
+=== P8.1/2
+Q: What does the XML-RPC client do when it calls `add(2, 3)`?
++ It sends the call over the network to the server, which runs it and returns the result.
+- It runs `add` locally.
+- It downloads the function's source code.
+- It opens a browser.
+WHY: Remote procedure calls look like local calls but run elsewhere; lists and dicts travel both ways.
+
+=== P8.1/3
+Q: Why does each query carry the list of peers already asked?
++ So nobody is asked twice and the search can't go round in circles.
+- To count the total number of peers.
+- To encrypt the query.
+- XML-RPC requires a history.
+WHY: The visited list plus a length limit keeps the search finite in a network with cycles.
+
+=== P8.2/2
+Q: A peer that's switched off raises a connection error during a fetch. How is it treated?
++ As "could not help", and the search continues with other peers.
+- The whole fetch fails.
+- The program retries forever.
+- The peer is deleted from disk.
+WHY: Peer-to-peer programs must expect missing peers and carry on.
+
+=== P8.2/3 pick
+Q: The server divides by zero during a remote call. What does the client see?
++ `Fault: <class 'ZeroDivisionError'>:division by zero`
+- `peer unreachable: ConnectionRefusedError`
+- `2.5`
+WHY: Errors on the server come back as an XML-RPC Fault naming the exception; network failures are a different kind of error.
+
+=== P8.3/2
+Q: How does `cmd.Cmd` turn methods into commands?
++ Every `do_name` method becomes a command called `name`, and its docstring becomes its help.
+- Commands are listed in a configuration file.
+- Every method becomes a command.
+- Commands must be registered with a decorator.
+WHY: The naming convention gives a full shell with help and error replies for very little code.
+
+=== P8.3/3 pick
+Q: A client asks for `../../etc/passwd`. What does the peer answer?
++ `../../etc/passwd   ACCESS_DENIED  ''`
+- `pie.txt            NOT_FOUND      ''`
+- `recipe.txt         OK             'scones'`
+WHY: Paths outside the shared folder are refused with a distinct code, different from a file that simply doesn't exist.
+
+=== P9.1/2
+Q: Which tkinter geometry manager suits form-like layouts with rows and columns?
++ `grid`
+- `pack` only
+- `place` only
+- `frame`
+WHY: `grid` positions widgets by row and column, which keeps labels, boxes and buttons aligned.
+
+=== P9.1/3 pick
+Q: The stand-in peer is asked for a file nobody has. What message comes back?
++ `Nobody has song.mp3`
+- `Fetched recipe.txt (6 bytes)`
+- `You already have recipe.txt`
+WHY: Building against a stand-in lets every case be tested before the GUI and the network exist.
+
+=== P9.2/2
+Q: Why does `on_fetch` accept an optional `event` argument?
++ The same function handles both the button (no event) and the Enter key binding (with an event).
+- tkinter requires it for every function.
+- To log every keypress.
+- It stores the event for undo.
+WHY: Key bindings pass an event object, button commands don't; a default parameter covers both.
+
+=== P9.2/3 pick
+Q: After a song is fetched into the shared folder, what does the refreshed list show?
++ `['map.png', 'recipe.txt', 'song.mp3']`
+- `['map.png', 'recipe.txt']`
+- `['song.mp3']`
+WHY: Rereading the folder each time keeps the list honest, showing what's really there.
+
+=== P9.3/2
+Q: In the worker-and-queue pattern, which thread may update widgets?
++ Only the main thread; the worker puts results in a queue that the main thread reads.
+- Only the worker thread.
+- Any thread.
+- Neither: widgets update themselves.
+WHY: GUI toolkits aren't thread-safe. Queues hand results back safely while the window stays responsive.
+
+=== P9.3/3
+Q: Why is the Fetch button disabled while a fetch runs?
++ To prevent a second fetch from starting before the first finishes.
+- Disabled buttons fetch faster.
+- tkinter requires it for threads.
+- To hide the button.
+WHY: Guarding against double clicks keeps the program in a simple, predictable state.
+
+=== P10.1/2
+Q: What does `keys[RIGHT] - keys[LEFT]` give when only the left arrow is held?
++ `-1`
+- `1`
+- `0`
+- `False`
+RUN: RIGHT, LEFT = 0, 1; keys = [False, True]; keys[RIGHT] - keys[LEFT]
+WHY: True and False count as 1 and 0, so one expression gives +1, −1 or 0 for the direction.
+
+=== P10.1/3 pick
+Q: Both arrow keys are held at once. Where does the player end up?
++ `440 - both keys cancel out`
+- `{'x': 260, 'frame': 10}`
+- `{'x': 440, 'frame': 210} - stopped at the right edge`
+WHY: Opposite keys cancel to zero movement, and the update logic is testable without a window.
+
+=== P10.2/2
+Q: A falling rock's bottom edge sits exactly at the player's top edge. Does `colliderect` report a hit?
++ No: rectangles that merely touch don't count as colliding.
+- Yes: touching counts as a collision.
+- Only if the rock is moving.
+- It raises an error.
+WHY: Rect collision requires overlap. That boundary matters when tuning how forgiving a game feels.
+
+=== P10.2/3
+Q: Why does the scripted game use a fixed random seed?
++ The same rocks fall every time, so each run is reproducible and testable.
+- To make the game harder.
+- pygame requires a seed.
+- To make rocks fall faster.
+WHY: Determinism turns a game into something you can test: same inputs, same results.
+
+=== P10.3/2 pick
+Q: The game is paused and the player presses the left arrow. What is the new state?
++ `paused     + left    -> paused`
+- `paused     + p       -> playing`
+- `playing    + hit     -> game_over`
+WHY: Events with no entry in the transition table leave the state unchanged.
+
+=== P10.3/3
+Q: Why do the difficulty functions use `min` and `max` limits?
++ So the game can't become impossible however high the score goes.
+- To make the code shorter.
+- pygame can't handle large numbers.
+- To reset the score.
+WHY: Caps keep the speed and spawn rate within playable bounds, and keeping tuning numbers in one place makes balancing easy.
+
+=== S1.1/2 pick
+Q: A cron job line appears in the auth log. How is it classified?
++ `Nov 20 09:21:00  (ignored)`
+- `Nov 20 09:20:44  accepted     user=kev    ip=198.51.100.4`
+- `Nov 20 09:14:02  failed       user=admin  ip=203.0.113.9`
+WHY: Lines that match no pattern are explicitly ignored rather than causing errors.
+
+=== S1.1/3
+Q: Why write "cases that must not fire" next to the detection rules?
++ They keep false positives low, which decides whether anyone will actually run the tool.
+- They make the tool faster.
+- They're required by syslog.
+- They replace the need for tests.
+WHY: A detector that cries wolf gets switched off. Explicit quiet cases become tests that guard against noise.
+
+=== S1.2/2
+Q: The attacker fails a sixth and seventh time right after the alert. Why are no new alerts raised?
++ A cooldown suppresses repeat alerts for the same IP for a while.
+- The detector stops after one alert.
+- The sixth failure was outside the window.
+- The IP was blocked.
+WHY: Cooldowns keep one burst from flooding the alert channel. After it expires, a new burst raises a fresh alert.
+
+=== S1.2/3 pick
+Q: The TOML config sets the user-enumeration threshold to "four". What is reported at start-up?
++ `config error: [user_enum] threshold must be a positive integer, got 'four'`
+- `2026-11-20 09:14:01`
+- `2026-12-31 23:59:58`
+WHY: Validating configuration at start-up names the section and key, instead of the detector silently never firing.
+
+=== S1.3/2 predict
+Q: The log is rotated between polls; the old file had one more line. What does the second poll return?
++ `poll 2: ['three', 'last line of old file', 'first line after rotation']`
+- `poll 2: ['first line after rotation']`
+- `poll 2: ['three']`
+WHY: The follower drains the renamed file before switching to the new one by inode, so no line is lost.
+
+=== S1.3/3
+Q: The webhook endpoint is unreachable. What does the detector do?
++ Reports the error and keeps running; the console line was already printed.
+- Crashes.
+- Stops watching until the webhook returns.
+- Retries forever, blocking detection.
+WHY: Alert delivery must never stop detection; a chat outage shouldn't blind the monitor.
+
+=== S1.4/2
+Q: What does adding a new detection scenario require?
++ One realistic log file and one row in the parametrized table.
+- A new test function and a new detector.
+- Changing every existing test.
+- A new configuration file.
+WHY: Table-driven end-to-end tests make new cases cheap and read like a specification.
+
+=== S1.4/3
+Q: What distinguishes a strong CV bullet from "made a security tool"?
++ It names the techniques and a measurable outcome.
+- It lists every file in the project.
+- It uses more adjectives.
+- It mentions the programming language only.
+WHY: Specific techniques and results show what you can do; vague claims don't.
+
+=== S2.1/2 pick
+Q: The policy excludes `*.pyc` and `logs/*`. How is `/srv/app/config/settings.toml` treated?
++ `/srv/app/config/settings.toml                 watched`
+- `/srv/app/logs/today.log                       excluded`
+- `/srv/app/__pycache__/main.cpython-312.pyc     excluded`
+WHY: It matches neither exclusion pattern, so it stays monitored.
+
+=== S2.1/3
+Q: An attacker edits a file without changing its size and resets its timestamp. What still detects the change?
++ A hash of the content, such as SHA-256.
+- The file size.
+- The modification time.
+- The file name.
+WHY: Metadata can be faked; a content hash can't be matched without the original content.
+
+=== S2.2/2 pick
+Q: The sudoers file's permissions were loosened. What does the comparison report?
++ `CHANGED  sudoers: mode -rw-r--r-- -> -rw-rw-rw-`
+- `ADDED    backdoor.sh`
+- `DELETED  motd`
+WHY: Comparing stored mode bits with the current ones catches permission changes even when content is unchanged.
+
+=== S2.2/3
+Q: Why sign the baseline with an HMAC whose key is kept off the host?
++ An attacker who edits the baseline to hide changes can't produce a valid signature.
+- To compress the baseline.
+- HMAC makes hashing faster.
+- To encrypt file names.
+WHY: Without a signature, the baseline itself is a target. `compare_digest` checks the signature in constant time.
+
+=== S2.3/2
+Q: An editor's save produces several events in quick succession. How many checks does debouncing run for that file?
++ One, half a second after the last event, when the file has settled.
+- One per event.
+- None.
+- Two: first and last.
+WHY: Debouncing collapses bursts into a single check, avoiding duplicate alerts and half-written files.
+
+=== S2.3/3
+Q: The file was saved twice without changing its content. Why was there no alert?
++ Changes are compared by hash, and the hash didn't change.
+- Saves are ignored entirely.
+- The watcher was paused.
+- Only deletions trigger alerts.
+WHY: Comparing content hashes avoids false alarms from touches and no-op saves.
+
+=== S2.4/2
+Q: Why is the mode-change test skipped on Windows?
++ Windows doesn't have Unix permission bits.
+- pytest can't run on Windows.
+- tmp_path doesn't exist on Windows.
+- Windows files can't change.
+WHY: `pytest.mark.skipif` keeps the suite honest across platforms without failing tests that can't apply.
+
+=== S2.4/3
+Q: How do meaningful exit codes help when the scan runs from cron?
++ cron can be set to mail only when the scan reports changes.
+- They make the scan faster.
+- They hide errors.
+- cron ignores exit codes.
+WHY: Composable tools signal results through exit codes, so schedulers and scripts can react.
+
+=== S3.1/2
+Q: Why is entropy alone not enough to decide whether a string is a secret?
++ Normal strings like UUIDs can score high too, and hex alphabets cap entropy at 4 bits per character.
+- Entropy can't be computed for short strings.
+- Secrets always have low entropy.
+- Entropy only works for passwords.
+WHY: Real tools combine entropy with patterns and context, such as the variable name a value is assigned to.
+
+=== S3.1/3
+Q: Why are findings masked in the report, like `AKIA…(20 chars)`?
++ So the report itself doesn't leak the secret it found.
+- Masking makes the scan faster.
+- The full value is unknown.
+- To save disk space.
+WHY: Reports end up in CI logs and chat; printing the secret would spread the leak further.
+
+=== S3.2/2
+Q: The key was removed in the latest commit. Why must it still be rotated?
++ It remains in the git history, where anyone with the repository can find it.
+- Removing it isn't possible.
+- Rotation is required every month anyway.
+- The key was never really removed.
+WHY: History scans find secrets in old commits. Once pushed, assume a secret is compromised.
+
+=== S3.2/3 pick
+Q: An allowlist entry for a dev password expired last month. How is that finding reported?
++ `c0c6e22f18bb8635  config/dev.toml              REPORTED: allowlist entry expired 2026-10-01`
+- `fffbea3d6a6ebb12  tests/fixtures/fake_aws.py   accepted (AWS documentation example key, until 2027-06-01)`
+- `09fc24b536f74f38  scripts/deploy.sh            REPORTED: new finding`
+WHY: Expiry dates stop "temporary" exceptions from becoming permanent; someone must look again.
+
+=== S3.3/2
+Q: Why are dependency names normalised before comparing?
++ So `Requests`/`requests` and `python_dateutil`/`python-dateutil` match as the same package.
+- To shorten long names.
+- PyPI requires lower-case names in files.
+- To hide package names from attackers.
+WHY: Package names are case-insensitive and treat `-`, `_` and `.` alike, so normalising avoids missed matches.
+
+=== S3.3/3
+Q: What happens when the vulnerability API is unreachable?
++ A warning is reported for that package instead of crashing, and earlier answers come from the cache.
+- The scan reports no vulnerabilities.
+- The program exits with an error immediately.
+- It retries forever.
+WHY: A security tool should fail visibly, not silently: "could not check" is very different from "no known vulnerabilities".
+
+=== S3.4/2
+Q: Exit codes use bit flags: 1 for secrets, 2 for dependencies. What does exit code 3 mean?
++ Both secrets and vulnerable dependencies were found.
+- Three problems were found.
+- An internal error.
+- Only dependencies were found.
+WHY: Each kind of problem sets its own bit, so a pipeline can test the bits to block on secrets but only warn on dependencies.
+
+=== S3.4/3
+Q: Why run the auditor as a pre-commit hook as well as in CI?
++ The hook stops secrets before they reach history; CI catches whatever slips through.
+- CI can't scan secrets.
+- Hooks replace CI.
+- Hooks make commits faster.
+WHY: Catching a secret before it's committed avoids rotation entirely. CI is the safety net.

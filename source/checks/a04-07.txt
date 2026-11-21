@@ -1,0 +1,362 @@
+=== A4.1/2 predict
+Q: The bad Cart class defines `items = []` in the class body. Ada adds tea, Ben adds nothing. What do the two carts show?
++ `bad: ['tea'] ['tea']`
+- `bad: ['tea'] []`
+- `bad: [] []`
+WHY: A list defined in the class body is one object shared by every instance. Create per-object lists in `__init__` instead.
+
+=== A4.1/3
+Q: Why does the Account raise a custom `InsufficientFunds` rather than a plain ValueError?
++ Callers can handle "not enough money" separately from programming errors like a negative amount.
+- ValueError can't carry a message.
+- Custom exceptions are faster.
+- Python requires a new exception per method.
+WHY: Different problems deserve different handling. A specific exception type lets callers catch exactly the case they can do something about.
+
+=== A4.2/2
+Q: Why does `sum(prices)` need `Money.__radd__`?
++ `sum` starts from 0, so the first step is `0 + Money`, which only `__radd__` can handle.
+- `__radd__` is required for any class used in a list.
+- It makes addition faster.
+- `sum` always calls methods in reverse.
+WHY: `int.__add__` doesn't know about Money and returns NotImplemented, so Python tries `Money.__radd__(0)`. Returning the Money unchanged for 0 makes `sum` work.
+
+=== A4.2/3
+Q: Which special method makes `len(playlist)` work and also decides whether an empty playlist is falsy?
++ `__len__`
+- `__bool__` only
+- `__contains__`
+- `__getitem__`
+WHY: Without `__bool__`, Python uses `__len__` for truthiness: a length of 0 is falsy.
+
+=== A4.3/2 predict
+Q: `UrgentEmail` inherits from `Email`, which inherits from the abstract `Notifier`. What is its MRO?
++ `['UrgentEmail', 'Email', 'Notifier', 'ABC', 'object']`
+- `['UrgentEmail', 'Notifier', 'Email', 'ABC', 'object']`
+- `['UrgentEmail', 'Email', 'object']`
+WHY: The method resolution order lists where Python looks for attributes: the class, then its parents in order, ending with `object`.
+
+=== A4.3/3
+Q: How does the report switch from CSV to JSON output?
++ By assigning a different exporter object; the report delegates to whichever it has.
+- By subclassing the report for each format.
+- By editing the report's `export` method.
+- By passing a format string to every method.
+WHY: Composition swaps behaviour at run time with one assignment, and a new format is one small class instead of a subclass per report type.
+
+=== A4.4/2 pick
+Q: After `r.width = 10` on a 3 × 4 rectangle, what does the second line show?
++ `10 40 - area follows the new width`
+- `3 12`
+- `ValueError: width must be positive, got -1`
+WHY: `area` is a computed property, recalculated on every access, so it can never go stale.
+
+=== A4.4/3
+Q: What does `Meetup.from_string("Rust club, 2026-11-24")` build, if `from_string` is a classmethod on the parent `Event`?
++ A `Meetup`, because the classmethod receives the class it was called on as `cls`.
+- An `Event`.
+- A string.
+- An error: classmethods aren't inherited.
+WHY: Alternative constructors written with `cls(...)` work for every subclass without extra code.
+
+=== A4.5/2
+Q: With `@dataclass(frozen=True) class Point: x: int; y: int`, what does `p.x = 5` do?
++ It raises `FrozenInstanceError`.
+- It changes `x` to 5.
+- It creates a new Point.
+- It is silently ignored.
+WHY: Frozen dataclasses refuse assignment. Use `dataclasses.replace(p, x=5)` to get a modified copy.
+
+=== A4.5/3
+Q: With `from enum import StrEnum, auto` and `class Status(StrEnum): OPEN = auto()`, what is `Status.OPEN == "open"`?
++ `True`
+- `False`
+- `ERROR: TypeError`
+- `'open'`
+RUN: from enum import StrEnum, auto; exec("class Status(StrEnum):\n    OPEN = auto()"); Status.OPEN == "open"
+WHY: StrEnum members are real strings, and `auto()` uses the lower-case member name as the value.
+
+=== A4.P/2 pick
+Q: Ada has three loans. Twenty days later, Ben asks to borrow Emma. What is logged for Ben?
++ `2026-11-21 lent Emma to ben`
+- `2026-11-21 refused (HasOverdue): ada has an overdue book`
+- `2026-11-01 refused (LimitReached): ada already has 3 loans`
+WHY: The rules are checked per member, so Ada's overdue books don't affect Ben. Passing the date in made the overdue rule easy to test.
+
+=== A4.P/3
+Q: Why do the domain classes contain no JSON code?
++ Keeping storage separate means the rules don't change if JSON is replaced by a database later.
+- Dataclasses can't be converted to JSON.
+- JSON code is slower inside classes.
+- Python forbids imports in dataclass modules.
+WHY: The save/load functions translate between objects and storage. The domain stays focused on the library's rules.
+
+=== A5.1/2
+Q: Why did the package's `__init__.py` run only once even though it was imported twice?
++ The second import came from the `sys.modules` cache.
+- `__init__.py` only runs on the first line of a program.
+- Python skips files that print messages.
+- The second import was a syntax error.
+WHY: A module is executed once per process; later imports reuse the cached module object.
+
+=== A5.1/3
+Q: What fixed the circular import between `orders` and `customers`?
++ Moving the shared classes into a third module that both import.
+- Importing both modules twice.
+- Renaming the modules.
+- Adding `global` statements.
+WHY: A cycle means one module asks for a name from another that hasn't finished running. Breaking the cycle removes the half-initialised state.
+
+=== A5.2/2
+Q: What does `pip freeze > requirements.txt` record?
++ Every installed package with its exact version, including indirect dependencies.
+- Only the packages you installed by name.
+- The version ranges from pyproject.toml.
+- The Python version only.
+WHY: Pinning everything exactly is what makes the environment reproducible on another machine.
+
+=== A5.2/3
+Q: What does `uv run pytest` do?
++ Runs pytest inside the project's environment without activating it.
+- Installs pytest globally.
+- Creates a new project.
+- Runs pytest with the system Python.
+WHY: uv manages the environment for you; `uv sync` makes a teammate's environment match `uv.lock` exactly.
+
+=== A5.3/2
+Q: How do you install a project with its optional `dev` dependencies in editable mode?
++ `pip install -e ".[dev]"`
+- `pip install dev`
+- `pip install --dev .`
+- `pip install -r dev`
+WHY: Extras are named groups of optional dependencies, and `-e` installs the project so code changes take effect without reinstalling.
+
+=== A5.3/3
+Q: Why test the built wheel in a fresh environment rather than only with an editable install?
++ It catches files missing from the package, which an editable install would hide.
+- Editable installs can't run tests.
+- Wheels run faster than source code.
+- It's required to publish on PyPI.
+WHY: An editable install reads straight from your folder, so a file left out of the package still works there but fails for real users.
+
+=== A5.4/2
+Q: What does `git tag v1.0.0` mark?
++ A specific commit as the 1.0.0 release.
+- A new branch called v1.0.0.
+- The latest version of every file.
+- A file to be ignored.
+WHY: Tags are named pointers to commits, used to mark releases so you can always return to exactly what was shipped.
+
+=== A5.4/3 predict
+Q: The version is 0.10.1, and a breaking change is released. What is the new version?
++ `breaking  -> 1.0.0`
+- `breaking  -> 0.11.0`
+- `breaking  -> 1.10.1`
+WHY: A breaking change bumps the major number and resets the minor and patch numbers to zero.
+
+=== A5.P/2 pick
+Q: The package isn't installed, so its metadata can't be found. What does `--version` print?
++ `logtool 0.0.0+unknown`
+- `analysing 2 file(s)`
+- `exit code 0`
+WHY: `importlib.metadata.version` raises PackageNotFoundError when the package isn't installed, and the fallback keeps the tool working.
+
+=== A5.P/3
+Q: What is the most persuasive part of a project README, according to the lesson?
++ Real example output, showing what the tool actually does.
+- A long list of features.
+- The license text.
+- A history of every version.
+WHY: A stranger decides in seconds whether a tool is useful; a real example answers that faster than any description.
+
+=== A6.1/2 pick
+Q: A generator yields 3, 2, 1. After two `next` calls, `list(gen)` collects the rest, then `next(gen, "exhausted")` runs. What is the last line?
++ `exhausted`
+- `[1]`
+- `  (finished)`
+- `StopIteration`
+WHY: Once a generator finishes it stays exhausted, and `next` with a default returns the default instead of raising StopIteration.
+
+=== A6.1/3
+Q: The temperature source never ends. Why does the program finish?
++ Each stage pulls one value at a time, and `islice` stops after three alerts.
+- Python stops infinite generators after a million values.
+- The source raises an error after 100 readings.
+- `filter` stops when it sees a repeated value.
+WHY: Lazy pipelines only compute what's asked for, so an infinite source is fine as long as something limits how much is taken.
+
+=== A6.2/2
+Q: What does `list(filter(None, [0, 1, "", "x", [], None]))` give?
++ `[1, 'x']`
+- `[0, 1, '', 'x', [], None]`
+- `[0, '', [], None]`
+- `[]`
+RUN: list(filter(None, [0, 1, "", "x", [], None]))
+WHY: With `None` as the function, `filter` keeps only truthy items.
+
+=== A6.2/3
+Q: With `from functools import partial`, what is `partial(int, base=2)("101")`?
++ `5`
+- `101`
+- `'101'`
+- `ERROR: TypeError`
+RUN: from functools import partial; partial(int, base=2)("101")
+WHY: `partial` creates a new function with some arguments filled in, here `int` that always parses binary.
+
+=== A6.3/2 pick
+Q: `farewell` was wrapped by a decorator that doesn't use `functools.wraps`. What does its name and docstring show?
++ `wrapper | None - metadata lost without wraps`
+- `farewell | Say goodbye. - metadata lost without wraps`
+- `greet | Return a greeting.`
+WHY: Without `@wraps(func)`, the decorated function is really the inner `wrapper`, with its name and no docstring.
+
+=== A6.3/3
+Q: In `@retry(times=3, on=(TimeoutError,))`, what does `retry(times=3, ...)` return?
++ The actual decorator, which then wraps the function.
+- The wrapped function directly.
+- The function's result.
+- A list of retry attempts.
+WHY: A decorator with arguments is a function that returns a decorator: one more level of nesting.
+
+=== A6.4/2 pick
+Q: The block inside the transaction raises a ValueError. What is printed right after `  begin`?
++ `  rollback (ValueError: overdrawn)`
+- `  commit`
+- `{'balance': 70}`
+WHY: `__exit__` receives the exception, restores the snapshot and returns False, so the error still reaches the caller.
+
+=== A6.4/3
+Q: What does `contextlib.suppress(FileNotFoundError)` do around `os.remove(path)`?
++ It ignores that one exception type if raised inside the block.
+- It ignores every exception.
+- It creates the file if it's missing.
+- It retries the removal.
+WHY: `suppress` is a clear way to say "it's fine if this specific error happens", without a try/except/pass.
+
+=== A6.5/2
+Q: With `from itertools import groupby`, what is `[k for k, _ in groupby("aabbca")]`?
++ `['a', 'b', 'c', 'a']`
+- `['a', 'b', 'c']`
+- `['a', 'a', 'b', 'b', 'c', 'a']`
+- `[('a', 3), ('b', 2), ('c', 1)]`
+RUN: from itertools import groupby; [k for k, _ in groupby("aabbca")]
+WHY: `groupby` groups only neighbouring equal items, so sort by the key first if you want one group per key.
+
+=== A6.5/3
+Q: What does `{**{"size": "S"}, **{"size": "M"}}` give?
++ `{'size': 'M'}`
+- `{'size': 'S'}`
+- `{'size': ['S', 'M']}`
+- `ERROR: TypeError`
+RUN: {**{"size": "S"}, **{"size": "M"}}
+WHY: When dictionaries are merged, later keys win.
+
+=== A6.6/2
+Q: `b = a = (1, 2)`, then `a += (3,)`. What is `(a, b)`?
++ `((1, 2, 3), (1, 2))`
+- `((1, 2, 3), (1, 2, 3))`
+- `((1, 2), (1, 2))`
+- `ERROR: TypeError`
+RUN: b = a = (1, 2); a += (3,); (a, b)
+WHY: Tuples are immutable, so `+=` builds a new tuple and rebinds `a`. For a list, `+=` would extend the shared object in place.
+
+=== A6.6/3
+Q: Why weren't two threads faster for pure-Python counting?
++ The GIL lets only one thread run Python bytecode at a time.
+- Threads always run one after another in Python.
+- Counting can't be split into parts.
+- The computer had only one core.
+WHY: Threads help when waiting for I/O. For CPU-heavy Python code, use processes, or free-threaded builds where available.
+
+=== A6.P/2
+Q: In a doctest that expects an exception, which traceback lines are needed?
++ The first line, `Traceback (most recent call last):`, and the last line with the exception type and message.
+- Every line of the traceback, exactly.
+- Only the exception type.
+- None: doctests can't check exceptions.
+WHY: doctest ignores the middle of a traceback, so examples stay short and don't depend on file paths or line numbers.
+
+=== A6.P/3 predict
+Q: The fake service fails three times, and each retry doubles a 0.01-second wait. What waits are recorded?
++ `data after waiting [0.01, 0.02, 0.04]`
+- `data after waiting [0.01, 0.01, 0.01]`
+- `data after waiting [0.01, 0.02, 0.03]`
+WHY: Exponential backoff doubles the delay after each failure, so a struggling service isn't hammered.
+
+=== A7.1/2
+Q: What happens when `double("ha")` is called on `def double(n: int) -> int: return n * 2`?
++ It returns `'haha'`: Python doesn't check type hints at run time.
+- It raises a TypeError.
+- It returns 0.
+- It converts "ha" to an int first.
+WHY: Hints are documentation and input for tools like mypy. The interpreter stores them but never enforces them.
+
+=== A7.1/3
+Q: Why does `Circle` count as a `HasArea` without inheriting from it?
++ `HasArea` is a Protocol, which checks structure: any class with a matching `area` method qualifies.
+- All classes inherit from every Protocol automatically.
+- Circle was registered with `HasArea.register`.
+- Protocols only check names, not methods.
+WHY: Protocols bring duck typing to static checking: the shape matters, not the family tree.
+
+=== A7.2/2
+Q: What does mypy's strict mode add to the default checks?
++ It also requires annotations on every function, among other stricter rules.
+- It runs the program to find bugs.
+- It formats the code.
+- It ignores missing imports.
+WHY: Strict mode flags untyped functions like `parse_qty`, which plain mode would skip entirely.
+
+=== A7.2/3
+Q: What does `assert_never(shape)` in the final branch give you?
++ If a new case is added and not handled, mypy reports it at the `assert_never` line.
+- It raises an error every time it runs.
+- It makes the function faster.
+- It hides type errors in that branch.
+WHY: In a fully handled union the remaining type is `Never`. Any unhandled case makes the call a type error, like Rust's exhaustive match.
+
+=== A7.3/2
+Q: Which problems did Ruff flag but not fix automatically?
++ The mutable default, a file opened without `with`, and a bare `except`.
+- Unused imports.
+- Import order.
+- Old-style type hints.
+WHY: Mechanical fixes are safe to apply automatically. Design problems need a human to decide the right change.
+
+=== A7.3/3
+Q: After `pre-commit install`, what happens on `git commit`?
++ The configured hooks (like Ruff) run first and stop the commit if problems remain.
+- The code is pushed to GitHub.
+- Tests run on every file in the repository.
+- Nothing until you run `pre-commit run`.
+WHY: Hooks catch problems before they enter history, using the same rules as CI.
+
+=== A7.4/2 predict
+Q: The docstring contains three examples, and they all pass. What does `doctest.testmod()` report?
++ `TestResults(failed=0, attempted=3)`
+- `TestResults(failed=3, attempted=3)`
+- `TestResults(failed=0, attempted=1)`
+WHY: Every `>>>` example in the docstring runs as a test, so the documentation is guaranteed to match the code.
+
+=== A7.4/3
+Q: What should a README's first section answer?
++ What the project is and why someone would use it.
+- How the code is structured internally.
+- The full API reference.
+- The list of contributors.
+WHY: Readers decide quickly. What it is, how to install it and an example come before the internals.
+
+=== A7.P/2
+Q: Why use per-module overrides instead of turning off strict mode globally?
++ New code is held to strict rules immediately, and each override is a named to-do you can remove later.
+- Overrides make mypy run faster.
+- Strict mode can't be turned off.
+- Overrides apply to all modules anyway.
+WHY: A gradual path keeps the bar high where it's easy and tracks exceptions explicitly, instead of weakening the rules everywhere.
+
+=== A7.P/3 pick
+Q: An unknown member id is looked up in the redesigned code. What happens?
++ `UnknownMember: no member with id '7'`
+- `Ada`
+- `['222', '111']`
+WHY: Raising a specific exception means the return type is simply `Member`, so callers don't need None checks everywhere.
