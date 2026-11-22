@@ -13,7 +13,7 @@ tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP p
 
 ## Features
 
-- **Map** (the first tab): a graphic-syllabus style poster of your progress (stats, a module donut,
+- **Map** (the first tab): a modern dashboard-poster of your progress (stats, a module donut,
   ringed module badges) and a roadmap timeline of every module and lesson, per track. Each box opens that lesson in the
   curriculum and fills in as you complete lessons (next lesson highlighted, reviews due marked).
 - **Code editor**: syntax colours, line numbers, auto-indent, Tab / Shift+Tab, Ctrl+/ to comment,
