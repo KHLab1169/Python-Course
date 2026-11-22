@@ -13,6 +13,7 @@ tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP p
 
 ## Features
 
+- **Modern design** throughout: soft cards, gradient accents, pill navigation, and matching light and dark themes.
 - **Map** (the first tab): a modern dashboard-poster of your progress (stats, a module donut,
   ringed module badges) and a roadmap timeline of every module and lesson, per track. Each box opens that lesson in the
   curriculum and fills in as you complete lessons (next lesson highlighted, reviews due marked).
