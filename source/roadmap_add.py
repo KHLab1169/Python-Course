@@ -167,30 +167,9 @@ print("slowest three:", heapq.nlargest(3, response_ms))
 print("fastest two:", heapq.nsmallest(2, response_ms))
 ''',
   "note": "A heap keeps the smallest item at index 0, and push and pop each cost O(log n), so it is the standard priority queue. Tuples compare item by item, so (priority, name) pops by priority and breaks ties by name. nlargest and nsmallest find the top k without sorting everything."},
- "A14.3": {"title": "The GIL in numbers: threads for waiting, processes for computing",
-  "code": '''import time
-from concurrent.futures import ThreadPoolExecutor
-
-def wait_for_io(_):
-    time.sleep(0.2)          # like a network call: the GIL is released while waiting
-
-def compute(_):
-    return sum(i * i for i in range(300_000))   # pure Python: holds the GIL
-
-for name, fn in [("waiting", wait_for_io), ("computing", compute)]:
-    start = time.perf_counter()
-    for i in range(4):
-        fn(i)
-    one_by_one = time.perf_counter() - start
-    start = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(fn, range(4)))
-    threaded = time.perf_counter() - start
-    print(f"{name:9}: one by one {one_by_one:.2f} s, four threads {threaded:.2f} s, speed-up x{one_by_one / threaded:.1f}")
-''',
-  "sample": True,
-  "output": "waiting  : one by one 0.80 s, four threads 0.20 s, speed-up x4.0\ncomputing: one by one 0.11 s, four threads 0.11 s, speed-up x1.0",
-  "note": "While a thread waits (sleep, network, disk), it releases the GIL and the others run, so four waits overlap. Pure-Python computing holds the GIL, so four threads take as long as one. For computing, use ProcessPoolExecutor or multiprocessing: each process has its own interpreter and its own GIL. Your timings will differ; the browser runs Python in one thread, so run this one on your computer."},
+ "A14.3": {"title": "A model of the GIL: why threads help with waiting but not with computing",
+  "code": 'SWITCH_MS = 5          # CPython hands the GIL to another thread every 5 ms (sys.getswitchinterval())\n\ndef simulate(tasks, interpreters):\n    """Run tasks in 1 ms steps. Each task is a list of ("cpu", ms) and ("io", ms) steps.\n    Waiting (io) needs no lock; computing (cpu) needs one of `interpreters` GILs."""\n    tasks = [list(t) for t in tasks]\n    ms = turn = 0\n    while any(tasks):\n        want = [i for i, t in enumerate(tasks) if t and t[0][0] == "cpu"]\n        running = {want[(turn + k) % len(want)] for k in range(min(interpreters, len(want)))}\n        for i, t in enumerate(tasks):\n            if t and (t[0][0] == "io" or i in running):\n                kind, left = t[0]\n                t[0] = (kind, left - 1)\n                if left == 1:\n                    t.pop(0)\n        ms += 1\n        if ms % SWITCH_MS == 0:\n            turn += 1\n    return ms\n\njobs = {\n    "waiting  ": [("io", 200)],                 # a network call\n    "computing": [("cpu", 200)],                # pure-Python maths\n    "mixed    ": [("cpu", 20), ("io", 180)],    # parse a request, then wait for the database\n}\nfor name, job in jobs.items():\n    one_by_one = sum(ms for _, ms in job) * 4\n    threads = simulate([job] * 4, interpreters=1)      # 4 threads share one GIL\n    processes = simulate([job] * 4, interpreters=4)    # 4 processes, a GIL each\n    print(f"{name}: one by one {one_by_one} ms | 4 threads {threads} ms | 4 processes {processes} ms")\n',
+  "note": "This is a step-by-step model of CPython rather than a stopwatch, so it gives the same numbers on every machine and runs in the browser, whose Python cannot start threads. While a thread waits it needs no lock, so four waits overlap; computing needs the GIL, so four threads take turns and take as long as one by one. Processes each have their own interpreter and GIL. Mixed work shows the usual web-server case: threads still help, because most of the time is spent waiting. Real processes also pay to start up and to pickle data, which the model leaves out; worked example 2 measures the real thing on your computer."},
  "A14.4": {"title": "Reading pyproject.toml with tomllib",
   "code": '''import tomllib
 

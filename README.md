@@ -93,7 +93,8 @@ answers that must fail; `harness.py specs/<file>.py` checks both. `practice_add.
 `career_add.py` merge them into the course; `roadmap_add.py` (with `a147.py`) adds module A14
 and needs Python 3.14 for its t-string examples. The page features are layered on by small
 idempotent scripts: `map_add.py`, `theme_add.py`, `learn_add.py` (flashcards, mistakes notebook),
-`pytest_add.py` (download tests) and `a11y_add.py`. `sync_standalone.sh` then runs
+`pytest_add.py` (download tests), `a11y_add.py` and `runtime_add.py` (if a browser blocks the
+background Python runner, Python loads inside the page instead). `sync_standalone.sh` then runs
 `speed_pub.py` (course content as a JSON block, which parses faster) and `vendorize.py` (local
 fonts and highlight.js) to build this app's `index.html`. These are authoring scripts: they
 expect the course page (`course.html`) and its content file (`pycontent.json`) next to them.
