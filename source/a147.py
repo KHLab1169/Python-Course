@@ -22,10 +22,12 @@ f = f"<p>Hello {name}!</p>"
 t = t"<p>Hello {name}!</p>"
 
 print(type(f).__name__, "->", f)
-print(type(t).__name__, "->", t.strings, "values:", t.values)
+print("is a Template:", isinstance(t, Template), "| text:", t.strings, "| values:", t.values)
 for part in t:
-    kind = "text " if isinstance(part, str) else "value"
-    print(" ", kind, repr(part if isinstance(part, str) else part.value))
+    if isinstance(part, Interpolation):
+        print("  value", repr(part.value), "from the expression", part.expression)
+    else:
+        print("  text ", repr(part))
 ''',
   "note": "The f-string has already glued the dangerous value into the markup, so nothing downstream can tell them apart. The t-string keeps the text parts and the values separate, so a function such as html() or sql() can escape or parameterise the values and leave the template text alone. That separation is the whole point of PEP 750."}
 AUTO = {"hints": ["Check isinstance(template, Template) first and raise TypeError otherwise; then loop with for part in template.",

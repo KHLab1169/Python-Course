@@ -36,7 +36,8 @@ for e in emails:
 fast = time.perf_counter() - start
 
 print("duplicates:", dupes_slow, dupes_fast)
-print(f"list version is about {slow / fast:,.0f} times slower" if slow > fast * 20 else "the set version is much faster")
+ratio = slow / fast
+print(f"list version is about {ratio:,.0f} times slower" if ratio > 20 else "the set version is much faster")
 @note
 Both loops look the same, but `in` on a list is a linear scan, so the first version does roughly n²/2 comparisons. Changing one data structure turns it into O(n). This is the most common real-world Big-O bug, and spotting it is a favourite interview question.
 @example python: Stable sorting by two keys, and bisect for lookups

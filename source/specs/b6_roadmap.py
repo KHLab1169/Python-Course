@@ -460,7 +460,7 @@ BAD["A14.6a"] = [
 
 # ------------------------------------------------------------------ A14.7a  safe HTML and SQL with t-strings (Python 3.14)
 SOLUTIONS["A14.7a"] = '''from html import escape
-from string.templatelib import Interpolation, Template
+from string.templatelib import Template
 
 
 def _convert(part):
@@ -515,7 +515,7 @@ if __name__ == "__main__":
 '''
 SPECS["A14.7a"] = {
     "main": False,
-    "starter": "from html import escape\nfrom string.templatelib import Interpolation, Template\n\n\ndef html(template):\n    \"\"\"Render a t-string as HTML, escaping every interpolated value.\"\"\"\n    pass\n\n\ndef sql(template):\n    \"\"\"Turn a t-string into a query with ? placeholders and a list of parameters.\"\"\"\n    pass\n",
+    "starter": "from html import escape\nfrom string.templatelib import Template\n\n\ndef html(template):\n    \"\"\"Render a t-string as HTML, escaping every interpolated value.\"\"\"\n    pass\n\n\ndef sql(template):\n    \"\"\"Turn a t-string into a query with ? placeholders and a list of parameters.\"\"\"\n    pass\n",
     "cases": [
         {"name": "html escapes values, not the markup", "check": "name = '<script>alert(\"x\")</script>'\ngot = html(t'<p class=\"greet\">Hi {name}!</p>')\nassert got == '<p class=\"greet\">Hi &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;!</p>', 'Escape the interpolated value with html.escape(..., quote=True) and keep the template text as it is; got ' + repr(got)"},
         {"name": "html applies conversions and format specs", "check": "price, item = 1234.5, \"Tom's tea\"\ngot = html(t'<td>{item!r}</td><td>{price:,.2f}</td>')\nassert got == '<td>&quot;Tom&#x27;s tea&quot;</td><td>1,234.50</td>', 'Apply !r and :,.2f as an f-string would, then escape; got ' + repr(got)\nassert html(t'{3}') == '3' and html(t'') == '', 'Numbers become text; an empty template gives an empty string'"},
