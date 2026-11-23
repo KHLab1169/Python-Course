@@ -25,7 +25,7 @@ CSS = r"""/* MAP:BEGIN */
 .pz .sc{font-variant:normal}
 /* header */
 .pz-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:22px 30px;align-items:center;margin-bottom:18px}
-.pz-title{font-weight:800;font-size:clamp(2rem,4.6vw,3.2rem);line-height:1.02;letter-spacing:-.035em;background:var(--pz-grad);-webkit-background-clip:text;background-clip:text;color:transparent;padding:2px 0}
+.pz-title{font-weight:800;font-size:clamp(2rem,4.6vw,3.2rem);line-height:1.18;letter-spacing:-.035em;background:var(--pz-grad);-webkit-background-clip:text;background-clip:text;color:transparent;padding:.04em .06em .14em 0;margin-bottom:-.1em}
 .pz-sub{display:inline-flex;align-items:center;gap:8px;font-size:.92rem;font-weight:600;color:var(--pz-sub);margin:10px 0 0}
 .pz-sub::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--pz-green);box-shadow:0 0 0 4px color-mix(in srgb,var(--pz-green) 22%,transparent)}
 .pz-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}

@@ -38,7 +38,7 @@ body{background:radial-gradient(1100px 520px at -5% -10%,color-mix(in srgb,#60A5
   font-family:var(--font-body);-webkit-font-smoothing:antialiased;letter-spacing:-.003em}
 h1,h2,h3{font-family:var(--font-display);letter-spacing:-.025em}
 h1{font-weight:800}
-.intro h1,.trintro h1{background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent;width:fit-content}
+.intro h1,.trintro h1{background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent;width:fit-content;line-height:1.2;padding-bottom:.12em}
 a{text-underline-offset:3px}
 ::selection{background:color-mix(in srgb,#2563EB 25%,transparent)}
 /* header and navigation */
@@ -101,7 +101,7 @@ th:first-child{border-top-left-radius:var(--r-sm)}th:last-child{border-top-right
 /* labels: clean uppercase sans instead of monospace */
 .lbl,.eyebrow,.sublbl,.stats dt,.eg>h4,.code-h>span,.out>h4,.field>label,.zen small,.pk,.tag,.lv b,.nextl span,.wd,.repst dt{font-family:var(--font-body)!important;font-weight:700;letter-spacing:.09em}
 .lbl,.eyebrow,.sublbl,.stats dt,.eg>h4,.out>h4,.field>label{font-size:.68rem!important;color:var(--muted)}
-#view h1:not(.pz *){background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent;width:fit-content;max-width:100%}
+#view h1:not(.pz *){background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent;width:fit-content;max-width:100%;line-height:1.2;padding-bottom:.12em;padding-right:.04em}
 .recap{border-radius:var(--r-lg)!important}
 /* THEME:END */
 """
