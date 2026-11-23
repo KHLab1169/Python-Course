@@ -10,6 +10,9 @@ Python curriculum style application for studying. Runs as a standalone app on my
 - **PY206 The wider ecosystem**: the roadmap.sh/python topics the other modules didn't cover (Big-O,
   sorting and binary search, trees and heaps, processes and the GIL, packaging tools, docs and type
   checkers, web frameworks) and what Python 3.12 to 3.14 added, including t-strings
+- **PY207 Software engineering practice**: SQL joins and transactions, safe logins (password hashes,
+  signed tokens), debugging and git bisect, configuration and Docker, pull requests and code review,
+  and a system design primer
 
 Includes worked examples, hints, solutions, an in-browser Python editor with autograded
 tests (Pyodide 314, which runs Python 3.14, and works offline), chapter quizzes, course exams, and PCEP / PCAP practice exams.

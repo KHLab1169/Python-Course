@@ -390,6 +390,46 @@ def run(code, stdin=""):
 _DESKTOP_ONLY = {"tkinter", "flask", "requests", "markupsafe", "turtle", "pygame", "numpy", "pandas"}
 
 
+def _pbkdf2_hmac(hash_name, password, salt, iterations, dklen=None):
+    """PBKDF2 (RFC 8018) in plain Python, for runtimes built without OpenSSL (the in-page Python)."""
+    import hashlib as _h
+    password, salt = bytes(password), bytes(salt)
+    block = _h.new(hash_name).block_size
+    if len(password) > block:
+        password = _h.new(hash_name, password).digest()
+    password = password.ljust(block, b"\0")
+    inner = _h.new(hash_name, bytes(b ^ 0x36 for b in password))
+    outer = _h.new(hash_name, bytes(b ^ 0x5C for b in password))
+
+    def prf(msg):
+        i = inner.copy()
+        i.update(msg)
+        o = outer.copy()
+        o.update(i.digest())
+        return o.digest()
+
+    size = outer.digest_size
+    dklen = size if dklen is None else dklen
+    out, n = b"", 1
+    while len(out) < dklen:
+        u = prf(salt + n.to_bytes(4, "big"))
+        acc = int.from_bytes(u, "big")
+        for _ in range(iterations - 1):
+            u = prf(u)
+            acc ^= int.from_bytes(u, "big")
+        out += acc.to_bytes(size, "big")
+        n += 1
+    return out[:dklen]
+
+
+try:
+    import hashlib as _hashlib_mod
+    if not hasattr(_hashlib_mod, "pbkdf2_hmac"):
+        _hashlib_mod.pbkdf2_hmac = _pbkdf2_hmac
+except Exception:  # noqa: BLE001
+    pass
+
+
 def _page_limit_note(e):
     """A plain-words note when a program hits a limit of the in-page Python (not a bug in the program)."""
     own = "Run it in your own Python on your computer to try it out; Submit answer still grades it here."

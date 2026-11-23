@@ -1,0 +1,87 @@
+=== A15.1/2 pick
+Q: Linus has written no posts. Which line shows him?
++ `LEFT JOIN: [('Ada', 2), ('Grace', 1), ('Linus', 0)]`
+- `JOIN:      [('Ada', 2), ('Grace', 1)]`
+- Both lines show him
+WHY: An inner JOIN keeps only authors with a matching post. LEFT JOIN keeps every author and COUNT(p.id) counts 0 for the missing side.
+
+=== A15.1/3 predict
+Q: The bad order takes 1 tea, then fails on the mugs. What is printed last?
++ `after a bad order:  [('mugs', 1), ('tea', 3)]`
+- `after a bad order:  [('mugs', 1), ('tea', 2)]`
+- `after a bad order:  [('mugs', -4), ('tea', 2)]`
+WHY: Both updates run in one transaction, so when the CHECK constraint rejects the mugs update, the tea update is rolled back too.
+
+=== A15.2/2
+Q: Why does the fast, unsalted hash let one guess crack both ada and grace?
++ Equal passwords give equal hashes, so one computed hash matches every user who chose that password.
+- SHA-256 can be reversed.
+- The hashes were cut to 12 characters.
+- Their usernames are similar.
+WHY: Without a salt the hash depends only on the password. A random salt per user makes the stored values differ, so each user must be attacked separately.
+
+=== A15.2/3 predict
+Q: The body is changed to role admin but the old signature is kept. What does the last line print?
++ `forged body with the old signature accepted? False`
+- `forged body with the old signature accepted? True`
+- It raises an error
+WHY: The signature is an HMAC of the body with the server's secret. A different body needs a different signature, which cannot be made without the secret.
+
+=== A15.3/2 pick
+Q: Which input exposes the bug?
++ `BUG  split_bill(1000, 3) loses 1 cent(s): [333, 333, 333]`
+- `ok   [300, 300, 300]`
+- `ok   [250, 250, 250, 250]`
+WHY: The bug only appears when the total does not divide evenly, which is why the first two cases passed. Good test cases include the awkward inputs.
+
+=== A15.3/3
+Q: Why does the DEBUG line appear only for the second call to load?
++ The logger's level was INFO for the first call and was set to DEBUG before the second.
+- The first list had no rows worth logging.
+- DEBUG messages are printed once per program.
+- The warning hid it.
+WHY: A logger drops messages below its level. Changing the level turns detail on or off without editing the function, which print cannot do.
+
+=== A15.4/2
+Q: After editing only main.py, why is the pip install step CACHED?
++ requirements.txt did not change, and that layer comes before COPY . . in the Dockerfile.
+- Docker never reinstalls packages.
+- The slim base image includes all packages.
+- pip keeps its own cache in the image.
+WHY: Docker reuses layers until the first instruction whose input changed. Copying requirements.txt and installing first means code edits only rebuild the later layers.
+
+=== A15.4/3 predict
+Q: The database file's folder does not exist. What status does the second call return?
++ `(503, {'database': 'failed: unable to open database file', 'uptime_s': 43})`
+- `(200, {'database': 'ok', 'uptime_s': 43})`
+- `(500, {})`
+WHY: The check really tries the database and reports 503 when it cannot connect, which tells the platform to stop sending traffic or roll back.
+
+=== A15.5/2
+Q: Why push with --force-with-lease after the rebase, not plain --force?
++ It refuses to overwrite the branch if someone else pushed to it since you last fetched.
+- It is faster.
+- It also merges the pull request.
+- Plain --force does not work after a rebase.
+WHY: A rebase rewrites your commits, so the push must replace the remote branch. --force-with-lease does that only if the remote is what you expect, protecting a colleague's commits.
+
+=== A15.5/3 pick
+Q: Which comment scores lowest?
++ `0 | This is wrong.`
+- `1 | nit: extra blank line.`
+- `2 | Nice: pure function, easy to test.`
+WHY: It does not say what is wrong, why it matters, how serious it is or what to do. The author cannot act on it.
+
+=== A15.6/2 predict
+Q: One hundred reads of the same profile go through the cache. What is printed first?
++ `100 reads, database reads: 1`
+- `100 reads, database reads: 100`
+- `100 reads, database reads: 0`
+WHY: The first read misses, queries the database and stores the answer; the other 99 are served from the cache.
+
+=== A15.6/3 pick
+Q: email-1 was put on the queue twice. What happens the second time it is processed?
++ `email-1 -> already sent`
+- `email-1 -> sent`
+- `email-1 -> failed, mail server busy (retry later)`
+WHY: The job is idempotent: it checks whether it already ran, so a duplicate or a retry does no harm. Three emails are sent in total.

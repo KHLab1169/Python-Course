@@ -1,0 +1,416 @@
+=== A15.1
+@idea
+Real applications keep their data in a relational database, and most of the value of SQL comes from four ideas beyond single-table SELECT. A **JOIN** combines rows from two tables that share a key: `orders JOIN customers ON orders.customer_id = customers.id`. An inner JOIN keeps only matching pairs; a **LEFT JOIN** keeps every row from the left table and fills the gaps with NULL, which is what you need for "all customers, including those with no orders". **GROUP BY** collapses rows into one per group so that `COUNT`, `SUM` and `AVG` can summarise them; `WHERE` filters rows before grouping and `HAVING` filters the groups afterwards.
+
+An **index** is a sorted lookup structure on one or more columns. Without one, the database scans every row; with one, it jumps to the matches, turning O(n) into O(log n). Indexes speed up reads and slow down writes a little, so you add them for the columns you filter, join and sort on. `EXPLAIN QUERY PLAN` (EXPLAIN in PostgreSQL) shows whether a query uses one.
+
+A **transaction** groups several statements so they succeed or fail together. This is the A (atomic) in ACID, and it is what stops a transfer from taking money out of one account without putting it into the other. In Python's sqlite3, `with conn:` commits at the end of the block and rolls back if an exception escapes. Always pass values as **parameters** (`?`), never by building the SQL string, which is how SQL injection happens. The same SQL works in PostgreSQL and MySQL with small differences, and ORMs such as SQLAlchemy and Django's generate it for you, so understanding it is what lets you debug them.
+@how
+- `FROM a JOIN b ON b.a_id = a.id` for matches only; `LEFT JOIN` to keep unmatched rows from a.
+- `GROUP BY` one row per group; `WHERE` before grouping, `HAVING` after; `COALESCE(x, 0)` for NULL.
+- `CREATE INDEX idx ON table(column)` for columns you filter or join on; check with EXPLAIN QUERY PLAN.
+- `with conn:` wraps statements in a transaction: commit on success, rollback on error.
+- Values go in as parameters: `conn.execute("... WHERE id = ?", (id,))`.
+@example python: INNER JOIN drops rows that LEFT JOIN keeps
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.executescript("""
+CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE posts (id INTEGER PRIMARY KEY, author_id INTEGER, title TEXT);
+INSERT INTO authors VALUES (1, 'Ada'), (2, 'Grace'), (3, 'Linus');
+INSERT INTO posts VALUES (1, 1, 'Hello'), (2, 1, 'Again'), (3, 2, 'Notes');
+""")
+inner = db.execute("""
+    SELECT a.name, COUNT(p.id) FROM authors a
+    JOIN posts p ON p.author_id = a.id GROUP BY a.id""").fetchall()
+left = db.execute("""
+    SELECT a.name, COUNT(p.id) FROM authors a
+    LEFT JOIN posts p ON p.author_id = a.id GROUP BY a.id""").fetchall()
+print("JOIN:     ", inner)
+print("LEFT JOIN:", left)
+print("authors with no posts:", [r[0] for r in db.execute(
+    "SELECT a.name FROM authors a LEFT JOIN posts p ON p.author_id = a.id WHERE p.id IS NULL")])
+@note
+The inner join reports two authors and silently loses Linus, which is a classic reporting bug: totals look right but people are missing. The LEFT JOIN keeps him with a count of 0, because `COUNT(p.id)` skips NULLs. Filtering for `p.id IS NULL` after a LEFT JOIN is the standard way to ask "who has none?".
+@example python: A transaction rolls back when something fails
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE stock (item TEXT PRIMARY KEY, qty INTEGER CHECK (qty >= 0))")
+db.executemany("INSERT INTO stock VALUES (?, ?)", [("tea", 5), ("mugs", 2)])
+db.commit()
+
+def ship(order):
+    with db:                                   # one transaction for the whole order
+        for item, n in order:
+            db.execute("UPDATE stock SET qty = qty - ? WHERE item = ?", (n, item))
+
+ship([("tea", 2), ("mugs", 1)])
+print("after a good order:", db.execute("SELECT * FROM stock ORDER BY item").fetchall())
+try:
+    ship([("tea", 1), ("mugs", 5)])            # not enough mugs: the CHECK fails
+except sqlite3.IntegrityError as e:
+    print("refused:", e)
+print("after a bad order: ", db.execute("SELECT * FROM stock ORDER BY item").fetchall())
+@note
+The second order takes one tea and then fails on the mugs. Because both updates ran inside one transaction, the tea update is rolled back too and the stock is exactly as it was. The CHECK constraint is the database enforcing a rule itself, which protects the data even from code that forgets to check.
+@mistakes
+- **INNER JOIN when you meant LEFT JOIN.** Rows without a match disappear from the report.
+- **Building SQL with f-strings.** That is SQL injection; use parameters.
+- **Several related writes without a transaction.** A crash in the middle leaves the data half-changed.
+- **No index on a column you filter by.** The query works in testing and crawls in production.
+@keys
+- JOIN combines tables; LEFT JOIN keeps unmatched rows.
+- GROUP BY summarises; WHERE filters rows, HAVING filters groups.
+- Indexes make lookups fast; EXPLAIN shows whether they are used.
+- Transactions make several writes all-or-nothing.
+
+=== A15.2
+@idea
+**Authentication** answers "who are you?" and **authorisation** answers "what may you do?". For the first, the server must check a password without ever storing it. It stores a **hash**: the output of a one-way function. A plain fast hash (SHA-256) is not enough, because attackers who steal the table can try billions of guesses a second and precomputed tables cover common passwords. So each password gets a random **salt** (stored next to the hash) and the hash is made with a deliberately slow **key-derivation function**: Argon2id is today's first choice, with scrypt, bcrypt and PBKDF2 also accepted. Never invent your own scheme, and never use encryption for passwords: encryption can be reversed.
+
+After login the server must remember the user between requests. With **sessions**, it stores a record and gives the browser a random session ID in a cookie (set `HttpOnly`, `Secure` and `SameSite`). With **tokens**, it gives the client a signed statement such as a **JWT**: a payload ("user 42, expires at 15:00") plus an HMAC or public-key signature. Any server holding the key can verify it without a database lookup, but a token cannot easily be revoked before it expires, so tokens are kept short-lived and paired with a refresh token.
+
+**OAuth 2.0** and **OpenID Connect** are how "Log in with Google or GitHub" works: your app never sees the password; it receives a token from the provider. In all of these, compare secrets with `hmac.compare_digest` (constant time), send everything over HTTPS, and remember that the checks belong on the server: never trust a role or user ID just because the client sent it.
+@how
+- Store `salt + slow hash`, never the password; verify by hashing the attempt with the same salt.
+- Use a maintained library in real code: argon2-cffi or passlib for passwords, PyJWT for tokens.
+- Sessions: random ID in an HttpOnly, Secure cookie; data on the server; easy to revoke.
+- Tokens: signed payload with an expiry; verify the signature first, then the expiry.
+- Check permissions on the server for every request.
+@example python: The same password, three ways to store it
+import hashlib, os
+
+users = [("ada", "sunshine"), ("grace", "sunshine"), ("linus", "T7#vq-pear-lamp")]
+
+plain = {u: p for u, p in users}
+fast = {u: hashlib.sha256(p.encode()).hexdigest()[:12] for u, p in users}
+salted = {}
+for u, p in users:
+    salt = os.urandom(8)
+    salted[u] = hashlib.pbkdf2_hmac("sha256", p.encode(), salt, 50_000).hex()[:12]
+
+print("plain text: an attacker reads every password:", plain["ada"])
+print("fast hash:  ada and grace share a password, and it shows:", fast["ada"] == fast["grace"])
+common = hashlib.sha256(b"sunshine").hexdigest()[:12]
+print("            one guess cracks both:", [u for u, h in fast.items() if h == common])
+print("salted KDF: equal passwords look different:", salted["ada"] != salted["grace"])
+@note
+With fast unsalted hashes, one guess of a common password reveals every user who chose it, and guesses cost almost nothing. With a salt per user and a slow function, the attacker must attack each user separately at thousands of times the cost per guess. This is why breaches of properly hashed passwords are far less damaging.
+@example python: What is inside a signed token
+import base64, hashlib, hmac, json
+
+def b64(data):
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+secret = b"server-only-secret"
+body = b64(json.dumps({"sub": "user-42", "role": "staff", "exp": 1767225600}).encode())
+signature = b64(hmac.new(secret, body.encode(), hashlib.sha256).digest())
+token = body + "." + signature
+print("token has", token.count(".") + 1, "parts, and the body is only encoded, not secret:")
+print(" ", base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode())
+
+forged_body = b64(json.dumps({"sub": "user-42", "role": "admin", "exp": 1767225600}).encode())
+expected = b64(hmac.new(secret, forged_body.encode(), hashlib.sha256).digest())
+print("forged body with the old signature accepted?", hmac.compare_digest(signature, expected))
+@note
+Anyone can read a token's body, so never put secrets in it. What they cannot do is change it: promoting themselves to admin changes the body, and without the server's key they cannot produce the matching signature. A real JWT adds a header naming the algorithm, and libraries such as PyJWT check the signature, expiry and audience for you.
+@mistakes
+- **Storing passwords in plain text or with a fast hash.** Use Argon2, scrypt, bcrypt or PBKDF2 with a salt.
+- **Putting secrets in a token body.** It is base64, not encryption.
+- **Tokens that never expire.** A stolen token then works for ever.
+- **Trusting the client.** A hidden form field or a role in a request is not proof; check on the server.
+@keys
+- Passwords: salted, slow, one-way hashes; compare in constant time.
+- Sessions keep state on the server; tokens carry signed state to the client.
+- A signature proves a token was not changed; it does not hide the contents.
+- Authentication is who you are; authorisation is what you may do.
+
+=== A15.3
+@idea
+Debugging is a method, not a talent: **reproduce** the problem, **narrow** where it can be, form a **hypothesis**, test it, and only then fix. Start with the **traceback**, read from the bottom: the last line is the exception and message, the frame above it is where it was raised, and the frames above that show how the program got there. Most bugs are found by reading that carefully and asking "what value was this, and why?".
+
+When reading is not enough, look inside the running program. `breakpoint()` pauses and opens **pdb**: `p name` prints a value, `n` runs the next line, `s` steps into a call, `c` continues, `w` shows the stack and `q` quits; `python -m pdb -c continue script.py` drops you in at the crash. Editors such as VS Code and PyCharm give the same thing with a mouse. For problems you cannot pause, such as servers and intermittent failures, rely on **logging**: `logging.getLogger(__name__)`, levels (DEBUG, INFO, WARNING, ERROR), and messages that say which record and what happened. Unlike print, logs can be turned up or down without changing code.
+
+When something used to work, **git bisect** finds the commit that broke it by binary search: mark one good commit and one bad one, and git checks out the middle for you to test, halving the range each time. Ten tests cover a thousand commits, and `git bisect run pytest tests/test_bug.py` does it unattended. Finally, write a failing test that reproduces the bug before fixing it: the test proves the fix and keeps the bug from coming back.
+@how
+- Read tracebacks bottom-up: the error, then the frame where it happened.
+- `breakpoint()` then `p`, `n`, `s`, `c`, `w`, `q` in pdb; or `python -m pdb -c continue script.py`.
+- Use `logging` with levels and `%s` arguments; `log.exception("...")` inside except records the traceback.
+- `git bisect start; git bisect bad; git bisect good <commit>`, test, repeat; `git bisect run <command>` automates it.
+- Reproduce with a failing test first, then fix.
+@example python: Narrowing a bug with assertions and a failing test
+def split_bill(total_cents, people):
+    share = total_cents // people
+    return [share] * people
+
+def check(total, people):
+    shares = split_bill(total, people)
+    assert sum(shares) == total, f"split_bill({total}, {people}) loses {total - sum(shares)} cent(s): {shares}"
+    return shares
+
+for total, people in [(900, 3), (1000, 4), (1000, 3)]:
+    try:
+        print("ok  ", check(total, people))
+    except AssertionError as e:
+        print("BUG ", e)
+
+def split_bill_fixed(total_cents, people):
+    share, extra = divmod(total_cents, people)
+    return [share + (1 if i < extra else 0) for i in range(people)]
+
+print("fixed:", split_bill_fixed(1000, 3), sum(split_bill_fixed(1000, 3)))
+@note
+The first two cases pass, which is how the bug survived: it only shows when the total does not divide evenly. The assertion states the property that must always hold (the shares add up to the total) and its message includes the inputs, so the failure explains itself. That failing case becomes a permanent test alongside the fix.
+@example python: Logging levels, and a traceback kept in the log
+import logging, sys
+
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)-7s %(name)s: %(message)s")
+log = logging.getLogger("importer")
+
+def load(rows):
+    good = []
+    for n, row in enumerate(rows, 1):
+        log.debug("row %d raw value %r", n, row)
+        try:
+            good.append(int(row))
+        except ValueError:
+            log.warning("row %d skipped: %r is not a number", n, row)
+    log.info("loaded %d of %d rows", len(good), len(rows))
+    return good
+
+print(load(["4", "x7", "12"]))
+logging.getLogger("importer").setLevel(logging.DEBUG)
+print(load(["9"]))
+@note
+At INFO level the debug lines cost almost nothing and stay silent; switching one logger to DEBUG turns on the detail without editing the function. The warning names the row and the value, which is what you need to fix the data. Inside an except block, `log.exception("message")` would also record the full traceback.
+@mistakes
+- **Changing code before reproducing the bug.** You cannot know whether you fixed it.
+- **Reading only the top of the traceback.** The error and its location are at the bottom.
+- **Leaving print statements behind.** Use logging, which has levels and can stay.
+- **Fixing without a test.** The same bug returns in six months.
+@keys
+- Reproduce, narrow, hypothesise, test, fix.
+- breakpoint() and pdb let you inspect a running program.
+- Logging is print with levels, names and an off switch.
+- git bisect finds the breaking commit in about log2(n) tests.
+
+=== A15.4
+@idea
+Code is only useful once it is running somewhere, and the path from laptop to production is part of the job. The first rule is to keep **configuration out of the code**: database addresses, API keys and feature switches come from **environment variables**, so the same build runs in development, CI and production (the config rule of the Twelve-Factor App). Read and validate them once at start-up and fail loudly if something is missing; secrets live in a secret manager or the platform's settings, never in git.
+
+A **container** packages the application with its exact Python version and dependencies, so "works on my machine" becomes "works everywhere the image runs". A **Dockerfile** is the recipe: a base image (`python:3.14-slim`), dependencies installed first so that layer is cached, then the code, a non-root user, and the start command. `docker build` makes an image, `docker run` starts a container, and `docker compose` starts several together (app, database, cache) for local development. Keep images small and free of secrets, and add a `.dockerignore`.
+
+**Deployment** means getting a new image running safely. A **health check** endpoint lets the platform know the service is alive; a **rolling** or **blue-green** rollout replaces instances gradually and a **rollback** returns to the previous image when checks fail. Database changes ship as **migrations** (Alembic, Django migrations) that are applied before the new code needs them. CI builds and tests the image on every push, and CD deploys it, on platforms from a single VM to Kubernetes or a managed service such as Cloud Run, Fly.io or Render.
+@how
+- Settings from environment variables, validated at start-up; secrets never in git or the image.
+- Dockerfile order: base image, dependencies, code, non-root USER, CMD.
+- `docker build -t app .`, `docker run -p 8000:8000 --env-file .env app`, `docker compose up`.
+- Expose `/health`; let the platform restart or roll back when it fails.
+- Schema changes go through migrations, applied before the code that needs them.
+@example dockerfile: A small, cache-friendly image for a web service
+FROM python:3.14-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN useradd --create-home app
+USER app
+
+EXPOSE 8000
+HEALTHCHECK --interval=30s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+@output
+$ docker build -t shiftboard .
+ => [3/6] COPY requirements.txt .                      0.0s
+ => [4/6] RUN pip install --no-cache-dir -r requ...   14.2s
+ => [5/6] COPY . .                                     0.1s
+$ docker build -t shiftboard .      # after editing only main.py
+ => CACHED [4/6] RUN pip install --no-cache-dir ...    0.0s
+ => [5/6] COPY . .                                     0.1s
+$ docker run -p 8000:8000 -e DATABASE_URL=sqlite:///app.db shiftboard
+INFO:     Uvicorn running on http://0.0.0.0:8000
+@note
+Each instruction makes a layer, and a rebuild reuses layers until the first one whose input changed. Copying only requirements.txt before installing means a code edit skips the 14-second install. The process runs as an ordinary user, and the database address arrives with -e at run time, so the same image works in every environment.
+@example python: A health check that tells the truth
+import sqlite3, time
+
+def health(db_path, started_at, now):
+    checks = {}
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        checks["database"] = "ok"
+    except sqlite3.Error as e:
+        checks["database"] = f"failed: {e}"
+    checks["uptime_s"] = int(now - started_at)
+    status = 200 if checks["database"] == "ok" else 503
+    return status, checks
+
+start = time.time()
+print(health(":memory:", start, start + 42))
+print(health("/no/such/folder/app.db", start, start + 43))
+@note
+A health endpoint that always answers 200 tells the platform nothing. This one checks the thing the service cannot work without and returns 503 when it is broken, which is the signal load balancers and orchestrators use to stop sending traffic, restart the instance or roll back a deploy.
+@mistakes
+- **Secrets in the repository or baked into the image.** Pass them in at run time.
+- **COPY . . before installing dependencies.** Every code change reinstalls everything.
+- **Running as root in the container.** A bug in the app then has root's powers.
+- **Deploying code that needs a schema change before the migration has run.**
+@keys
+- Config comes from the environment; validate it at start-up.
+- A Dockerfile builds a repeatable image; order layers from least to most often changed.
+- Health checks drive restarts and rollbacks.
+- CI builds and tests; CD rolls out and can roll back.
+
+=== A15.5
+@idea
+Software is written by teams, and the shared repository is where the teamwork happens. The common flow is **trunk-based with short-lived branches**: update `main`, create a branch for one small change, commit, push, and open a **pull request** (PR). CI runs the tests, a colleague reviews, and the branch is merged and deleted, ideally within a day or two. Small PRs (under a few hundred lines) are reviewed faster and more carefully, conflict less, and are easy to revert.
+
+A good **commit message** has a short subject in the imperative ("fix tip rounding"), a blank line, and a body that explains why. Many teams use **Conventional Commits** (`feat:`, `fix:`, `docs:`) so tools can build changelogs and pick version numbers. A good **PR description** says what changed, why, how it was tested and what the reviewer should look at. Keeping your branch current with `git rebase main` or `git merge main` surfaces **conflicts** early; a conflict just means both sides edited the same lines, and you resolve it by choosing the right result, running the tests and continuing.
+
+**Code review** is the team's main quality and learning tool. As a reviewer, check correctness and tests first, then readability; ask questions instead of giving orders, say how serious each comment is (blocking, suggestion, nit), and mention what is good. As an author, review your own diff first, keep the change focused, and treat comments as being about the code. Protected branches, required reviews and required CI checks turn these habits into rules.
+@how
+- One small change per branch; open a PR early; merge within days.
+- Subject line: imperative, 72 characters or fewer, no full stop; then a blank line and the why.
+- `git fetch`, then `git rebase origin/main` (or merge) to stay current; resolve conflicts, run tests, continue.
+- Review: correctness, tests, readability; label comments blocking, suggestion or nit.
+- Protect main: required review and green CI before merge.
+@example bash: One change from branch to merged pull request
+git switch main && git pull
+git switch -c fix/tip-rounding
+# edit, run the tests
+git add tips.py tests/test_tips.py
+git commit -m "fix: give leftover cents to the longest shifts" -m "Shares were rounded down, so up to n-1 cents went missing. Closes #42."
+git push -u origin fix/tip-rounding
+gh pr create --fill
+# after review comments: more commits, then update with main
+git fetch origin && git rebase origin/main
+git push --force-with-lease
+gh pr merge --squash --delete-branch
+@output
+Switched to a new branch 'fix/tip-rounding'
+[fix/tip-rounding 3f2a9c1] fix: give leftover cents to the longest shifts
+ 2 files changed, 21 insertions(+), 3 deletions(-)
+https://github.com/you/shiftboard/pull/57
+Successfully rebased and updated refs/heads/fix/tip-rounding.
+✓ Squashed and merged pull request #57
+✓ Deleted branch fix/tip-rounding
+@note
+The branch name and commit subject say what the change is, the body says why and links the issue, and the PR is small enough to review in minutes. `--force-with-lease` is the safe way to push after a rebase: it refuses if someone else pushed to the branch in the meantime. Squash-merging keeps one tidy commit on main.
+@example python: What makes a review comment useful
+comments = [
+    ("This is wrong.", None),
+    ("blocking: split_tips() raises ZeroDivisionError when hours is all zeros; "
+     "return [] or raise ValueError.", "blocking"),
+    ("suggestion: 'h' and 't' would read better as 'hours' and 'total_cents'.", "suggestion"),
+    ("question: is rounding down intended here? A docstring line would help.", "question"),
+    ("nit: extra blank line.", "nit"),
+    ("Nice: pure function, easy to test.", "praise"),
+]
+
+def score(text, label):
+    points = 0
+    points += 1 if label else 0                                  # says how serious it is
+    points += 1 if len(text.split()) >= 6 else 0                 # specific enough to act on
+    points += 1 if any(w in text for w in ("return", "raise", "would", "A ", "when")) else 0   # what or why
+    return points
+
+for text, label in comments:
+    print(score(text, label), "|", text[:62])
+@note
+The scoring is a toy, but the pattern is real: the first comment gives the author nothing to act on, while the others say how serious they are, what the problem is and often what would fix it. Praise counts too: it tells the author what to keep doing.
+@mistakes
+- **Huge pull requests.** Reviewers skim them and bugs get through.
+- **Commit messages like "fix" or "wip".** Nobody, including you, can use the history later.
+- **`git push --force` on a shared branch.** It can delete a colleague's work; use `--force-with-lease`, and never on main.
+- **Taking review personally, or reviewing the person.** Comments are about the code.
+@keys
+- Small branches, small PRs, merged quickly.
+- Messages explain what and why.
+- Conflicts mean two edits to the same lines; resolve, test, continue.
+- Review for correctness and tests first, and label how serious each comment is.
+
+=== A15.6
+@idea
+**System design** is reasoning about how the parts of a service fit together and what happens as load grows. A typical web system has a **load balancer** in front of several stateless **application servers**, a **database** that holds the truth, a **cache** for expensive or frequent reads, and a **queue** with background **workers** for slow jobs such as sending email. Because the app servers keep no state of their own, you can add more of them (**horizontal scaling**); the database is the hard part, scaled with indexes first, then read replicas, and only later by splitting the data.
+
+Start any design with **rough numbers**: users, requests per second at peak, how much data per day, and how fast responses must be. A day has about 86,400 seconds, so a million requests a day is only about 12 per second. A **cache** (Redis, or an in-process LRU) trades freshness for speed: decide what may be stale and for how long, and how entries are invalidated. A **queue** trades immediacy for reliability: the request returns quickly, the work is retried if it fails, and jobs should be **idempotent** so running one twice does no harm.
+
+Every choice is a trade-off, and saying the trade-off aloud is what interviewers listen for: consistency versus availability when the network fails, latency versus cost, simplicity versus scale. For a junior role nobody expects you to design a global system; they expect you to ask clarifying questions, estimate, draw the boxes, find the bottleneck and explain what you would measure. Prefer the simplest design that meets the numbers: one database and a few app servers handle far more than most people guess.
+@how
+- Clarify requirements, then estimate: peak requests per second, data size, latency target.
+- Draw: client, load balancer, stateless app servers, database, cache, queue and workers.
+- Cache what is read often and changes rarely; choose a TTL and an invalidation rule.
+- Put slow or failure-prone work on a queue; make jobs idempotent and retry them.
+- Find the bottleneck, say the trade-off, and state what you would measure.
+@example python: Cache-aside: read through a cache, invalidate on write
+class Database:
+    def __init__(self):
+        self.rows, self.reads = {"ada": {"shifts": 3}}, 0
+    def get(self, key):
+        self.reads += 1
+        return self.rows.get(key)
+    def put(self, key, value):
+        self.rows[key] = value
+
+db, cache = Database(), {}
+
+def get_profile(user):
+    if user in cache:
+        return cache[user]
+    value = db.get(user)            # miss: read the database, then remember the answer
+    cache[user] = value
+    return value
+
+def update_profile(user, value):
+    db.put(user, value)
+    cache.pop(user, None)           # invalidate, so the next read fetches the new value
+
+for _ in range(100):
+    get_profile("ada")
+print("100 reads, database reads:", db.reads)
+update_profile("ada", {"shifts": 4})
+print("after an update:", get_profile("ada"), "database reads:", db.reads)
+@note
+This is the cache-aside pattern used with Redis and Memcached: read the cache first, fall back to the database on a miss, and delete the cached entry when the data changes. One hundred reads cost one database query. Forgetting the invalidation line is the classic bug: users see old data until the entry expires.
+@example python: A queue with retries and idempotent jobs
+from collections import deque
+
+sent, attempts = set(), {}
+flaky = {"email-2": 2}                       # fails twice before it works
+
+def send_email(job_id):
+    attempts[job_id] = attempts.get(job_id, 0) + 1
+    if attempts[job_id] <= flaky.get(job_id, 0):
+        raise ConnectionError("mail server busy")
+    if job_id in sent:                       # idempotent: a repeat does nothing
+        return "already sent"
+    sent.add(job_id)
+    return "sent"
+
+queue = deque(["email-1", "email-2", "email-3", "email-1"])   # email-1 was queued twice
+while queue:
+    job = queue.popleft()
+    try:
+        print(job, "->", send_email(job))
+    except ConnectionError as e:
+        print(job, "-> failed,", e, "(retry later)")
+        queue.append(job)
+print("emails actually sent:", len(sent))
+@note
+The web request only has to put a job on the queue, so it stays fast even when the mail server is slow. A failed job goes back on the queue and succeeds later, and because the job checks whether it already ran, the duplicate email-1 is harmless. Real systems use Celery, RQ or a cloud queue, with a limit on retries and a dead-letter queue for jobs that keep failing.
+@mistakes
+- **Designing before asking about load and requirements.** The numbers decide the design.
+- **Caching without an invalidation plan.** Stale data is harder to debug than slow data.
+- **Jobs that are not idempotent.** A retry then sends two emails or charges twice.
+- **Adding components nobody needs yet.** Each one is more to run, monitor and debug.
+@keys
+- Stateless app servers scale out; the database is the hard part.
+- Estimate first: requests per second, data size, latency.
+- Caches trade freshness for speed; queues trade immediacy for reliability.
+- Name the trade-off and what you would measure.
