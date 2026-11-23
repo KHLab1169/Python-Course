@@ -13,7 +13,6 @@ Then isolate the model behind **one small interface** (a Protocol with a `comple
 - A `FakeModel` with scripted answers for testing the harness.
 - Keep API keys in the environment; never in the dataset or code.
 @example python: A golden dataset in JSONL, validated on load
-import json
 from pydantic import BaseModel, Field, ValidationError
 
 class Case(BaseModel):

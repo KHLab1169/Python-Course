@@ -379,9 +379,7 @@ def run(code, stdin=""):
             return json.dumps({"out": printed, "err": ""})
         except BaseException as e:  # noqa: BLE001
             err = _short_tb(e)
-            if isinstance(e, ImportError) and (getattr(e, "name", "") or "").split(".")[0] in _DESKTOP_ONLY:
-                err += ("\n\nThis program needs " + e.name.split(".")[0] + ", which the in-page Python does not have. "
-                        "Run it in your own Python on your computer to try it out; Submit answer still grades it here.")
+            err += _page_limit_note(e)
             return json.dumps({"out": getattr(e, "printed", ""), "err": err})
     finally:
         _ECHO[0] = False
@@ -390,6 +388,28 @@ def run(code, stdin=""):
 
 
 _DESKTOP_ONLY = {"tkinter", "flask", "requests", "markupsafe", "turtle", "pygame", "numpy", "pandas"}
+
+
+def _page_limit_note(e):
+    """A plain-words note when a program hits a limit of the in-page Python (not a bug in the program)."""
+    own = "Run it in your own Python on your computer to try it out; Submit answer still grades it here."
+    text = str(e)
+    if isinstance(e, ImportError):
+        top = (getattr(e, "name", "") or "").split(".")[0]
+        if top in _DESKTOP_ONLY:
+            return "\n\nThis program needs " + top + ", which the in-page Python does not have. " + own
+        if top and isinstance(e, ModuleNotFoundError) and not os.path.exists(top + ".py") and not os.path.isdir(top):
+            return ("\n\nIf " + top + " is a library you install with pip, the in-page Python does not have it "
+                    "(it has the standard library only). " + own + " If it is a module of your own, check its name.")
+        return ""
+    if isinstance(e, RuntimeError) and "start new thread" in text:
+        return "\n\nThe in-page Python has a single thread, so it cannot start threads. " + own
+    if "stack switching" in text or "run_until_complete" in text:
+        return ("\n\nasyncio.run() needs a browser feature this browser does not offer to the page. " + own)
+    if (isinstance(e, (OSError, NotImplementedError))
+            and ("does not support processes" in text or "multiprocessing" in text)):
+        return "\n\nThe in-page Python cannot start other programs or processes. " + own
+    return ""
 
 
 # ---------- style notes (not graded): a small, offline checker in the spirit of CS50's style50 ----------
@@ -529,11 +549,16 @@ def _style_file(code, filename):
             break  # imports in a package's __init__ are usually re-exports
         if name not in used and name not in all_names:
             add(line, f"'{name}' is imported but never used.")
-    if ";" in "".join(l.split("#")[0] for l in code.split("\n") if not l.strip().startswith("#")):
-        for n, text in enumerate(code.split("\n"), 1):
-            if _has_statement_semicolon(text):
-                add(n, "Put each statement on its own line instead of joining them with ';'.")
-                break
+    if ";" in code:
+        import io as _io2
+        import tokenize as _tok
+        try:   # real ';' tokens only: text inside strings, docstrings and comments does not count
+            semi = sorted({t.start[0] for t in _tok.generate_tokens(_io2.StringIO(code).readline)
+                           if t.type == _tok.OP and t.string == ";"})
+        except Exception:  # noqa: BLE001
+            semi = [n for n, text in enumerate(code.split("\n"), 1) if _has_statement_semicolon(text)]
+        for n in semi[:1]:
+            add(n, "Put each statement on its own line instead of joining them with ';'.")
     seen, out = set(), []
     for x in sorted(notes, key=lambda x: x["line"]):
         key = (x["line"], x["msg"])

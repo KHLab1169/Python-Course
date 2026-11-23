@@ -103,7 +103,7 @@ import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.request import urlopen
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 
 Path("index.html").write_text("<html><head><title>Tea Shop</title></head><body>Open daily</body></html>")
 

@@ -29,7 +29,8 @@ except FileExistsError:
 
 with open("diary.txt", "w", encoding="utf-8") as f:
     pass
-print("after reopening with 'w':", repr(open("diary.txt", encoding="utf-8").read()))
+with open("diary.txt", encoding="utf-8") as f:
+    print("after reopening with 'w':", repr(f.read()))
 @note
 `"a"` kept Monday's line and added Tuesday's, and UTF-8 handles the tick mark. `"x"` protects an existing file. Simply opening with `"w"` emptied the diary even though nothing was written, which is why `"w"` deserves care.
 @example python: Text versus binary
@@ -99,7 +100,8 @@ with open("source.txt", "w", encoding="utf-8") as f:
 with open("source.txt", encoding="utf-8") as src, open("upper.txt", "w", encoding="utf-8") as dst:
     for line in src:
         dst.write(line.upper())
-print(open("upper.txt", encoding="utf-8").read().split())
+with open("upper.txt", encoding="utf-8") as f:
+    print(f.read().split())
 
 try:
     with open("source.txt", encoding="utf-8") as f:

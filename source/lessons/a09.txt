@@ -165,7 +165,7 @@ Starting workers is not free either: a fresh interpreter must start and import y
 - Keep data transfer small; give each task real work.
 - Always guard the entry point with `if __name__ == "__main__":`.
 - Measure: process start-up and pickling can outweigh the speed-up for small jobs.
-@example python: Real parallelism for CPU-bound work
+@example python varies: Real parallelism for CPU-bound work
 import os
 import sys
 import time
@@ -337,7 +337,7 @@ For **I/O-bound** work, threads and asyncio both overlap the waiting. **Threads*
 - CPU-bound Python → `ProcessPoolExecutor` or NumPy/compiled code.
 - Mixed → asyncio plus `to_thread` / `run_in_executor`.
 - First try the cheaper wins: algorithms, caching, batching.
-@example python: Diagnosing a task by its CPU use
+@example python varies: Diagnosing a task by its CPU use
 import time
 
 def io_task():

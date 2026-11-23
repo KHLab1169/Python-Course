@@ -26,6 +26,7 @@ tests (Pyodide 314, which runs Python 3.14, and works offline), chapter quizzes,
   schedule (1, 3, 7, 14, 30 and 60 days); a wrong answer starts the card again tomorrow.
 - **Mistakes notebook** on the Overview: exercises you haven't passed yet (with the failing test)
   and quick checks you got wrong, each with a link back to the lesson.
+- **Try it**: every Python worked example has a fold-out box to run it in the page and change it.
 - **Download tests**: every autograded exercise can be downloaded as `solution.py` plus a
   `test_solution.py` for pytest, with the course's own grader inside, so you can work in your
   own editor and run `python -m pytest -q`.
@@ -93,7 +94,8 @@ answers that must fail; `harness.py specs/<file>.py` checks both. `practice_add.
 `career_add.py` merge them into the course; `roadmap_add.py` (with `a147.py`) adds module A14
 and needs Python 3.14 for its t-string examples. The page features are layered on by small
 idempotent scripts: `map_add.py`, `theme_add.py`, `learn_add.py` (flashcards, mistakes notebook),
-`pytest_add.py` (download tests), `a11y_add.py` and `runtime_add.py` (if a browser blocks the
+`pytest_add.py` (download tests), `tryit_add.py` (run worked examples), `quizmix_add.py` (mixes the
+order of quiz options), `a11y_add.py` and `runtime_add.py` (if a browser blocks the
 background Python runner, Python loads inside the page instead). `sync_standalone.sh` then runs
 `speed_pub.py` (course content as a JSON block, which parses faster) and `vendorize.py` (local
 fonts and highlight.js) to build this app's `index.html`. These are authoring scripts: they

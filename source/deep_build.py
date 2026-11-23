@@ -21,6 +21,7 @@ Authoring format (one file per module, any number of lessons):
     @example python norun: Title      (cannot run here: needs a package, a window or a network)
     @output
     sample output written by hand (shown as "Sample output")
+    @example python varies: Title     (runs here, but timing or the machine changes the output: also "Sample output")
     @mistakes
     - **The trap.** What goes wrong and the fix.
     @keys
@@ -196,6 +197,8 @@ def parse_file(path):
                 flags = m.group(2).split()
                 les["examples"].append({"lang": m.group(1), "title": m.group(3).strip(), "code": content.rstrip(),
                                         "norun": "norun" in flags, "stdin": "", "note": "", "output": ""})
+                if "varies" in flags:   # runs here, but the output depends on timing or the machine
+                    les["examples"][-1]["sample"] = True
             elif name == "stdin":
                 les["examples"][-1]["stdin"] = content + "\n"
             elif name == "output":

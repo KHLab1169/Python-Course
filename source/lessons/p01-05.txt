@@ -751,7 +751,6 @@ server.shutdown()
 A local server stands in for the news site, so the program can be run repeatedly while developing. Each function does one job, which makes the next step (several sources) easy.
 @example python: One broken feed must not stop the others
 import xml.etree.ElementTree as ET
-from urllib.error import URLError
 
 def parse(text):
     return [i.findtext("title") for i in ET.fromstring(text).iter("item")]
@@ -988,10 +987,12 @@ async def main():
     port = server.sockets[0].getsockname()[1]
 
     ada_r, ada_w = await asyncio.open_connection("127.0.0.1", port)
-    ada_w.write(b"Ada\n"); await ada_w.drain()
+    ada_w.write(b"Ada\n")
+    await ada_w.drain()
     await asyncio.sleep(0.05)
     ben_r, ben_w = await asyncio.open_connection("127.0.0.1", port)
-    ben_w.write(b"Ben\nhi Ada!\n"); await ben_w.drain()
+    ben_w.write(b"Ben\nhi Ada!\n")
+    await ben_w.drain()
     await asyncio.sleep(0.05)
     ben_w.close()
     await asyncio.sleep(0.05)

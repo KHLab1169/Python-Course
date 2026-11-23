@@ -11,7 +11,7 @@ The everyday Python operations have known costs worth memorising: indexing a lis
 - Sort once, then search many times with `bisect.bisect_left` (O(log n) per search).
 - Use `sorted(items, key=...)`; it is stable, so sort by the secondary key first, then the primary.
 - `bisect_left` returns the insertion point; check `i < len(a) and a[i] == x` to know whether x is there.
-@example python: An accidental O(n²) and its O(n) fix
+@example python varies: An accidental O(n²) and its O(n) fix
 import time
 
 emails = [f"user{i}@example.com" for i in range(20_000)]

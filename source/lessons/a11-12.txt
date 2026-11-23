@@ -44,8 +44,12 @@ first_half[0] = 99
 print("slice is a view:", week[:3], "| copy is independent:", week[5:].copy().base is None)
 
 values = np.random.default_rng(0).random(1_000_000)
-start = time.perf_counter(); total_loop = sum(v * v for v in values.tolist()); t_loop = time.perf_counter() - start
-start = time.perf_counter(); total_np = float((values * values).sum()); t_np = time.perf_counter() - start
+start = time.perf_counter()
+total_loop = sum(v * v for v in values.tolist())
+t_loop = time.perf_counter() - start
+start = time.perf_counter()
+total_np = float((values * values).sum())
+t_np = time.perf_counter() - start
 print("same result:", np.isclose(total_loop, total_np), "| NumPy over 10x faster:", t_loop > 10 * t_np)
 @note
 Subtracting a `(2, 1)` column from a `(2, 3)` table stretched the column across each row, so every city was compared with its own average. Changing the slice changed the original array, because slices are views. The vectorised sum of squares matched the loop and ran far faster.
@@ -178,7 +182,6 @@ Each panel answers a different question with the form that suits it: a line for 
 import matplotlib
 matplotlib.use("Agg")
 import pandas as pd
-from pathlib import Path
 
 df = pd.DataFrame({
     "week": pd.date_range("2026-09-07", periods=8, freq="W-MON"),
@@ -218,14 +221,14 @@ The write-up (README or notebook) states each question, the answer with the char
 - Pin versions in requirements or a lock file; set random seeds.
 - README: questions, answers with charts, how to rerun, limitations.
 @example python: A rerunnable pipeline with logged cleaning decisions
-import io
 import json
 from pathlib import Path
 
 import pandas as pd
 
 RAW, OUT = Path("raw"), Path("results")
-RAW.mkdir(exist_ok=True); OUT.mkdir(exist_ok=True)
+RAW.mkdir(exist_ok=True)
+OUT.mkdir(exist_ok=True)
 (RAW / "rides.csv").write_text("""date,station,riders
 2026-10-05,Berri,1200
 2026-10-05,Atwater,640

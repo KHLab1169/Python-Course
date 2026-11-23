@@ -35,7 +35,7 @@ start = time.perf_counter()
 fast = has_duplicates_fast(data)
 fast_time = time.perf_counter() - start
 
-print("same answer:", slow == fast == True)
+print("same answer:", slow == fast)
 print("set version at least 100 times faster:", slow_time > 100 * fast_time)
 @note
 Both functions agree, but the pair-by-pair version does millions of comparisons while the set version touches each item once. No language rewrite could close a gap that size; the better idea did it. The exact times vary by computer, so only the comparison is printed.

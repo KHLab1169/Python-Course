@@ -48,7 +48,7 @@ print("exit code:", code)
 @note
 pytest found four tests: three from the parametrized table and one for the error. The accented title failed, and the report shows exactly which case, the expected and actual strings, and the line. One table row failing does not hide the others, which is why parametrize beats a loop. (Timings and file paths were trimmed so the output is stable.)
 @example python: What assert rewriting shows you
-import contextlib, io, re
+import contextlib, io
 import pytest
 from pathlib import Path
 
