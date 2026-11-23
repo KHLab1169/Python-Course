@@ -16,7 +16,7 @@ CSS = r"""/* THEME:BEGIN */
   --blue:#2563EB;--blue-soft:#E4ECFF;--good:#059669;--good-soft:#E3F6EE;--warn:#C2410C;--warn-soft:#FFF1E6;--bad:#DC2626;
   --h0:#E4EAF4;--h1:#BFD3FF;--h2:#7AA2FF;--h3:#2563EB;--code-bg:#F7F9FD;
   --font-display:'Plus Jakarta Sans','Inter',system-ui,sans-serif;--font-body:'Plus Jakarta Sans','Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
-  --brand-grad:linear-gradient(135deg,#2563EB 0%,#7C3AED 100%);--ok-grad:linear-gradient(90deg,#10B981,#0EA5E9);
+  --g1:#2563EB;--g2:#7C3AED;--tint1:#60A5FA;--tint2:#A78BFA;--brand-grad:linear-gradient(135deg,var(--g1) 0%,var(--g2) 100%);--ok-grad:linear-gradient(90deg,#10B981,#0EA5E9);
   --r-lg:18px;--r-md:12px;--r-sm:9px;
   --shadow:0 1px 2px rgba(15,31,61,.04),0 8px 24px -14px rgba(15,31,61,.20);--shadow-lg:0 2px 4px rgba(15,31,61,.04),0 18px 40px -18px rgba(15,31,61,.28);
   --mark:#2563EB;--mark-ink:#FFFFFF
@@ -34,13 +34,13 @@ CSS = r"""/* THEME:BEGIN */
   --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -14px rgba(0,0,0,.7);--shadow-lg:0 2px 6px rgba(0,0,0,.35),0 20px 44px -18px rgba(0,0,0,.8);
   --mark:#60A5FA;--mark-ink:#0B1222}
 /* page */
-body{background:radial-gradient(1100px 520px at -5% -10%,color-mix(in srgb,#60A5FA 18%,transparent),transparent 60%),radial-gradient(900px 520px at 105% 0%,color-mix(in srgb,#A78BFA 16%,transparent),transparent 60%),var(--bg);background-attachment:fixed;
+body{background:radial-gradient(1100px 520px at -5% -10%,color-mix(in srgb,var(--tint1) 18%,transparent),transparent 60%),radial-gradient(900px 520px at 105% 0%,color-mix(in srgb,var(--tint2) 16%,transparent),transparent 60%),var(--bg);background-attachment:fixed;
   font-family:var(--font-body);-webkit-font-smoothing:antialiased;letter-spacing:-.003em}
 h1,h2,h3{font-family:var(--font-display);letter-spacing:-.025em}
 h1{font-weight:800}
 .intro h1,.trintro h1{background:var(--brand-grad);-webkit-background-clip:text;background-clip:text;color:transparent;width:fit-content;line-height:1.2;padding-bottom:.12em}
 a{text-underline-offset:3px}
-::selection{background:color-mix(in srgb,#2563EB 25%,transparent)}
+::selection{background:color-mix(in srgb,var(--g1) 25%,transparent)}
 /* header and navigation */
 .brand .bname{font-weight:800;letter-spacing:-.02em}
 .navbar{background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--line);padding:8px 0}
@@ -52,7 +52,7 @@ a{text-underline-offset:3px}
 .btn{border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface);font-weight:600;transition:transform .12s,box-shadow .15s,border-color .15s,background .15s}
 .btn:hover{border-color:color-mix(in srgb,var(--blue) 55%,var(--line));box-shadow:var(--shadow)}
 .btn:active{transform:translateY(1px)}
-.btn.primary{background:var(--brand-grad);border-color:transparent;color:#fff;box-shadow:0 8px 18px -10px rgba(37,99,235,.75)}
+.btn.primary{background:var(--brand-grad);border-color:transparent;color:#fff;box-shadow:0 8px 18px -10px color-mix(in srgb,var(--g1) 75%,transparent)}
 .btn.primary:hover{filter:brightness(1.06);border-color:transparent}
 .btn:focus-visible,.tabs a:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 input[type=text],input[type=search],input[type=number],input[type=date],input[type=time],input[type=email],select,textarea:not(.code-ed){border-radius:var(--r-sm)!important;border:1px solid var(--line);background:var(--surface);color:var(--ink);transition:border-color .15s,box-shadow .15s}

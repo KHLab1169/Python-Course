@@ -22,6 +22,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         **http.server.SimpleHTTPRequestHandler.extensions_map,
         ".wasm": "application/wasm",
         ".js": "text/javascript",
+        ".mjs": "text/javascript",
         ".json": "application/json",
     }
 

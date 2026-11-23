@@ -7,9 +7,12 @@ Python curriculum style application for studying. Runs as a standalone app on my
 - **Track 3** is portfolio projects
 - **PY295 Career toolkit**: Git and pull requests, portfolio READMEs, and QA automation
   interview drills (pytest fixtures, waits instead of sleeps, flaky-test diagnosis, STAR answers)
+- **PY206 The wider ecosystem**: the roadmap.sh/python topics the other modules didn't cover (Big-O,
+  sorting and binary search, trees and heaps, processes and the GIL, packaging tools, docs and type
+  checkers, web frameworks) and what Python 3.12 to 3.14 added, including t-strings
 
 Includes worked examples, hints, solutions, an in-browser Python editor with autograded
-tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP practice exams.
+tests (Pyodide 314, which runs Python 3.14, and works offline), chapter quizzes, course exams, and PCEP / PCAP practice exams.
 
 ## Features
 
@@ -17,6 +20,15 @@ tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP p
 - **Map** (the first tab): a modern dashboard-poster of your progress (stats, a module donut,
   ringed module badges) and a roadmap timeline of every module and lesson, per track. Each box opens that lesson in the
   curriculum and fills in as you complete lessons (next lesson highlighted, reviews due marked).
+- **Weekly goal and activity heatmap** on the Map: set how many lessons a week you aim for (+/-),
+  see this week's days, and 26 weeks of activity with your streak.
+- **Flashcards** on the Overview: the quick checks of finished lessons come back on a spaced
+  schedule (1, 3, 7, 14, 30 and 60 days); a wrong answer starts the card again tomorrow.
+- **Mistakes notebook** on the Overview: exercises you haven't passed yet (with the failing test)
+  and quick checks you got wrong, each with a link back to the lesson.
+- **Download tests**: every autograded exercise can be downloaded as `solution.py` plus a
+  `test_solution.py` for pytest, with the course's own grader inside, so you can work in your
+  own editor and run `python -m pytest -q`.
 - **Code editor**: syntax colours, line numbers, auto-indent, Tab / Shift+Tab, Ctrl+/ to comment,
   adjustable text size, drag the corner to resize. Ctrl+Enter runs, Ctrl+Shift+Enter submits.
 - **Errors point to the line**: after a failed run or submission the line is marked in red,
@@ -38,6 +50,8 @@ tests (Pyodide, works offline), chapter quizzes, course exams, and PCEP / PCAP p
 - **Weekly report** on the Overview, **search** (Ctrl+K or /), **focus mode** in each lesson,
   and **Grades → Download my answers (.zip)** to keep all your code as `.py` files.
 - Answers can hold several files, each after a marker line such as `# --- greetings.py ---`.
+- **Accessible**: checked with axe-core on every view in light and dark mode (contrast, headings,
+  labels), and animations are reduced when your system asks for less motion.
 
 ## Run it
 
@@ -76,8 +90,13 @@ different result), and `deep_merge.py` puts both into the page:
 The autograder's Python side is `grader_src.py` (embedded in `py-worker.js`). The practice
 problem sets and the career module's tests are in `specs/`, each with model solutions and wrong
 answers that must fail; `harness.py specs/<file>.py` checks both. `practice_add.py` and
-`career_add.py` merge them into the course. These are authoring scripts: they expect the
-course page (`course.html`) and its content file (`pycontent.json`) next to them.
+`career_add.py` merge them into the course; `roadmap_add.py` (with `a147.py`) adds module A14
+and needs Python 3.14 for its t-string examples. The page features are layered on by small
+idempotent scripts: `map_add.py`, `theme_add.py`, `learn_add.py` (flashcards, mistakes notebook),
+`pytest_add.py` (download tests) and `a11y_add.py`. `sync_standalone.sh` then runs
+`speed_pub.py` (course content as a JSON block, which parses faster) and `vendorize.py` (local
+fonts and highlight.js) to build this app's `index.html`. These are authoring scripts: they
+expect the course page (`course.html`) and its content file (`pycontent.json`) next to them.
 
 ## What's different from the online version
 

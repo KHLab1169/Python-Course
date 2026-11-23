@@ -1,0 +1,103 @@
+=== A14.1/2
+Q: Both loops find the same 5,000 duplicates. Why is the list version hundreds of times slower?
++ `e in seen_list` scans the list item by item, so the loop does O(n) work for every email: O(n²) in total.
+- Lists use more memory than sets, and memory is slow.
+- The list version appends, and append is O(n).
+- Sets are written in C and lists are written in Python.
+WHY: Membership in a list is a linear scan, while a set hashes the value and jumps straight to it in O(1) on average. Inside a loop over n items, that is the difference between O(n²) and O(n).
+
+=== A14.1/3 pick
+Q: The shifts are sorted by name, then by day. Which line is printed second?
++ `('Grace', 'Mon', 6)`
+- `('Linus', 'Mon', 8)`
+- `('Ada', 'Tue', 4)`
+WHY: The day sort is stable, so within Monday the shifts keep the name order from the first sort: Ada, Grace, Linus.
+
+=== A14.2/2 predict
+Q: What height does the tree built from the sorted values 1 to 500 have?
++ `sorted order: height 500`
+- `sorted order: height 9`
+- `sorted order: height 250`
+WHY: Every new value is larger than everything already in the tree, so it always goes right and the tree becomes a chain of 500 nodes. Random order gives a height near 2 log2(n) instead.
+
+=== A14.2/3
+Q: "send report" and "rotate logs" both have priority 2. Which comes out first, and why?
++ send report, because the counter breaks the tie in insertion order
+- rotate logs, because r comes before s in the alphabet
+- They come out in a random order
+WHY: The tuple is (priority, counter, task); with equal priorities the counter decides, and "send report" was added first. Without the counter, Python would try to compare the dictionaries and raise TypeError.
+
+=== A14.3/2
+Q: Why does the script split the million numbers into four ranges instead of sending one number per task?
++ Each task's arguments and result are pickled and sent between processes, so few large tasks keep that overhead small.
+- A process pool can only run four tasks in total.
+- Python forbids more than four calls to map.
+- Smaller tasks would need the GIL.
+WHY: Inter-process communication has a fixed cost per task. A million tiny tasks would spend more time sending data than computing; four big ones spend almost all their time on the work.
+
+=== A14.3/3 predict
+Q: What does the program print?
++ `9 words in 3 jobs`
+- `3 words in 9 jobs`
+- `9 words in 1 jobs`
+WHY: The stand-in pool runs the counting function once per text, so there are 3 jobs, and the texts have 4, 2 and 3 words.
+
+=== A14.4/2 pick
+Q: Which package does the script report as only in the lock file?
++ `only in the lock file (indirect): ['sqlparse']`
+- `only in the lock file (indirect): ['pyyaml']`
+- `only in the lock file (indirect): []`
+WHY: PyYAML, Django_REST.framework and typing_extensions all match the lock file once normalised. sqlparse is an indirect dependency that nobody declared by name, which is exactly what a lock file pins.
+
+=== A14.4/3
+Q: A teammate clones the uv project. Which single command gives them the same package versions you have?
++ `uv sync`, which installs exactly what uv.lock records
+- `pip install requests pytest`
+- `uv init`
+- `uv add requests`
+WHY: uv.lock pins every package, including indirect ones; uv sync makes the environment match it. Installing by name would pick whatever versions are newest that day.
+
+=== A14.5/2 predict
+Q: overtime_pay(45, 2000) works 5 hours past the threshold of 40 at 1.5 times the rate. What is the last line?
++ `95000`
+- `90000`
+- `135000`
+WHY: 40 hours at 2000 cents is 80000, and 5 overtime hours at 3000 cents is 15000, which makes 95000.
+
+=== A14.5/3
+Q: What does running nox add over running pytest, ruff and mypy directly in your own environment?
++ Each session runs in a fresh virtual environment, on each listed Python version, so missing dependencies and version-specific bugs show up.
+- nox makes the tests run faster.
+- nox replaces the need for tests.
+- nox formats the code automatically.
+WHY: Your own environment may have packages installed by hand that pyproject.toml forgot. Fresh environments per session and per version reproduce what CI and other developers will see.
+
+=== A14.6/2 pick
+Q: What happens to the path shifts/abc/?
++ `shifts/abc/            -> 404`
+- `shifts/abc/            -> shift_detail(pk='abc')`
+- `shifts/abc/            -> shift_list()`
+WHY: The int converter only matches digits, and shift_list's route ends at shifts/, which the \Z anchor requires to be the whole path. No route matches, so it is a 404.
+
+=== A14.6/3
+Q: Which framework answers /shifts/abc with a validation error and detailed message, without any code of yours?
++ FastAPI, because it validates the pk: int type hint
+- Flask, because of the <int:pk> converter
+- Django, because of JsonResponse
+- All three in the same way
+WHY: FastAPI reads type hints to validate requests and returns a 422 with details. Django's and Flask's int converters simply do not match, so those requests get a plain 404.
+
+=== A14.7/2 pick
+Q: int(None) raises TypeError rather than ValueError. What is printed for it?
++ `could not double None`
+- `could not double 'None'`
+- `0`
+WHY: The bracket-free except clause catches both ValueError and TypeError, and {raw!r} shows None without quotes because it is not a string.
+
+=== A14.7/3
+Q: Why does Team.lead's annotation -> Person work even though Person is defined after Team?
++ In 3.14 annotations are evaluated lazily, only when something asks for them, by which time Person exists.
+- Python reorders classes automatically.
+- Annotations are ignored completely.
+- Person is a built-in type.
+WHY: Deferred evaluation (PEP 649) stores the annotation as code to run later. In 3.13 and earlier this needed quotes ("Person") or from __future__ import annotations.
