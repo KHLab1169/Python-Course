@@ -948,6 +948,12 @@ th:first-child{border-top-left-radius:var(--r-sm)}th:last-child{border-top-right
 .try-out.err{border-color:color-mix(in srgb,var(--bad,#DC2626) 45%,var(--line))}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 /* TRYIT:END */
+/* FOCUS:BEGIN */
+html.focusing details.item.focused{background:var(--surface);border:1px solid var(--line)!important;border-radius:var(--r-lg,18px);
+  box-shadow:var(--shadow);padding:6px clamp(16px,4vw,44px) 32px;margin:8px 0 24px}
+html.focusing details.item.focused>summary{margin:0 -10px}
+html.focusing details.item.focused .ibody{padding-left:0;padding-right:0}
+/* FOCUS:END */
 </style>
 
 <div class="wrap">
