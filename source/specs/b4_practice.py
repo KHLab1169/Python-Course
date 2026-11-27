@@ -11,7 +11,7 @@ def TAIL(stdin, *want):
             f"clean = rerun(stdin={stdin!r}, source=WRAP + code)\n"
             "lines = [l.rstrip() for l in clean.rstrip().split('\\n')] if clean.strip() else []\n"
             "last_lines = lines[-len(want):]\n"
-            "assert last_lines == want, 'The last line' + ('s' if len(want) > 1 else '') + ' printed should be: ' + ' / '.join(want)\n")
+            "assert last_lines == want, 'The last line' + ('s' if len(want) > 1 else '') + ' printed should be: ' + ' / '.join(want) + '. Your last line' + ('s' if len(want) > 1 else '') + ' printed: ' + (' / '.join(last_lines) or '(nothing)')\n")
 
 
 def ex(lid, title, prompt, solution, cases, bad, hints, explain, main=True, starter=""):
@@ -34,7 +34,7 @@ ex("1.1", "Minutes in some days",
    "Write a program that reads a whole number of days and prints how many minutes that is.\n\n"
    "Input: one line with a whole number of days.\n\n"
    "Output: the number of minutes, alone on the last line.\n\n"
-   "Examples:\n- 365 prints 525600\n- 1 prints 1440\n\n"
+   "Examples:\n- input 365 → output 525600\n- input 1 → output 1440\n\n"
    "Edge cases: 0 days prints 0.",
    'days = int(input("Days: "))\nprint(days * 24 * 60)\n',
    [case("365 days", "365\n", "525600"), case("1 day", "1\n", "1440"), case("0 days", "0\n", "0")],
@@ -59,7 +59,7 @@ ex("1.3", "An 18% tip",
    "Write a program that reads a restaurant bill and prints an 18% tip, rounded to 2 decimal places with round().\n\n"
    "Input: one line with the bill, which may have decimals.\n\n"
    "Output: the tip, printed with print(round(tip, 2)), on the last line.\n\n"
-   "Examples:\n- 42.50 prints 7.65\n- 50 prints 9.0\n\n"
+   "Examples:\n- input 42.50 → output 7.65\n- input 50 → output 9.0\n\n"
    "Edge cases: a bill of 0 prints 0.0.",
    'bill = float(input("Bill: "))\ntip = bill * 0.18\nprint(round(tip, 2))\n',
    [case("Bill of 42.50", "42.50\n", "7.65"), case("Bill of 50", "50\n", "9.0"), case("Bill of 0", "0\n", "0.0")],
@@ -71,7 +71,7 @@ ex("1.4", "Area of a circle",
    "Write a program that reads a radius and prints the area of a circle with that radius, using math.pi, rounded to 2 decimal places.\n\n"
    "Input: one line with the radius (it may have decimals).\n\n"
    "Output: the area, printed with print(round(area, 2)).\n\n"
-   "Examples:\n- 3 prints 28.27\n- 0.5 prints 0.79\n\n"
+   "Examples:\n- input 3 → output 28.27\n- input 0.5 → output 0.79\n\n"
    "Edge cases: a radius of 0 prints 0.0.",
    'import math\n\nradius = float(input("Radius: "))\narea = math.pi * radius ** 2\nprint(round(area, 2))\n',
    [case("Radius 3", "3\n", "28.27"), case("Radius 0.5", "0.5\n", "0.79"), case("Radius 0", "0\n", "0.0")],
@@ -83,7 +83,7 @@ ex("1.5", "Seconds to hours, minutes and seconds",
    "Write a program that reads a number of seconds and prints it as hours, minutes and seconds.\n\n"
    "Input: one line with a whole number of seconds.\n\n"
    "Output: one line in exactly this form: 1 h 1 min 1 s\n\n"
-   "Examples:\n- 3661 prints 1 h 1 min 1 s\n- 59 prints 0 h 0 min 59 s\n\n"
+   "Examples:\n- input 3661 → output 1 h 1 min 1 s\n- input 59 → output 0 h 0 min 59 s\n\n"
    "Edge cases: 86399 prints 23 h 59 min 59 s; 0 prints 0 h 0 min 0 s.",
    'total = int(input("Seconds: "))\nhours = total // 3600\nminutes = total % 3600 // 60\nseconds = total % 60\nprint(hours, "h", minutes, "min", seconds, "s")\n',
    [case("3661 seconds", "3661\n", "1 h 1 min 1 s"), case("59 seconds", "59\n", "0 h 0 min 59 s"), case("Just under a day", "86399\n", "23 h 59 min 59 s"), case("Zero", "0\n", "0 h 0 min 0 s")],
@@ -95,7 +95,7 @@ ex("1.6", "A framed word",
    "Write a program that reads a word and prints it inside a frame, then prints its length.\n\n"
    "Input: one line of text.\n\n"
    "Output: two lines. First the text between *** and ***, with one space on each side; then the number of characters in the text.\n\n"
-   "Examples:\n- Ada prints *** Ada *** and then 3\n- hello world prints *** hello world *** and then 11\n\n"
+   "Examples:\n- input Ada → output *** Ada *** and then 3\n- input hello world → output *** hello world *** and then 11\n\n"
    "Edge cases: spaces count as characters.",
    'word = input("Word: ")\nprint("*** " + word + " ***")\nprint(len(word))\n',
    [case("Ada", "Ada\n", "*** Ada ***", "3"), case("Two words", "hello world\n", "*** hello world ***", "11"), case("Spaces count", "a b\n", "*** a b ***", "3")],
@@ -108,7 +108,7 @@ ex("2.1", "First and last letters",
    "Write a program that reads a word and prints its first and last characters, separated by a space.\n\n"
    "Input: one line with at least one character.\n\n"
    "Output: one line with the first character, a space and the last character.\n\n"
-   "Examples:\n- Python prints P n\n- racecar prints r r\n\n"
+   "Examples:\n- input Python → output P n\n- input racecar → output r r\n\n"
    "Edge cases: a single character prints it twice: x prints x x.",
    'word = input("Word: ")\nprint(word[0], word[-1])\n',
    [case("Python", "Python\n", "P n"), case("racecar", "racecar\n", "r r"), case("One character", "x\n", "x x")],
@@ -120,7 +120,7 @@ ex("2.2", "Reformat a date",
    "Write a program that reads a date written as YYYY-MM-DD and prints it as DD/MM/YYYY, using slices.\n\n"
    "Input: one line such as 2026-11-20.\n\n"
    "Output: the same date as 20/11/2026.\n\n"
-   "Examples:\n- 2026-11-20 prints 20/11/2026\n- 1999-01-05 prints 05/01/1999\n\n"
+   "Examples:\n- input 2026-11-20 → output 20/11/2026\n- input 1999-01-05 → output 05/01/1999\n\n"
    "Edge cases: keep leading zeros exactly as typed.",
    'date = input("Date: ")\nprint(date[8:] + "/" + date[5:7] + "/" + date[:4])\n',
    [case("2026-11-20", "2026-11-20\n", "20/11/2026"), case("1999-01-05", "1999-01-05\n", "05/01/1999"), case("2000-12-31", "2000-12-31\n", "31/12/2000")],
@@ -181,7 +181,7 @@ ex("3.1", "Reversed and palindrome",
    "Write a program that reads a word, prints it reversed, then prints whether it reads the same both ways.\n\n"
    "Input: one line of text.\n\n"
    "Output: two lines: the reversed text, then True or False.\n\n"
-   "Examples:\n- racecar prints racecar and then True\n- Python prints nohtyP and then False\n\n"
+   "Examples:\n- input racecar → output racecar and then True\n- input Python → output nohtyP and then False\n\n"
    "Edge cases: the check is exact, so Anna prints annA and then False.",
    'word = input("Word: ")\nprint(word[::-1])\nprint(word == word[::-1])\n',
    [case("racecar", "racecar\n", "racecar", "True"), case("Python", "Python\n", "nohtyP", "False"), case("Case matters", "Anna\n", "annA", "False")],
@@ -205,7 +205,7 @@ ex("3.3", "A right-aligned amount",
    "Write a program that reads a number and prints it right-aligned in a field 15 characters wide, with thousands separators and 2 decimals.\n\n"
    "Input: one line with a number.\n\n"
    "Output: the formatted number, exactly 15 characters wide.\n\n"
-   "Examples:\n- 1234567.891 prints    1,234,567.89 (3 spaces in front)\n- 5 prints           5.00 (11 spaces in front)\n\n"
+   "Examples:\n- input 1234567.891 → output    1,234,567.89 (3 spaces in front)\n- input 5 → output           5.00 (11 spaces in front)\n\n"
    "Edge cases: negative numbers keep their sign: -9876.5 prints      -9,876.50.",
    'value = float(input("Number: "))\nprint(f"{value:>15,.2f}")\n',
    [case("Millions", "1234567.891\n", "   1,234,567.89"), case("Small number", "5\n", "           5.00"), case("Negative", "-9876.5\n", "      -9,876.50")],
@@ -217,7 +217,7 @@ ex("3.4", "Make a slug",
    "Write a program that reads a title and prints a URL slug: the words in lower case, joined with single dashes.\n\n"
    "Input: one line of text.\n\n"
    "Output: the slug on one line.\n\n"
-   "Examples:\n- Hello Big World prints hello-big-world\n- Python  for   Everyone prints python-for-everyone\n\n"
+   "Examples:\n- input Hello Big World → output hello-big-world\n- input Python  for   Everyone → output python-for-everyone\n\n"
    "Edge cases: extra spaces, including at the ends, never produce empty pieces or double dashes.",
    'title = input("Title: ")\nprint("-".join(title.lower().split()))\n',
    [case("Three words", "Hello Big World\n", "hello-big-world"), case("Extra spaces", "Python  for   Everyone\n", "python-for-everyone"), case("Spaces at the ends", "  Tea Time  \n", "tea-time")],
@@ -229,7 +229,7 @@ ex("3.5", "A valid phone number?",
    "Write a program that reads a phone number, removes spaces and dashes, and prints True if what remains is exactly 10 digits, otherwise False.\n\n"
    "Input: one line of text.\n\n"
    "Output: True or False.\n\n"
-   "Examples:\n- 514-555-0199 prints True\n- 514 555 0199 prints True\n- 555-0199 prints False\n\n"
+   "Examples:\n- input 514-555-0199 → output True\n- input 514 555 0199 → output True\n- input 555-0199 → output False\n\n"
    "Edge cases: letters make it invalid (514-555-01a9 prints False); spaces around the number are fine.",
    'raw = input("Phone: ")\ndigits = raw.strip().replace(" ", "").replace("-", "")\nprint(digits.isdigit() and len(digits) == 10)\n',
    [case("Dashes", "514-555-0199\n", "True"), case("Spaces", "514 555 0199\n", "True"), case("Too short", "555-0199\n", "False"), case("A letter", "514-555-01a9\n", "False"), case("Padded", "  5145550199  \n", "True")],
@@ -242,7 +242,7 @@ ex("4.1", "Menu lookup",
    "The menu is {\"tea\": 2.5, \"coffee\": 3.0, \"cake\": 4.25}. Write a program that reads an item and prints its price, or not on the menu if it is missing, using the get method.\n\n"
    "Input: one line with an item name.\n\n"
    "Output: the price, or the text not on the menu.\n\n"
-   "Examples:\n- tea prints 2.5\n- cake prints 4.25\n- soup prints not on the menu\n\n"
+   "Examples:\n- input tea → output 2.5\n- input cake → output 4.25\n- input soup → output not on the menu\n\n"
    "Edge cases: names are matched exactly, so Tea is not on the menu.",
    'menu = {"tea": 2.5, "coffee": 3.0, "cake": 4.25}\nitem = input("Item: ")\nprint(menu.get(item, "not on the menu"))\n',
    [case("Tea", "tea\n", "2.5"), case("Cake", "cake\n", "4.25"), case("Missing", "soup\n", "not on the menu"), case("Capital letter", "Tea\n", "not on the menu")],
@@ -303,7 +303,7 @@ ex("5.3", "Letter grades",
    "Write a program that reads a score and prints its letter grade: A for 90 to 100, B for 80 to 89, C for 70 to 79, D for 60 to 69 and F below 60. Scores below 0 or above 100 print invalid.\n\n"
    "Input: one line with a whole number.\n\n"
    "Output: one letter, or the word invalid.\n\n"
-   "Examples:\n- 95 prints A\n- 80 prints B\n- 59 prints F\n\n"
+   "Examples:\n- input 95 → output A\n- input 80 → output B\n- input 59 → output F\n\n"
    "Edge cases: 100 prints A, 0 prints F, 101 and -1 print invalid.",
    'score = int(input("Score: "))\nif score < 0 or score > 100:\n    print("invalid")\nelif score >= 90:\n    print("A")\nelif score >= 80:\n    print("B")\nelif score >= 70:\n    print("C")\nelif score >= 60:\n    print("D")\nelse:\n    print("F")\n',
    [case("95", "95\n", "A"), case("Exactly 80", "80\n", "B"), case("79", "79\n", "C"), case("60", "60\n", "D"), case("59", "59\n", "F"), case("Edges 100 and 0", "100\n", "A"), case("Zero", "0\n", "F"), case("Too high", "101\n", "invalid"), case("Negative", "-1\n", "invalid")],
@@ -316,7 +316,7 @@ ex("5.4", "Leap years",
    "Write a program that reads a year and prints leap if it is a leap year, otherwise not leap. A year is a leap year if it is divisible by 4 but not by 100, unless it is also divisible by 400.\n\n"
    "Input: one line with a whole number.\n\n"
    "Output: leap or not leap.\n\n"
-   "Examples:\n- 2024 prints leap\n- 2026 prints not leap\n\n"
+   "Examples:\n- input 2024 → output leap\n- input 2026 → output not leap\n\n"
    "Edge cases: 1900 prints not leap; 2000 prints leap.",
    'year = int(input("Year: "))\nif (year % 4 == 0 and year % 100 != 0) or year % 400 == 0:\n    print("leap")\nelse:\n    print("not leap")\n',
    [case("2024", "2024\n", "leap"), case("2026", "2026\n", "not leap"), case("1900", "1900\n", "not leap"), case("2000", "2000\n", "leap")],
@@ -328,7 +328,7 @@ ex("5.5", "Multiplication table",
    "Write a program that reads a number n and prints its multiplication table from 1 to 10, one line per row.\n\n"
    "Input: one line with a whole number.\n\n"
    "Output: ten lines such as 7 x 1 = 7, ending with 7 x 10 = 70.\n\n"
-   "Examples:\n- 7 prints 7 x 1 = 7 up to 7 x 10 = 70\n\n"
+   "Examples:\n- input 7 → output 7 x 1 = 7 up to 7 x 10 = 70\n\n"
    "Edge cases: 0 prints ten lines ending with 0 x 10 = 0.",
    'n = int(input("Number: "))\nfor i in range(1, 11):\n    print(n, "x", i, "=", n * i)\n',
    [case("Table of 7", "7\n", *[f"7 x {i} = {7 * i}" for i in range(1, 11)]), case("Table of 0", "0\n", *[f"0 x {i} = 0" for i in range(1, 11)])],
@@ -340,7 +340,7 @@ ex("5.6", "Total until done",
    "Write a program that reads lines until one of them is done, adds up the lines that are whole numbers, skips any other line with continue, and prints the total.\n\n"
    "Input: any number of lines, then a line done.\n\n"
    "Output: the total, alone on the last line.\n\n"
-   "Examples:\n- 3, (empty line), x, 4, done prints 7\n\n"
+   "Examples:\n- input 3, (empty line), x, 4, done → output 7\n\n"
    "Edge cases: done straight away prints 0; lines after done are never read.",
    'total = 0\nwhile True:\n    line = input("Number or done: ")\n    if line == "done":\n        break\n    if not line.isdigit():\n        continue\n    total += int(line)\nprint(total)\n',
    [case("Skips bad lines", "3\n\nx\n4\ndone\n9\n", "7"), case("Done at once", "done\n", "0"), case("Only numbers", "10\n20\n30\ndone\n", "60")],
@@ -352,7 +352,7 @@ ex("5.7", "Squares of even numbers",
    "Write a program that reads a line of whole numbers separated by spaces and prints a list of the squares of the even ones, built with a list comprehension.\n\n"
    "Input: one line of numbers separated by spaces.\n\n"
    "Output: the list.\n\n"
-   "Examples:\n- 1 2 3 4 prints [4, 16]\n- 10 7 0 prints [100, 0]\n\n"
+   "Examples:\n- input 1 2 3 4 → output [4, 16]\n- input 10 7 0 → output [100, 0]\n\n"
    "Edge cases: an empty line prints []; negative even numbers count: -2 prints [4].",
    'numbers = [int(x) for x in input("Numbers: ").split()]\nprint([n * n for n in numbers if n % 2 == 0])\n',
    [case("1 2 3 4", "1 2 3 4\n", "[4, 16]"), case("With zero", "10 7 0\n", "[100, 0]"), case("Empty line", "\n", "[]"), case("Negative", "-2 -3\n", "[4]")],

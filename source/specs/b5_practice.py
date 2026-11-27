@@ -385,7 +385,7 @@ ex("10.2", "The public names of a module",
 ex("10.3", "Greet everyone on the command line",
    "Write a program that greets every name given as a command-line argument, using sys.argv.\n\n"
    "Specification:\n- With no arguments, print usage: greet.py NAME... and exit with sys.exit(1).\n- Otherwise print Hello, NAME! for each argument, one per line, then a last line with the count, such as 3 people greeted.\n\n"
-   "Examples:\n- greet.py Ada Ben prints Hello, Ada!, Hello, Ben!, 2 people greeted\n\n"
+   "Examples:\n- input greet.py Ada Ben → output Hello, Ada!, Hello, Ben!, 2 people greeted\n\n"
    "Edge cases: one name prints 1 people greeted (keep it simple).",
    'import sys\n\nnames = sys.argv[1:]\nif not names:\n    print("usage: greet.py NAME...")\n    sys.exit(1)\nfor name in names:\n    print(f"Hello, {name}!")\nprint(f"{len(names)} people greeted")\n',
    [("Two names", {"argv": ["Ada", "Ben"], "check": "assert out.strip().split('\\n') == ['Hello, Ada!', 'Hello, Ben!', '2 people greeted']"}),
